@@ -40,6 +40,7 @@ SoulVault is a CLI + contract coordination system for encrypted OpenClaw state c
 - `docs/presentation-outline.md`
 - `docs/pitch-90s.md`
 - `docs/glossary.md`
+- `docs/agent-environment-manifest.md`
 
 ## Event Kickoff TODO
 - Initialize repo

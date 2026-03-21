@@ -220,7 +220,22 @@ CCIP note:
 
 ---
 
-## 13) MVP Boundaries
+## 13) Agent Environment Manifests (Roadmap)
+
+Agents may publish signed environment manifests (CPU/GPU/RAM/tooling/availability) to support future task delegation.
+
+Recommended flow:
+1. Agent signs manifest hash.
+2. Manifest uploaded to IPFS.
+3. Contract stores CID/hash pointer via `AgentManifestUpdated` event.
+
+MVP note:
+- Manifests are optional and informational in MVP.
+- Do not gate join/restore on manifest validity yet.
+
+---
+
+## 14) MVP Boundaries
 
 Must-have:
 - owner-gated joins

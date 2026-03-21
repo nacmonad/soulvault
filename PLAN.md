@@ -10,7 +10,7 @@ This is the working build guide for implementation during hackathon.
 
 ## A) Critical Milestones (MVP Path)
 
-## M1 — Contract Core (Day 1)
+## M1 — Contract Core + Registration Metadata (Day 1)
 **Goal:** Swarm governance + event backbone exists.
 
 Tasks:
@@ -21,14 +21,17 @@ Tasks:
   - `currentEpoch`
   - backup pointer update method
   - message metadata event path
+  - agent manifest pointer update path (CID/hash)
 - Emit canonical events:
   - `JoinRequested`, `JoinApproved`, `MemberRemoved`
   - `EpochRotated`
   - `BackupPointerUpdated`
   - `AgentMessagePosted`
+  - `AgentManifestUpdated`
 
 Exit criteria:
 - Foundry tests pass for join/approve/remove/event emission.
+- Manifest pointer update test passes for approved members.
 
 ---
 
@@ -73,6 +76,7 @@ Tasks:
 - CLI commands:
   - `swarm create/list/use`
   - `join request/approve`
+  - `agent manifest publish/update`
   - `backup push`
   - `restore pull`
   - `events watch`
@@ -81,6 +85,7 @@ Tasks:
 
 Exit criteria:
 - Can run full demo from CLI without manual RPC gymnastics.
+- Agent manifest can be published at/after join and resolved by CID.
 
 ---
 

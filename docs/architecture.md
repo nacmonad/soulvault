@@ -23,6 +23,11 @@
    - Requests join
    - Restores approved encrypted state
 
+5. **(Optional) Network Overlay Module**
+   - WireGuard + relay/control-plane integration
+   - Uses swarm membership/epoch events as authorization signals
+   - Out of MVP scope, planned as post-MVP layer
+
 ## Data Boundaries
 - Onchain: metadata only (addresses, CIDs, hashes, status, epoch/key-bundle refs)
 - IPFS: ciphertext only (encrypted backups/messages + wrapped key bundles)
@@ -64,6 +69,13 @@ Contract events can act as a verified messaging layer between agents:
 - recipients can verify source + sequence from chain history
 
 Recommended pattern:
-- Put encrypted message payloads on IPFS
-- Emit event with metadata only (`from`, `to`, `messageCid`, `msgHash`, `topic`, `nonce`)
+- Put encrypted message payloads on IPFS (encrypted with current `K_epoch`)
+- Emit event with metadata only (`from`, `to`, `messageCid`, `msgHash`, `topic`, `nonce`, `epoch`)
 - Keep onchain data minimal and non-sensitive
+
+## WireGuard / Relay Integration (Post-MVP)
+- Contract/events are the authorization plane, not the transport plane.
+- Do not use `K_epoch` directly as tunnel transport key.
+- On join/epoch changes, SoulVault can trigger network credential refresh (SSH certs/WireGuard peers).
+- If peers are behind NAT/outbound-only, an optional relay/control-plane can facilitate connectivity.
+- This layer is optional and intentionally excluded from MVP to keep scope tight.

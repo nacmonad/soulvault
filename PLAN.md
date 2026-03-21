@@ -111,18 +111,19 @@ Exit criteria:
 
 ## B) Optional Milestones (Only After MVP)
 
-## O1 — WireGuard/Relay Layer
+## O1 — Chainlink Automation Expansion (Judge-impact first)
+- Auto-trigger checkpoint/revalidation tasks
+- Rotate reminders + stale backup alerts
+- Optional keeper for "checkpoint needed" heartbeat visibility
+
+## O2 — WireGuard/Relay Layer
 - Use swarm membership + epoch events to refresh network credentials
 - Add outbound-only connectivity pathway through optional relay
 - Keep transport keys separate from `K_epoch`
 
-## O2 — Quorum Join Governance
+## O3 — Quorum Join Governance
 - Replace owner-only approvals with M-of-N admissions
 - EIP-712 admission tickets or onchain vote proposals
-
-## O3 — Chainlink Automation Expansion
-- Auto-trigger checkpoint/revalidation tasks
-- Rotate reminders + stale backup alerts
 
 ## O4 — 0G/Flare Integrations
 - 0G for larger non-critical artifact/data path

@@ -19,6 +19,8 @@ Owner Wallet ↔ Swarm Contract ↔ SoulVault CLI ↔ IPFS ↔ OpenClaw Nodes
 
 ## Slide 5 — Security Model
 - Human root-of-trust for first join
+- Epoch content key model (`K_epoch`) with rotation on join/kick
+- Wrapped key bundles on IPFS (no symmetric keys onchain)
 - Encrypted markdown bundles (`SOUL`, `MEMORY`, `HEARTBEAT`)
 - No private keys in backups
 - Hash verification at restore
@@ -40,12 +42,27 @@ Owner Wallet ↔ Swarm Contract ↔ SoulVault CLI ↔ IPFS ↔ OpenClaw Nodes
 - Safe-based USDC treasury policies
 - Controlled auto-scale for new VPS agents
 
-## Slide 9 — Why this matters
+## Slide 9 — Competitive Landscape
+**What exists:**
+- Agent coordination frameworks
+- DAO/multisig governance
+- IPFS + encrypted backup tools
+
+**What’s missing:**
+- End-to-end agent identity continuity for markdown memory/state
+- Join governance + encrypted restore in one lifecycle
+- OpenClaw-native multi-swarm operations
+
+**SoulVault contribution:**
+- Encrypted continuity + onchain admissions + event-driven swarm messaging
+
+## Slide 10 — Why this matters
 - Agent continuity
 - Composable coordination primitive
+- Verified swarm messaging via contract events
 - Useful for autonomous research/dev swarms
 
-## Slide 10 — Ask / Next Steps
+## Slide 11 — Ask / Next Steps
 - Partner integrations
 - Security review
 - Production hardening

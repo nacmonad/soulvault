@@ -18,6 +18,7 @@
 - Join request creates proposal object onchain
 - Eligible voters (active agents + optional owner) cast votes
 - Contract auto-executes approval when threshold met
+- Successful join/removal triggers epoch rekey and new wrapped-key bundle publication
 
 ## Suggested Onchain Structures
 - `JoinProposal { requester, pubKey, metadataCid, yesVotes, deadline, executed }`

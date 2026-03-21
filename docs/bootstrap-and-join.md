@@ -13,13 +13,12 @@
 5. Node receives approved status and can restore
 
 ## Restore Flow
-1. Node reads latest encrypted CID pointers from contract
-2. Node fetches encrypted bundle + encrypted manifest from IPFS
-3. Node obtains decrypt capability (owner approval/signature workflow)
-4. Node decrypts locally and verifies hashes
+1. Node reads latest encrypted pointers from contract (bundle/manifest + current epoch + keyBundle CID)
+2. Node fetches wrapped-key bundle from IPFS and unwraps its own `K_epoch` entry locally
+3. Node fetches encrypted backup bundle + encrypted manifest from IPFS
+4. Node decrypts locally with `K_epoch` and verifies hashes
 5. Node writes markdown files into workspace
 6. Node starts OpenClaw runtime
-
 ## Required Markdown Backup Set
 - `SOUL.md`
 - `USER.md`

@@ -16,21 +16,27 @@ This is the working build guide for implementation during hackathon.
 Tasks:
 - Implement swarm contract with:
   - owner + pause
-  - join request + owner approval
+  - join request + owner approval (`requestJoin(pubkey, pubkeyRef, metadataCid)` — pubkey stored in calldata and member record)
   - member active state
   - `currentEpoch`
+  - `membershipVersion` counter (increments on every join approval or member removal)
   - backup pointer update method
   - message metadata event path
   - agent manifest pointer update path (CID/hash)
+  - `grantHistoricalKeys(member, bundleCid, bundleHash, fromEpoch, toEpoch)` method
 - Emit canonical events:
-  - `JoinRequested`, `JoinApproved`, `MemberRemoved`
-  - `EpochRotated`
+  - `JoinRequested(requestId, requester, pubkey, pubkeyRef, metadataCid)`
+  - `JoinApproved`, `MemberRemoved`
+  - `EpochRotated(oldEpoch, newEpoch, keyBundleCid, keyBundleHash, membershipVersion)`
   - `BackupPointerUpdated`
   - `AgentMessagePosted`
   - `AgentManifestUpdated`
+  - `HistoricalKeyBundleGranted(member, bundleCid, bundleHash, fromEpoch, toEpoch)`
 
 Exit criteria:
 - Foundry tests pass for join/approve/remove/event emission.
+- `membershipVersion` increments correctly on join and kick.
+- `pubkey` is stored in member record and accessible from contract state.
 - Manifest pointer update test passes for approved members.
 
 ---
@@ -40,13 +46,19 @@ Exit criteria:
 
 Tasks:
 - Implement `K_epoch` generation/rotation logic in CLI service layer
-- Wrap `K_epoch` per active member pubkey
+- Fetch active member pubkeys from contract state (no IPFS dependency)
+- Wrap `K_epoch` per active member pubkey using X25519/libsodium box
+- Include `ownerEscrowEntry` in every wrapped-key bundle (K_epoch wrapped to owner key)
 - Publish wrapped-key bundle to IPFS
-- Write `rotateEpoch(...keyBundleCid/hash...)` onchain
+- Call `rotateEpoch(newEpoch, keyBundleCid, keyBundleHash, expectedMembershipVersion)` onchain (reverts if membershipVersion changed)
 - Member unwrap path implemented and tested
+- Implement `keygrant` flow: owner re-wraps historical epoch keys via ownerEscrowEntry for new/recovered member; uploads Historical Key Bundle; calls `grantHistoricalKeys`
+- Configure IPFS pinning provider; implement `soulvault ipfs pin-all`
 
 Exit criteria:
 - On join/kick, old member cannot decrypt new epoch test payload.
+- `rotateEpoch` reverts when membershipVersion does not match (concurrency control test).
+- New joiner can decrypt historical backup after receiving Historical Key Bundle.
 
 ---
 
@@ -81,16 +93,21 @@ Tasks:
 - CLI commands:
   - `swarm create/list/use`
   - `join request/approve`
+  - `epoch rotate` (owner triggers rekey with membershipVersion check)
+  - `keygrant --member <addr> --from-epoch <N>` (historical key grant)
   - `agent manifest publish/update`
   - `backup push`
   - `restore pull`
   - `events watch`
+  - `ipfs pin-all` (pin all contract-referenced CIDs)
 - Local swarm profile store
 - Event watcher resumes from last processed block
+- CLI prompts owner to run `epoch rotate` after `JoinApproved` or `MemberRemoved` events
 
 Exit criteria:
 - Can run full demo from CLI without manual RPC gymnastics.
 - Agent manifest can be published at/after join and resolved by CID.
+- `ipfs pin-all` successfully pins all CIDs from contract event history.
 
 ---
 
@@ -99,10 +116,11 @@ Exit criteria:
 
 Tasks:
 - Add `skills/soulvault/` wrapper docs + command mapping
-- Expose common workflows for join/backup/restore/status
+- Expose common workflows for join/backup/restore/keygrant/epoch rotate/status
 
 Exit criteria:
 - Triggering core SoulVault flows through OpenClaw skill commands works.
+- `keygrant` and `epoch rotate` accessible via skill wrapper.
 
 ---
 
@@ -144,9 +162,10 @@ Exit criteria:
 - 0G for larger non-critical artifact/data path
 - Flare for attestation/data-driven policy hooks
 
-## O5 — Treasury + Scale-Out
+## O6 — Treasury + Scale-Out
 - Safe-based USDC treasury policy prototype
-- controlled scale-out proposal flow
+- Controlled scale-out proposal flow
+- IPFS pinning SaaS funded by swarm treasury
 
 ---
 
@@ -160,15 +179,17 @@ Exit criteria:
 
 ## D) MVP Acceptance Checklist
 - [ ] Owner deploys contract
-- [ ] Agent submits join request
-- [ ] Owner approves first agent
+- [ ] Agent submits join request (`pubkey` in calldata, stored in contract member record)
+- [ ] Owner approves first agent (`membershipVersion` increments)
 - [ ] Agent manifest pointer can be published/updated (`AgentManifestUpdated`)
-- [ ] Epoch key exists and rotates on membership change
-- [ ] Wrapped key bundle published on IPFS
+- [ ] Epoch key exists and rotates on membership change (`rotateEpoch` validates `membershipVersion`)
+- [ ] Wrapped key bundle published on IPFS with `ownerEscrowEntry`
 - [ ] Agent unwraps key and decrypts backup
 - [ ] Backup pointer updated onchain
-- [ ] Event watcher shows verified lifecycle (including manifest events)
-- [ ] OpenClaw skill wrapper demonstrates core flow
+- [ ] Owner issues historical key grant; new/recovered member decrypts past backup (`HistoricalKeyBundleGranted`)
+- [ ] `soulvault ipfs pin-all` pins all contract-referenced CIDs
+- [ ] Event watcher shows verified lifecycle (including manifest + keygrant events)
+- [ ] OpenClaw skill wrapper demonstrates core flow (including keygrant + epoch rotate)
 
 ---
 

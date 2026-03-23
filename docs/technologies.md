@@ -2,20 +2,20 @@
 
 ## 1) Product Components
 - **CLI + TUI control plane** (operator + agent workflows)
-- **EVM smart contracts** (swarm governance, joins, epochs, pointers, events)
-- **Encrypted storage adapters** (IPFS for ciphertext artifacts)
+- **EVM smart contracts** (swarm governance, joins, epochs, membershipVersion, pointers, events)
+- **Encrypted storage adapters** (IPFS for ciphertext artifacts; owner-pinned for MVP)
 - **Optional network overlay module** (WireGuard/relay in roadmap)
 
 ---
 
 ## 2) Language & Runtime Decisions
 
-## CLI / TUI
+### CLI / TUI
 **Decision: TypeScript (Node 20+)**
 
 Why:
 - Fastest path for web3 + contract event handling
-- Great Ethereum ecosystem tooling (`ethers`, viem)
+- Great Ethereum ecosystem tooling (`ethers`, `viem`)
 - Easy JSON/IPC/process orchestration for bootstrap tasks
 - Good TUI options (`ink`, `blessed`, `neo-blessed`)
 - Reuse logic later inside OpenClaw skill wrappers
@@ -25,9 +25,9 @@ Alternative (Go):
 - More engineering time for rich web3/TUI parity
 - Better candidate for v2 rewrite if needed
 
-**Conclusion:** Start with TypeScript for hackathon velocity.
+**Conclusion:** TypeScript for hackathon velocity.
 
-## Smart Contracts
+### Smart Contracts
 **Decision: Solidity + Foundry**
 
 Why Foundry:
@@ -35,10 +35,9 @@ Why Foundry:
 - Excellent scripting/deploy workflows
 - Easy event-driven testing and fuzzing
 
-Alternative: Hardhat
-- Great plugin ecosystem, heavier DX for rapid protocol iteration
+Alternative: Hardhat — great plugin ecosystem, heavier DX for rapid protocol iteration.
 
-**Conclusion:** Foundry for contracts, optional Hardhat only if specific plugin needed.
+**Conclusion:** Foundry for contracts.
 
 ---
 
@@ -52,23 +51,24 @@ Selection criteria:
 - Good RPC availability
 - Sponsor alignment if applicable
 
-**Conclusion (default): Base Sepolia** unless sponsor track requires another.
+**Default: Base Sepolia** unless sponsor track requires another.
 
 ---
 
 ## 4) Core Libraries
 
-## Required Utilities SoulVault Wraps/Uses
+### Required Utilities
 - **EVM RPC provider** (read/write contract state + events)
-- **IPFS upload/download adapter** (gateway/pinning API; local IPFS node optional)
-- **Local secure key store** (store agent private key + unwrapped epoch keys)
+- **IPFS upload/download adapter** (gateway/pinning API; local IPFS node optional for MVP, owner-managed)
+- **Local secure key store** (store agent private key + unwrapped epoch keys, indexed by epoch number)
 - **Archive utilities** (`tar`/`gzip`) for deterministic bundles
-- **Hashing/KDF utilities** (SHA-256, HKDF)
+- **Hashing utilities** (SHA-256 for file/archive/manifest hashes)
+- **KDF utilities** (HKDF for post-MVP derived keys)
 - **Process/system utils** for bootstrap/install orchestration
 
-Note: each agent does **not** need to run a full IPFS daemon. MVP can use managed pinning/gateway clients. Running a local IPFS node is optional for self-hosted mode.
+> Each agent does **not** need to run a full IPFS daemon. MVP uses managed pinning/gateway clients. Local IPFS node is optional for self-hosted mode.
 
-## CLI / App
+### CLI / App
 - `typescript`
 - `commander` (CLI commands)
 - `ink` (TUI) or `blessed` (fallback)
@@ -76,43 +76,64 @@ Note: each agent does **not** need to run a full IPFS daemon. MVP can use manage
 - `zod` (runtime schema validation)
 - `pino` (structured logging)
 
-## Crypto
-- `libsodium-wrappers` (XChaCha20-Poly1305)
-- Node `crypto` (SHA-256/HKDF helpers)
+### Crypto
+- `libsodium-wrappers` (XChaCha20-Poly1305 for symmetric encryption; X25519 box for pubkey wrapping)
+- Node `crypto` (SHA-256/HKDF helpers for post-MVP derived keys)
 
-## IPFS
-- `helia` or Pinata/Web3Storage SDK (choose one MVP provider)
+### IPFS
+- `helia` or Pinata/Web3Storage SDK (choose one MVP provider; owner responsible for pinning)
 
-## Contract Dev
+### Contract Dev
 - Foundry (`forge`, `cast`, `anvil`)
 
 ---
 
-## 5) Chainlink Integration Scope
+## 5) Key Contract Methods (MVP)
 
-MVP+ integration:
-- **Chainlink Automation** for scheduled checkpoint/revalidation triggers
-
-Out of MVP:
-- CCIP (cross-chain messaging)
-- complex oracle-driven policy engines
+- `requestJoin(pubkey, pubkeyRef, metadataCid)` — pubkey stored in calldata and member record
+- `approveJoin(requestId)` — activates member, increments `membershipVersion`
+- `removeMember(member)` — deactivates member, increments `membershipVersion`
+- `rotateEpoch(newEpoch, keyBundleCid, keyBundleHash, expectedMembershipVersion)` — reverts if `membershipVersion` has changed
+- `grantHistoricalKeys(member, bundleCid, bundleHash, fromEpoch, toEpoch)` — emits `HistoricalKeyBundleGranted`
+- `setLatestBackupPointer(epoch, bundleCid, manifestCid, manifestHash)` — updates backup pointer
+- `postMessage(to, topic, seq, epoch, payloadCid, payloadHash, ttl)` — verified message metadata
+- `updateAgentManifest(manifestCid, manifestHash)` — emits `AgentManifestUpdated`
 
 ---
 
-## 6) OpenClaw Integration
+## 6) Chainlink Integration Scope
 
-Deliverable:
-- `skills/soulvault/` skill wrapping CLI
+### MVP+
+- **Chainlink Automation** triggers `requestRekey()` (public function) when membership has changed without a follow-up rekey, or when backup staleness thresholds are exceeded.
+- Emits `RekeyRequested(trigger, membershipVersion)`.
+- Owner CLI responds to this event and performs the actual rekey.
+
+### What Chainlink does not do
+- Hold or access private keys or symmetric keys
+- Execute rekey crypto operations
+
+### Out of MVP
+- CCIP (cross-chain messaging)
+- Complex oracle-driven policy engines
+
+---
+
+## 7) OpenClaw Integration
+
+Deliverable: `skills/soulvault/` skill wrapping CLI
 
 Expected skill operations:
-- swarm list/use
-- join request/approve
-- backup push / restore pull
-- event watch / status
+- `swarm list/use`
+- `join request/approve`
+- `backup push / restore pull`
+- `keygrant` (historical key grant for new/recovered joiners)
+- `epoch rotate`
+- `events watch / status`
+- `ipfs pin-all`
 
 ---
 
-## 7) Packaging / Release
+## 8) Packaging / Release
 
 - CLI packaged as npm binary (`soulvault`)
 - Optional Docker image for reproducible VPS bootstrap
@@ -120,47 +141,42 @@ Expected skill operations:
 
 ---
 
-## 8) WireGuard / Relay Positioning
+## 9) WireGuard / Relay Positioning (Post-MVP)
 
-WireGuard itself does **not** require your proprietary relay by default, but NAT traversal patterns often benefit from:
-- public coordination server
-- optional relay for unreachable peers
+WireGuard does not require a proprietary relay by default, but NAT traversal often benefits from:
+- Public coordination server
+- Optional relay for unreachable peers
 
 Product options:
 1. **Open-source self-hosted mode** (users run their own relay/control-plane)
-2. **Managed relay service** (your hosted convenience layer)
+2. **Managed relay service** (hosted convenience layer with SLA, monitoring, audit logs)
 
-Monetization model (if desired):
-- Open-source protocol + self-host baseline
-- Paid managed relay/control-plane: uptime SLA, monitoring, key rotation automation, audit logs, multi-region relays
-
-Important:
-- Keep protocol portable so users are never locked into managed infra.
+Keep protocol portable — users should never be locked into managed infrastructure.
 
 ---
 
-## 9) Key Custody Policy (Finalized)
+## 10) Key Custody Policy
 
-## MVP
-- Owner escrow enabled: epoch key material recoverable via owner-wrapped escrow path.
+### MVP
+- Owner escrow enabled: every wrapped-key bundle includes an `ownerEscrowEntry` so epoch key material is always recoverable by the owner.
 - Recommended owner custody: hardware wallet (Ledger-class) for escrow key operations.
 
-## Post-MVP
+### Post-MVP
 - Quorum escrow enabled: threshold-based recovery to avoid single owner-key dependency.
 - Owner escrow may remain as emergency fallback depending on governance policy.
 
-## Principle
-- Contract governs authorization and references; key recovery/re-wrap happens offchain in authorized tooling.
+### Principle
+Contract governs authorization and CID references. Key recovery and re-wrap happen offchain in authorized CLI tooling.
 
 ---
 
-## 10) Final Stack Summary
+## 11) Final Stack Summary
 
 - **App:** TypeScript/Node CLI + TUI
 - **Contracts:** Solidity + Foundry
 - **Chain:** Base Sepolia (default)
-- **Storage:** IPFS (encrypted payloads)
-- **Crypto:** libsodium + HKDF
-- **Automation:** Chainlink Automation (MVP+)
+- **Storage:** IPFS (encrypted payloads; owner-pinned for MVP)
+- **Crypto:** libsodium (XChaCha20-Poly1305 + X25519 box) + Node crypto (HKDF post-MVP)
+- **Automation:** Chainlink Automation (MVP+, trigger only)
 - **Agent UX:** OpenClaw skill wrapper over CLI
 - **Networking (roadmap):** WireGuard + optional managed relay

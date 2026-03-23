@@ -139,7 +139,22 @@ Important:
 
 ---
 
-## 9) Final Stack Summary
+## 9) Key Custody Policy (Finalized)
+
+## MVP
+- Owner escrow enabled: epoch key material recoverable via owner-wrapped escrow path.
+- Recommended owner custody: hardware wallet (Ledger-class) for escrow key operations.
+
+## Post-MVP
+- Quorum escrow enabled: threshold-based recovery to avoid single owner-key dependency.
+- Owner escrow may remain as emergency fallback depending on governance policy.
+
+## Principle
+- Contract governs authorization and references; key recovery/re-wrap happens offchain in authorized tooling.
+
+---
+
+## 10) Final Stack Summary
 
 - **App:** TypeScript/Node CLI + TUI
 - **Contracts:** Solidity + Foundry

@@ -33,6 +33,13 @@
 - IPFS: ciphertext only (encrypted backups/messages + wrapped key bundles)
 - Local node: plaintext only after successful decrypt+verify
 
+## State Partitioning (Minimal-Change Model)
+- Keep a single swarm epoch key (`K_epoch`) for simplicity.
+- Store state in two logical buckets:
+  - **Shared swarm state** (common coordination/config artifacts)
+  - **Per-agent state** (agent-specific soul/memory bundles)
+- Per-agent bundles are still decryptable by approved members under the same epoch model (team-readable swarm context).
+
 ## Epoch Key Distribution (Finalized)
 - Each epoch has one symmetric content key: `K_epoch`.
 - `K_epoch` is **never** stored onchain.

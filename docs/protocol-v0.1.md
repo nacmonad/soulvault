@@ -50,7 +50,11 @@ Per swarm contract:
 ## 4) Data Objects (Offchain)
 
 ## 4.1 Encrypted Backup Bundle
-Contains encrypted archive for:
+State is organized as:
+- **shared bundle** (swarm-common artifacts)
+- **agent bundle(s)** (agent-specific soul/memory profiles)
+
+Typical files in agent bundles:
 - `SOUL.md`
 - `USER.md`
 - `MEMORY.md`
@@ -79,6 +83,8 @@ Stored offchain (IPFS), referenced onchain by CID/hash.
 ## 5) Epoch Key Rotation (Rekey)
 
 Use **epoch group key** (`K_epoch`) not pairwise double ratchet.
+
+Design choice: keep one swarm `K_epoch` for both shared and per-agent bundles to minimize MVP complexity.
 
 ### Trigger conditions
 - join approved
@@ -177,7 +183,36 @@ Security:
 
 ---
 
-## 10) SSH / Tunnel Revalidation Model (Future-safe)
+## 10) Key Loss / VPS Nuke Recovery
+
+## Problem scenario
+A member VPS is fully lost and its local private key is unrecoverable. That node can no longer unwrap prior wrapped epoch keys.
+
+## Design rule
+The smart contract does **not** regenerate historical symmetric keys. It only governs authorized recovery/rekey operations and records references.
+
+## MVP recovery path (Owner Escrow)
+- For each epoch, keep an owner-escrow copy of key material (wrapped to owner key).
+- Recovery flow:
+  1. New VPS generates a fresh agent keypair.
+  2. Owner/quorum approves key update/re-join.
+  3. Owner unwraps escrowed key material and re-wraps for new agent key (or rotates to new epoch).
+  4. Publish updated wrapped-key bundle CID/hash.
+  5. New VPS restores from latest encrypted state.
+
+## Quorum escrow path (Post-MVP)
+- Protect against owner key loss by splitting recovery authority:
+  - threshold shares (e.g., Shamir) among trusted operators/members
+  - or equivalent threshold-controlled key service
+- Recovery requires M-of-N authorized participants to reconstruct/authorize re-wrap.
+
+## Ledger wallet note
+- Hardware wallets (e.g., Ledger) are recommended for owner escrow keys.
+- If owner escrow key is on Ledger and the device/recovery phrase is safe, recovery can be performed without exposing keys in software.
+
+---
+
+## 11) SSH / Tunnel Revalidation Model (Future-safe)
 
 Do **not** reuse `K_epoch` as tunnel transport key directly.
 Use membership/epoch events as auth signals for issuing short-lived access credentials:
@@ -191,7 +226,7 @@ On epoch rotate/kick:
 
 ---
 
-## 11) Chainlink Integration (MVP+)
+## 12) Chainlink Integration (MVP+)
 
 Best immediate fit: **Automation**
 - trigger `checkpointNeeded` checks
@@ -230,8 +265,8 @@ Recommended flow:
 3. Contract stores CID/hash pointer via `AgentManifestUpdated` event.
 
 MVP note:
-- Manifests are optional and informational in MVP.
-- Do not gate join/restore on manifest validity yet.
+- Manifest support is included in MVP as **registration metadata** (publish/update pointer + event).
+- Manifests remain informational in MVP (do not gate join/restore yet).
 
 ---
 

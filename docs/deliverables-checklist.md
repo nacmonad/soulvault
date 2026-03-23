@@ -31,6 +31,7 @@
 - [ ] No private keys in repo or backup bundle
 - [ ] Join gating enforced onchain
 - [ ] Restore requires approval + decrypt capability
+- [ ] Owner escrow recovery path documented and testable (MVP)
 - [ ] `.gitignore` prevents committing sensitive local state
 
 ## 5) Demo Acceptance Checklist (live)

@@ -56,16 +56,21 @@ Exit criteria:
 Tasks:
 - Build deterministic archive builder
 - Hash + manifest generation
-- Encrypt backup bundle with `K_epoch`
+- Encrypt backup bundle(s) with `K_epoch`
+- Support two bundle classes:
+  - shared swarm state
+  - per-agent state bundle
 - Upload encrypted bundle + manifest to IPFS
-- Update backup pointer onchain
+- Update backup pointer(s) onchain
 - Restore flow:
   - fetch pointers + wrapped bundle
   - unwrap `K_epoch`
+  - select restore target (shared vs specific agent)
   - decrypt + verify + write files
 
 Exit criteria:
 - Fresh node restore succeeds and integrity checks pass.
+- CLI can restore a specific agent soul/memory bundle by selection.
 
 ---
 
@@ -130,7 +135,12 @@ Exit criteria:
 - Replace owner-only approvals with M-of-N admissions
 - EIP-712 admission tickets or onchain vote proposals
 
-## O4 — 0G/Flare Integrations
+## O4 — Quorum Escrow Recovery
+- Add threshold recovery path so owner-key loss is survivable
+- Define M-of-N escrow participants and reconstruction/authorization policy
+- Integrate escrow recovery into node key-loss runbook
+
+## O5 — 0G/Flare Integrations
 - 0G for larger non-critical artifact/data path
 - Flare for attestation/data-driven policy hooks
 
@@ -152,11 +162,12 @@ Exit criteria:
 - [ ] Owner deploys contract
 - [ ] Agent submits join request
 - [ ] Owner approves first agent
+- [ ] Agent manifest pointer can be published/updated (`AgentManifestUpdated`)
 - [ ] Epoch key exists and rotates on membership change
 - [ ] Wrapped key bundle published on IPFS
 - [ ] Agent unwraps key and decrypts backup
 - [ ] Backup pointer updated onchain
-- [ ] Event watcher shows verified lifecycle
+- [ ] Event watcher shows verified lifecycle (including manifest events)
 - [ ] OpenClaw skill wrapper demonstrates core flow
 
 ---

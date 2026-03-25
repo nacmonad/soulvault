@@ -24,7 +24,7 @@
   - [ ] `events watch`
   - [ ] `ipfs pin-all`
 - [ ] Markdown state encrypted before IPFS upload
-- [ ] Restore verifies manifest + per-file hashes
+- [ ] Restore verifies embedded manifest + per-file hashes against on-chain `manifestHash`
 - [ ] Demo shows restore to fresh node/VPS
 - [ ] Owner pins all CIDs via configured provider (local node or Pinata/Web3Storage)
 

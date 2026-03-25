@@ -72,7 +72,7 @@ Tasks:
 - Support two bundle classes:
   - shared swarm state
   - per-agent state bundle
-- Upload encrypted bundle + manifest to IPFS
+- Upload encrypted **bundle** to IPFS (single `bundleCid`; `manifest.json` **inside** the archive — no separate backup `manifestCid`; on-chain **`manifestHash`** only)
 - Update backup pointer(s) onchain (single swarm `latestBackupPointer` **or** per-member `memberBackupPointers` — see `docs/protocol-v0.1.md` §3 / §8; parallel agents usually want per-member heads)
 - Restore flow:
   - fetch pointers + wrapped bundle

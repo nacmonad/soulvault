@@ -50,9 +50,11 @@ Off-chain, backups split into **shared swarm** bundles and **per-agent** bundles
 
 On-chain coordination can expose **where** the latest ciphertext lives in either of these equivalent patterns:
 
-1. **Single swarm head (minimal storage sketch)** — One `latestBackupPointer` field: `(bundleCid, manifestCid, manifestHash, epoch)`. Think **one `HEAD`**: each update overwrites the previous onchain “current” snapshot. Works when you treat backups as a **single global checkpoint** (e.g. one merged publish pipeline) or when **history is enough** in **`BackupPointerUpdated` logs** and the storage slot is only a cheap cache of the newest update.
+1. **Single swarm head (minimal storage sketch)** — One `latestBackupPointer` field: **`(bundleCid, manifestHash, epoch)`**. **`manifestHash`** commits to the canonical **`manifest.json`** (serialized bytes) that is **embedded inside the encrypted archive** (see §4.2), not to a second IPFS object. Think **one `HEAD`**: each update overwrites the previous onchain “current” snapshot. Works when you treat backups as a **single global checkpoint** (e.g. one merged publish pipeline) or when **history is enough** in **`BackupPointerUpdated` logs** and the storage slot is only a cheap cache of the newest update.
 
-2. **Per-member heads (recommended for parallel agents)** — `memberBackupPointers[member] => { bundleCid, manifestCid, manifestHash, epoch }`. Each approved agent advances **only their own** row (e.g. `setMyBackupPointer` gated by `msg.sender`). Think **one branch tip per member**: many concurrent “latest” backups without clobbering each other. Still consistent with §4.1 — **shared key**, **per-agent artifacts** and pointers.
+2. **Per-member heads (recommended for parallel agents)** — `memberBackupPointers[member] => { bundleCid, manifestHash, epoch }`. Each approved agent advances **only their own** row (e.g. `setMyBackupPointer` gated by `msg.sender`). Think **one branch tip per member**: many concurrent “latest” backups without clobbering each other. Still consistent with §4.1 — **shared key**, **per-agent artifacts** and pointers.
+
+> **MVP:** No separate **`manifestCid`** — the manifest ships **inside** the tarball (as with OpenClaw’s backup layout), then the **whole archive** is encrypted and uploaded; **one `bundleCid`** per backup. **Post-MVP (optional):** a cleartext or separately encrypted manifest CID is allowed if operators want indexable metadata **without** fetching or decrypting the full bundle.
 
 Implementations may choose (2) for MVP when multiple agents publish independently; (1) remains valid for owner-centric or monolithic backup UX. Indexers and tooling should key off **`BackupPointerUpdated`** (include **`member`** when using per-member storage).
 
@@ -81,13 +83,18 @@ Typical files in agent bundles:
 
 All agent bundles are encrypted under the shared `K_epoch` and are readable by all approved swarm members. This is a **deliberate design decision** — shared epoch-key access enables the coordination layer where agents can read each other's memory/state when needed for collaborative tasks. Post-MVP, per-agent derived keys (`K_agent = HKDF(K_epoch, "agent", agentAddress)`) can introduce private agent state alongside shared swarm state.
 
-### 4.2 Manifest
+### 4.2 Manifest (`manifest.json` inside the archive)
+The backup **manifest** is a JSON object embedded **inside** the deterministic archive **before** encryption (same pattern as OpenClaw’s backup tarball including `manifest.json`). After decrypt, the restorer reads it from the unpacked tree to verify layout and hashes.
+
+Fields (conceptual):
 - file list
 - file hashes (per file)
 - archive hash
 - createdAt
 - epoch
 - encryption metadata
+
+**On-chain:** only **`manifestHash`** (e.g. keccak256 or SHA-256 of canonical manifest bytes) is required alongside **`bundleCid`** so the chain attests to the manifest the publisher intended, without a second IPFS CID.
 
 ### 4.3 Wrapped Epoch Key Bundle
 For each approved member in epoch E:
@@ -217,13 +224,13 @@ Event:
 ## 8) Backup / Restore Protocol
 
 ### 8.1 Backup
-1. Build deterministic archive (tar/gzip).
-2. Compute per-file hashes + archive hash + manifest.
+1. Build deterministic archive (tar/gzip) **including `manifest.json`** in the tree.
+2. Compute per-file hashes + archive hash; finalize manifest; compute **`manifestHash`** from canonical manifest bytes (must match what is **inside** the tarball).
 3. Encrypt archive directly with `K_epoch` (XChaCha20-Poly1305 via libsodium).
-4. Upload ciphertext + manifest to IPFS; verify content availability before calling contract.
+4. Upload **ciphertext** to IPFS as a **single** object; verify content availability before calling contract. (**No separate manifest blob in MVP.**)
 5. Record the pointer onchain:
-   - **Single-head layout:** `setLatestBackupPointer(epoch, bundleCid, manifestCid, manifestHash)`, or
-   - **Per-member layout:** `setMyBackupPointer(bundleCid, manifestCid, manifestHash, epoch)` (member-signed; updates only `msg.sender`’s row).
+   - **Single-head layout:** `setLatestBackupPointer(epoch, bundleCid, manifestHash)`, or
+   - **Per-member layout:** `setMyBackupPointer(bundleCid, manifestHash, epoch)` (member-signed; updates only `msg.sender`’s row).
 
 > Post-MVP: derive `K_backup = HKDF(K_epoch, "backup", agentAddress)` for key-purpose separation.
 
@@ -231,8 +238,8 @@ Event:
 1. Confirm caller is an active member (or owner performing recovery).
 2. Read the backup pointer for the target: **`latestBackupPointer`** (single-head layout) **or** **`memberBackupPointers[targetAddress]`** (per-member layout), and `currentEpoch` from contract as needed.
 3. Fetch wrapped-key bundle CID from latest `EpochRotated` event; unwrap `K_epoch` locally using private key.
-4. Fetch encrypted backup and manifest from IPFS.
-5. Decrypt and verify all hashes (manifest hash + per-file hashes).
+4. Fetch encrypted **bundle** from IPFS (`bundleCid`).
+5. Decrypt to recover the tarball; extract **`manifest.json`**; verify **`manifestHash`** matches on-chain commitment, then verify per-file hashes per manifest.
 6. Write files to workspace and start OpenClaw.
 
 ### 8.3 Historical Restore
@@ -336,7 +343,7 @@ Cross-chain messaging is only needed if a swarm spans multiple chains. Out of MV
 - `JoinApproved(requestId, requester, approver, epoch)`
 - `MemberRemoved(member, by, epoch)`
 - `EpochRotated(oldEpoch, newEpoch, keyBundleCid, keyBundleHash, membershipVersion)`
-- `BackupPointerUpdated(member, epoch, bundleCid, manifestCid, manifestHash)` — `member` **indexed** when using per-member storage (MVP-friendly); for a single global head, `member` may be zero or omitted in an implementation that only tracks `by` / a singleton — prefer an explicit **`member`** field for unambiguous indexing
+- `BackupPointerUpdated(member, epoch, bundleCid, manifestHash)` — `member` **indexed** when using per-member storage (MVP-friendly); for a single global head, `member` may be zero or omitted in an implementation that only tracks `by` / a singleton — prefer an explicit **`member`** field for unambiguous indexing
 - `AgentMessagePosted(from, to, topic, seq, epoch, payloadCid, payloadHash, ttl, timestamp)`
 - `AgentManifestUpdated(agent, manifestCid, manifestHash, timestamp)`
 - `HistoricalKeyBundleGranted(member, bundleCid, bundleHash, fromEpoch, toEpoch)`

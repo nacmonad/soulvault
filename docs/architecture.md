@@ -19,8 +19,7 @@
    - Optional quorum policy for approvals (post-MVP)
 
 3. **Encrypted Storage (IPFS)**
-   - Encrypted backup bundles (shared + per-agent)
-   - Encrypted manifests
+   - Encrypted backup bundles (shared + per-agent); **MVP:** `manifest.json` lives **inside** each backup archive — **no separate backup-manifest IPFS CID**
    - Wrapped epoch key bundles (one per epoch, includes owner escrow entry)
    - Historical key bundles (per granted member)
    - **For MVP, all content is pinned by the owner** via a local IPFS node or managed pinning service (Pinata/Web3Storage). Post-MVP, a managed relay/pinning SaaS layer can take over this responsibility.
@@ -56,7 +55,7 @@ All per-agent bundles are encrypted under the shared `K_epoch`. This means **any
 Post-MVP option: introduce per-agent derived keys (`K_agent = HKDF(K_epoch, "agent", agentAddress)`) to allow private agent state alongside shared swarm state. For MVP, the shared model is simpler and more useful for coordination.
 
 ### On-chain backup pointer shape (coordination vs off-chain split)
-Off-chain artifacts remain **shared bundle(s)** plus **per-agent bundle(s)**, all ciphertext under the same **`K_epoch`**. On-chain, you can either store **one** swarm-level `latestBackupPointer` (a single “`HEAD`” that updates in place) or **`memberBackupPointers[address]`** so each agent has its own latest tip (“one branch per member”) without overwriting peers. See `docs/protocol-v0.1.md` §3 and §8. Per-member pointers do **not** change the privacy model: ciphertext visibility is still governed by **`K_epoch`** and membership, not by who can read the contract row.
+Off-chain artifacts remain **shared bundle(s)** plus **per-agent bundle(s)**, all ciphertext under the same **`K_epoch`**. On-chain backup rows record **`bundleCid`** + **`manifestHash`** (+ **epoch**), not a separate **`manifestCid`** — the hash attests to the **`manifest.json`** packed inside the encrypted tarball. You can either store **one** swarm-level `latestBackupPointer` or **`memberBackupPointers[address]`** (per-member tips). See `docs/protocol-v0.1.md` §3 and §8. **Agent environment** manifests (`AgentManifestUpdated`) remain a separate concept from backup manifests.
 
 ---
 

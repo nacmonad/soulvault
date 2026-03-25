@@ -95,7 +95,7 @@ Selection criteria:
 - `removeMember(member)` — deactivates member, increments `membershipVersion`
 - `rotateEpoch(newEpoch, keyBundleCid, keyBundleHash, expectedMembershipVersion)` — reverts if `membershipVersion` has changed
 - `grantHistoricalKeys(member, bundleCid, bundleHash, fromEpoch, toEpoch)` — emits `HistoricalKeyBundleGranted`
-- `setLatestBackupPointer(epoch, bundleCid, manifestCid, manifestHash)` — updates backup pointer
+- `setLatestBackupPointer(epoch, bundleCid, manifestHash)` — updates backup pointer (manifest embedded in bundle; **no `manifestCid`** in MVP)
 - `postMessage(to, topic, seq, epoch, payloadCid, payloadHash, ttl)` — verified message metadata
 - `updateAgentManifest(manifestCid, manifestHash)` — emits `AgentManifestUpdated`
 

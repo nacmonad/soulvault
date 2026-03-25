@@ -41,8 +41,8 @@ Same as above (owner approval path). After each approval, owner triggers `soulva
 4. Node selects restore target in CLI:
    - shared swarm state
    - specific agent bundle (e.g., a particular soul/memory set)
-5. Node fetches selected encrypted bundle + encrypted manifest from IPFS.
-6. Node decrypts locally with `K_epoch` and verifies all hashes (manifest hash + per-file hashes).
+5. Node fetches selected **encrypted bundle** from IPFS (`bundleCid`).
+6. Node decrypts locally with `K_epoch`, unpacks the archive, reads embedded **`manifest.json`**, checks **`manifestHash`** against the chain, then verifies per-file hashes.
 7. Node writes markdown files into workspace.
 8. Node starts OpenClaw runtime.
 
@@ -75,7 +75,7 @@ When a newly approved member needs access to epochs before their join epoch, or 
 ## Historical Restore (Past Epoch)
 1. Ensure Historical Key Bundle has been received and unwrapped (see above).
 2. Look up backup pointer for the desired epoch from historical `BackupPointerUpdated` events.
-3. Fetch encrypted backup + manifest from IPFS for that epoch.
+3. Fetch **encrypted backup bundle** (`bundleCid`) from IPFS for that epoch (manifest inside archive).
 4. Decrypt with the corresponding `K_epoch` from local store.
 5. Verify hashes and write files.
 

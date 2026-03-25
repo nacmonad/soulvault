@@ -55,6 +55,9 @@ All per-agent bundles are encrypted under the shared `K_epoch`. This means **any
 
 Post-MVP option: introduce per-agent derived keys (`K_agent = HKDF(K_epoch, "agent", agentAddress)`) to allow private agent state alongside shared swarm state. For MVP, the shared model is simpler and more useful for coordination.
 
+### On-chain backup pointer shape (coordination vs off-chain split)
+Off-chain artifacts remain **shared bundle(s)** plus **per-agent bundle(s)**, all ciphertext under the same **`K_epoch`**. On-chain, you can either store **one** swarm-level `latestBackupPointer` (a single “`HEAD`” that updates in place) or **`memberBackupPointers[address]`** so each agent has its own latest tip (“one branch per member”) without overwriting peers. See `docs/protocol-v0.1.md` §3 and §8. Per-member pointers do **not** change the privacy model: ciphertext visibility is still governed by **`K_epoch`** and membership, not by who can read the contract row.
+
 ---
 
 ## Epoch Key Distribution

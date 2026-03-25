@@ -40,9 +40,21 @@ Per swarm contract:
 - `membershipVersion` (uint64 — increments on every join approval or member removal; used for rekey concurrency control)
 - `members[address] => { active, pubkey (bytes), joinedEpoch }`
 - `joinRequests[requestId] => { requester, pubkey, pubkeyRef, metadataCid, status }`
-- `latestBackupPointer` (bundleCid, manifestCid, manifestHash, epoch)
+- **Backup pointer(s)** onchain — see [On-chain backup pointer shape](#on-chain-backup-pointer-shape) below
 
 > **Critical:** Member `pubkey` is stored directly in the join request struct (submitted in calldata) and copied into the member record at approval time. This eliminates any dependency on IPFS availability during rekey operations — the owner can always fetch pubkeys directly from contract state.
+
+### On-chain backup pointer shape
+
+Off-chain, backups split into **shared swarm** bundles and **per-agent** bundles (see §4.1); **MVP crypto** still uses one **`K_epoch`** for all of them (any approved member could decrypt any ciphertext if they fetch the blob).
+
+On-chain coordination can expose **where** the latest ciphertext lives in either of these equivalent patterns:
+
+1. **Single swarm head (minimal storage sketch)** — One `latestBackupPointer` field: `(bundleCid, manifestCid, manifestHash, epoch)`. Think **one `HEAD`**: each update overwrites the previous onchain “current” snapshot. Works when you treat backups as a **single global checkpoint** (e.g. one merged publish pipeline) or when **history is enough** in **`BackupPointerUpdated` logs** and the storage slot is only a cheap cache of the newest update.
+
+2. **Per-member heads (recommended for parallel agents)** — `memberBackupPointers[member] => { bundleCid, manifestCid, manifestHash, epoch }`. Each approved agent advances **only their own** row (e.g. `setMyBackupPointer` gated by `msg.sender`). Think **one branch tip per member**: many concurrent “latest” backups without clobbering each other. Still consistent with §4.1 — **shared key**, **per-agent artifacts** and pointers.
+
+Implementations may choose (2) for MVP when multiple agents publish independently; (1) remains valid for owner-centric or monolithic backup UX. Indexers and tooling should key off **`BackupPointerUpdated`** (include **`member`** when using per-member storage).
 
 ### Local CLI state (per swarm)
 - active chain + contract address
@@ -209,13 +221,15 @@ Event:
 2. Compute per-file hashes + archive hash + manifest.
 3. Encrypt archive directly with `K_epoch` (XChaCha20-Poly1305 via libsodium).
 4. Upload ciphertext + manifest to IPFS; verify content availability before calling contract.
-5. Call `setLatestBackupPointer(epoch, bundleCid, manifestCid, manifestHash)`.
+5. Record the pointer onchain:
+   - **Single-head layout:** `setLatestBackupPointer(epoch, bundleCid, manifestCid, manifestHash)`, or
+   - **Per-member layout:** `setMyBackupPointer(bundleCid, manifestCid, manifestHash, epoch)` (member-signed; updates only `msg.sender`’s row).
 
 > Post-MVP: derive `K_backup = HKDF(K_epoch, "backup", agentAddress)` for key-purpose separation.
 
 ### 8.2 Restore (latest)
 1. Confirm caller is an active member (or owner performing recovery).
-2. Read `latestBackupPointer` + `currentEpoch` from contract.
+2. Read the backup pointer for the target: **`latestBackupPointer`** (single-head layout) **or** **`memberBackupPointers[targetAddress]`** (per-member layout), and `currentEpoch` from contract as needed.
 3. Fetch wrapped-key bundle CID from latest `EpochRotated` event; unwrap `K_epoch` locally using private key.
 4. Fetch encrypted backup and manifest from IPFS.
 5. Decrypt and verify all hashes (manifest hash + per-file hashes).
@@ -322,7 +336,7 @@ Cross-chain messaging is only needed if a swarm spans multiple chains. Out of MV
 - `JoinApproved(requestId, requester, approver, epoch)`
 - `MemberRemoved(member, by, epoch)`
 - `EpochRotated(oldEpoch, newEpoch, keyBundleCid, keyBundleHash, membershipVersion)`
-- `BackupPointerUpdated(epoch, bundleCid, manifestCid, manifestHash, by)`
+- `BackupPointerUpdated(member, epoch, bundleCid, manifestCid, manifestHash)` — `member` **indexed** when using per-member storage (MVP-friendly); for a single global head, `member` may be zero or omitted in an implementation that only tracks `by` / a singleton — prefer an explicit **`member`** field for unambiguous indexing
 - `AgentMessagePosted(from, to, topic, seq, epoch, payloadCid, payloadHash, ttl, timestamp)`
 - `AgentManifestUpdated(agent, manifestCid, manifestHash, timestamp)`
 - `HistoricalKeyBundleGranted(member, bundleCid, bundleHash, fromEpoch, toEpoch)`

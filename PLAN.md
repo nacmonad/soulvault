@@ -73,7 +73,7 @@ Tasks:
   - shared swarm state
   - per-agent state bundle
 - Upload encrypted bundle + manifest to IPFS
-- Update backup pointer(s) onchain
+- Update backup pointer(s) onchain (single swarm `latestBackupPointer` **or** per-member `memberBackupPointers` — see `docs/protocol-v0.1.md` §3 / §8; parallel agents usually want per-member heads)
 - Restore flow:
   - fetch pointers + wrapped bundle
   - unwrap `K_epoch`

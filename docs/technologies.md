@@ -105,6 +105,7 @@ Selection criteria:
 - `grantHistoricalKeys(member, bundleRef, bundleHash, fromEpoch, toEpoch)` — emits `HistoricalKeyBundleGranted`
 - `updateMemberFileMapping(member, storageLocator, merkleRoot, publishTxHash, manifestHash, epoch)` — explicit Option B per-member file mapping update
 - `postMessage(to, topic, seq, epoch, payloadRef, payloadHash, ttl)` — verified message metadata
+- `requestBackup(epoch, reason, targetRef, deadline)` — emits coordinated swarm backup trigger event
 - `updateAgentManifest(manifestRef, manifestHash)` — emits `AgentManifestUpdated`
 
 ---
@@ -134,7 +135,8 @@ Expected skill operations:
 - `swarm list/use`
 - `join request/approve/reject/cancel`
 - `member show/remove`
-- `backup push / restore pull`
+- `backup request/push/show`
+- `restore pull`
 - `keygrant` (historical key grant for new/recovered joiners)
 - `epoch rotate`
 - `events watch / status`

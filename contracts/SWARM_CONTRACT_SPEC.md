@@ -9,6 +9,7 @@ It is responsible for:
 - historical key grant references
 - per-member encrypted backup publication references
 - verified messaging metadata
+- coordinated backup trigger events
 - agent manifest pointers
 - pause / safety controls
 
@@ -30,6 +31,7 @@ Can:
 - remove members
 - rotate epochs
 - grant historical keys
+- request swarm-wide backups
 - pause / unpause
 
 ### Active member
@@ -145,6 +147,20 @@ Requirements:
 Effects:
 - updates sender sequence
 - emits `AgentMessagePosted`
+
+Message payloads are encrypted offchain with `K_epoch`, making them swarm-readable for all approved members in that epoch.
+
+## `requestBackup(epoch, reason, targetRef, deadline)`
+Owner emits a coordinated backup trigger for listening agents.
+
+Preferred MVP restriction:
+- owner-only
+- `epoch == currentEpoch`
+
+Effects:
+- emits `BackupRequested`
+- does not itself perform backup publication
+- downstream agents respond by running local backup flow and then calling `updateMemberFileMapping(...)`
 
 ## `updateAgentManifest(manifestRef, manifestHash)`
 Active member updates own manifest pointer.

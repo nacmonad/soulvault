@@ -9,7 +9,15 @@
 6. optional: `soulvault identity create-agent ...`
 7. `soulvault restore pull`
 
-## 2) Scheduled backup flow
+## 2) Event-driven backup flow (preferred)
+1. owner/coordinator runs `soulvault backup request --reason checkpoint --deadline <ts>`
+2. listening agents observe `BackupRequested`
+3. each agent runs `soulvault backup push`
+4. CLI runs harness backup command
+5. CLI encrypts and uploads to 0G
+6. CLI writes `updateMemberFileMapping(...)` to each joined swarm
+
+## 2.1) Scheduled backup flow (fallback)
 Triggered by heartbeat logic or system cron:
 1. `soulvault backup push`
 2. CLI runs harness backup command

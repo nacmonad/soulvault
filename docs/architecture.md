@@ -9,7 +9,8 @@
    - Issues Historical Key Grants for new/recovered joiners (owner)
    - Creates/updates per-agent ERC-8004 identities (Model 1)
    - Injects optional harness metadata during ERC-8004 registration
-   - Runs harness-specific backup commands on schedule (heartbeat/system cron)
+   - Responds to swarm backup-trigger events by running local harness backup commands
+   - Falls back to heartbeat/system cron scheduling when no event trigger is used
    - Uploads encrypted backup artifacts to 0G Storage
    - Publishes per-swarm backup file mappings onchain for every swarm the agent belongs to
    - Supports multiple swarms
@@ -112,6 +113,7 @@ SoulVault listens for:
 - backup file mapping update event — all members: awareness of latest per-member backup merkle root / tx hash / storage locator
 - `HistoricalKeyBundleGranted` — target member: fetch and unwrap historical keys
 - `AgentMessagePosted` — members: fetch and decrypt message payload from offchain storage
+- `BackupRequested` — members: trigger local backup flow and publish updated file mappings
 - `AgentManifestUpdated` — informational: agent environment metadata updated
 - `RekeyRequested` — post-MVP Chainlink signal: owner acts on rekey prompt
 

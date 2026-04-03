@@ -102,6 +102,20 @@ Behavior:
 
 ## 4) Backup / restore / storage commands
 
+## `soulvault backup request`
+Emit a swarm backup trigger event.
+
+Flags:
+- `--swarm <name>`
+- `--epoch <n>`
+- `--reason <text>`
+- `--target-ref <ref>`
+- `--deadline <unix-ts>`
+
+Behavior:
+- calls `requestBackup(epoch, reason, targetRef, deadline)`
+- intended for owner/coordinator use
+
 ## `soulvault backup push`
 Run a backup for the current agent.
 
@@ -229,4 +243,5 @@ Responsibilities:
 - show epoch rotations
 - react to key grants
 - react to file mapping updates
+- react to `BackupRequested` by running local backup flow when appropriate
 - optionally trigger restore suggestions / backup reminders

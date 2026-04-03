@@ -92,6 +92,14 @@ interface ISoulVaultSwarm {
         uint64 ttl
     ) external;
 
+    // --- Coordinated backup triggers ---
+    function requestBackup(
+        uint64 epoch,
+        string calldata reason,
+        string calldata targetRef,
+        uint64 deadline
+    ) external;
+
     // --- Agent manifest pointers ---
     function updateAgentManifest(string calldata manifestRef, bytes32 manifestHash) external;
 
@@ -152,6 +160,15 @@ interface ISoulVaultSwarm {
     );
 
     event AgentManifestUpdated(address indexed agent, string manifestRef, bytes32 manifestHash, uint64 timestamp);
+
+    event BackupRequested(
+        address indexed requestedBy,
+        uint64 indexed epoch,
+        string reason,
+        string targetRef,
+        uint64 deadline,
+        uint64 timestamp
+    );
 
     event HistoricalKeyBundleGranted(
         address indexed member,

@@ -160,7 +160,8 @@ Use an **epoch group key** (`K_epoch`) — not pairwise double-ratchet. One key 
 - Join approved
 - Member removed
 - Manual security rotate (owner CLI: `soulvault epoch rotate`)
-- Scheduled backup execution (heartbeat-driven or system cron-driven) for state publication
+- Swarm backup trigger event (`requestBackup`) for coordinated state publication
+- Scheduled backup execution (heartbeat-driven or system cron-driven) as fallback
 
 ### Who triggers rekey
 **MVP:** The owner initiates rekey manually from the SoulVault CLI. This is deliberate — the owner holds the escrow key and must sign the `rotateEpoch` transaction. The CLI watches for `JoinApproved` and `MemberRemoved` events and prompts the owner to trigger a rekey when membership changes are detected.
@@ -254,7 +255,9 @@ Event:
 ## 8) Backup / Restore Protocol
 
 ### 8.1 Backup
-1. Resolve the backup harness command from SoulVault config / agent metadata (for example OpenClaw-specific backup flow). This can be scheduled from `HEARTBEAT.md` logic or by system cron.
+The preferred trigger is a swarm event emitted through `requestBackup(...)`, not cron. Cron / `HEARTBEAT.md` remain fallback mechanisms.
+
+1. Resolve the backup harness command from SoulVault config / agent metadata (for example OpenClaw-specific backup flow). This may be triggered by `BackupRequested`, or scheduled from `HEARTBEAT.md` / system cron as fallback.
 2. Run the harness-specific backup command, producing a deterministic archive (tar/gzip) or equivalent bundle.
 3. Compute per-file hashes + archive hash + manifest + merkle root.
 4. Encrypt archive directly with `K_epoch` (XChaCha20-Poly1305 via libsodium).
@@ -375,6 +378,7 @@ Cross-chain messaging is only needed if a swarm spans multiple chains. Out of MV
 - `EpochRotated(oldEpoch, newEpoch, keyBundleRef, keyBundleHash, membershipVersion)`
 - `MemberFileMappingUpdated(member, epoch, storageLocator, merkleRoot, publishTxHash, manifestHash, by)`
 - `AgentMessagePosted(from, to, topic, seq, epoch, payloadRef, payloadHash, ttl, timestamp)`
+- `BackupRequested(requestedBy, epoch, reason, targetRef, deadline, timestamp)`
 - `AgentManifestUpdated(agent, manifestRef, manifestHash, timestamp)`
 - `HistoricalKeyBundleGranted(member, bundleRef, bundleHash, fromEpoch, toEpoch)`
 - `RekeyRequested(trigger, membershipVersion)` *(post-MVP Chainlink signal)*

@@ -44,15 +44,18 @@ Alternative: Hardhat — great plugin ecosystem, heavier DX for rapid protocol i
 
 ## 3) Networks / Testnets
 
-Primary testnet target (recommended):
-- **Base Sepolia** or **Ethereum Sepolia**
+Primary testnet target:
+- **0G Galileo Testnet**
 
-Selection criteria:
-- Stable faucet access
-- Good RPC availability
-- Sponsor alignment if applicable
+Current working network defaults:
+- **RPC:** `https://evmrpc-testnet.0g.ai`
+- **Chain ID:** `16602`
+- **Storage indexer (turbo):** `https://indexer-storage-testnet-turbo.0g.ai`
 
-**Default: Base Sepolia** unless sponsor track requires another.
+Selection rationale:
+- native fit for 0G Storage-backed encrypted backup publication
+- aligns with the 0G TypeScript starter kit / SDK path
+- supports the signer-backed upload model SoulVault needs
 
 ---
 
@@ -72,10 +75,14 @@ Selection criteria:
 ### CLI / App
 - `typescript`
 - `commander` (CLI commands)
+- `chalk` (terminal UX)
 - `ink` (TUI) or `blessed` (fallback)
 - `ethers` (contracts/events/signing)
 - `zod` (runtime schema validation)
 - `pino` (structured logging)
+- `dotenv` (env loading)
+- `fs-extra` (filesystem helpers)
+- `tar` (deterministic archive creation)
 
 ### ERC-8004 Identity Support
 - ERC-721-compatible identity registry integration
@@ -88,8 +95,10 @@ Selection criteria:
 - Node `crypto` (SHA-256/HKDF helpers for post-MVP derived keys)
 
 ### 0G Storage
-- 0G Storage SDK / CLI integration for upload, retrieval, and publication tracking
-- capture storage locator + publish transaction hash after upload
+- `@0gfoundation/0g-ts-sdk`
+- signer-backed upload flow using chain RPC + storage indexer
+- capture storage locator/root hash + publish transaction hash after upload
+- downloads use root hash + indexer and do not require signing
 
 ### Contract Dev
 - Foundry (`forge`, `cast`, `anvil`)
@@ -187,8 +196,9 @@ Keep protocol portable — users should never be locked into managed infrastruct
 ## 10) Key Custody Policy
 
 ### MVP
+- Agent operations use a local software wallet (mnemonic or private key) for autonomous uploads, file mapping publication, and ERC-8004 identity actions.
 - Owner escrow enabled: every wrapped-key bundle includes an `ownerEscrowEntry` so epoch key material is always recoverable by the owner.
-- Recommended owner custody: hardware wallet (Ledger-class) for escrow key operations.
+- Ledger-class hardware wallet is recommended later for owner/governance operations, but is not mandatory for MVP.
 
 ### Post-MVP
 - Quorum escrow enabled: threshold-based recovery to avoid single owner-key dependency.
@@ -203,7 +213,7 @@ Contract governs authorization and storage references. Key recovery and re-wrap 
 
 - **App:** TypeScript/Node CLI + TUI
 - **Contracts:** Solidity + Foundry
-- **Chain:** Base Sepolia (default)
+- **Chain:** 0G Galileo Testnet (`16602`)
 - **Storage:** 0G Storage (encrypted memories/backups in MVP)
 - **Public identity:** ERC-8004 per agent (Model 1), optional but recommended for discovery/interoperability
 - **Crypto:** libsodium (XChaCha20-Poly1305 + X25519 box) + Node crypto (HKDF post-MVP)

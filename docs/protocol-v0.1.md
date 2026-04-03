@@ -26,8 +26,8 @@ Define a minimal, implementable protocol for:
 
 ## 2) Actors
 
-- **Owner**: deploys swarm contract, approves joins, holds owner escrow key, triggers rekey operations from CLI
-- **Member Agent**: approved participant in swarm
+- **Owner**: deploys swarm contract, approves joins, holds owner escrow key, triggers rekey operations from CLI. Ledger-class signer support is a recommended later path, not an MVP requirement.
+- **Member Agent**: approved participant in swarm using an agent-local software wallet in MVP
 - **SoulVault CLI**: offchain orchestrator (watches events, encrypts/decrypts, wraps/unwraps keys, triggers rekey, issues historical key grants, creates/updates ERC-8004 identities, runs scheduled harness-aware backups)
 - **0G Storage**: stores encrypted memories/backups and related ciphertext artifacts
 
@@ -47,6 +47,11 @@ For a given agent, the layers are:
 2. **Agent wallet** — control/payment/admin identity
 3. **SoulVault member pubkey** — wrapping/decryption identity used in join + rekey flows
 4. **SoulVault manifests/profiles** — capabilities and swarm-scoped metadata
+
+MVP signer guidance:
+- agent runtime uses a local software wallet (`mnemonic` or `private-key` signer mode)
+- the same agent wallet can own the ERC-8004 identity under Model 1 / Option A
+- owner/governance flows may later use Ledger without changing the contract model because the contract keys on addresses, not signer backend type
 
 ### What goes in ERC-8004
 Allowed / recommended public fields:
@@ -257,10 +262,14 @@ Event:
 ### 8.1 Backup
 The preferred trigger is a swarm event emitted through `requestBackup(...)`, not cron. Cron / `HEARTBEAT.md` remain fallback mechanisms.
 
-1. Resolve the backup harness command from SoulVault config / agent metadata (for example OpenClaw-specific backup flow). This may be triggered by `BackupRequested`, or scheduled from `HEARTBEAT.md` / system cron as fallback.
+1. Resolve the backup harness command from SoulVault config / agent metadata. In MVP, use trusted local harness adapter commands for supported harnesses:
+   - `openclaw` -> `soulvault-harness-openclaw backup`
+   - `hermes` -> `soulvault-harness-hermes backup`
+   - `ironclaw` -> `soulvault-harness-ironclaw backup`
+   This may be triggered by `BackupRequested`, or scheduled from `HEARTBEAT.md` / system cron as fallback.
 2. Run the harness-specific backup command, producing a deterministic archive (tar/gzip) or equivalent bundle.
 3. Compute per-file hashes + archive hash + manifest + merkle root.
-4. Encrypt archive directly with `K_epoch` (XChaCha20-Poly1305 via libsodium).
+4. Encrypt archive directly with `K_epoch` (XChaCha20-Poly1305 via libsodium). For CLI integration testing before full swarm key distribution is wired, a local `TEST_K_EPOCH` constant / env-backed override may be used.
 5. Upload ciphertext + manifest to 0G Storage; verify content availability before calling contracts.
 6. For each swarm the agent is a member of, publish the resulting file mapping onchain, including storage locator, merkle root, publish transaction hash, and manifest hash.
 7. Mark the run as the latest successful backup publication for that agent/swarm pair.

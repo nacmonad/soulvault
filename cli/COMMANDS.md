@@ -127,7 +127,10 @@ Flags:
 - `--manifest-only`
 
 Behavior:
-1. resolve harness + backup command
+1. resolve harness + backup command from trusted local adapters
+   - `openclaw` -> `soulvault-harness-openclaw backup`
+   - `hermes` -> `soulvault-harness-hermes backup`
+   - `ironclaw` -> `soulvault-harness-ironclaw backup`
 2. execute harness-specific backup flow
 3. create deterministic bundle
 4. compute hashes + merkle root
@@ -196,9 +199,9 @@ Flags:
 
 Behavior:
 - builds registration JSON
-- embeds SoulVault custom metadata
+- embeds SoulVault custom metadata including `harness`, `backupHarnessCommand`, and `memberAddress`
 - base64-encodes `agentURI`
-- calls ERC-8004 identity registry `register(...)` / equivalent flow
+- calls ERC-8004 identity registry `register(...)` / equivalent flow using the agent wallet signer under Model 1 / Option A
 
 ## `soulvault identity update`
 Update the existing ERC-8004 registration payload.

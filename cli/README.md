@@ -21,3 +21,13 @@ The CLI now has two major surfaces:
 ## Files
 - `COMMANDS.md` — full command tree and semantics
 - `WORKFLOWS.md` — how commands combine into common operator/agent flows
+
+## Environment configuration
+Copy the project-root `.env.example` to `.env` and populate it before using the CLI.
+
+The CLI is designed to support signer abstraction from the beginning:
+- `SOULVAULT_SIGNER_MODE=mnemonic`
+- `SOULVAULT_SIGNER_MODE=private-key`
+- `SOULVAULT_SIGNER_MODE=ledger`
+
+For MVP, mnemonic/private-key modes are expected first, with ledger mode reserved for later implementation.

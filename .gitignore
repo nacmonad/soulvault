@@ -1,1 +1,15 @@
 .DS_Store
+
+# Environment / local secrets
+.env
+.env.*
+!.env.example
+
+# Foundry outputs
+out/
+cache/
+
+# Node / local build artifacts
+node_modules/
+dist/
+coverage/

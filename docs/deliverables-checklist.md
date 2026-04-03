@@ -3,10 +3,10 @@
 ## 1) MVP Deliverables (must-have)
 - [ ] Swarm contract deployed on testnet
 - [ ] First-agent join requires owner approval
-- [ ] `pubkey` stored in join request calldata and member record (no IPFS dependency for pubkey resolution)
+- [ ] `pubkey` stored in join request calldata and member record (no offchain storage dependency for pubkey resolution)
 - [ ] `membershipVersion` counter increments on every join/kick
 - [ ] Epoch key rotation model implemented (`K_epoch`)
-- [ ] Wrapped key bundles published to IPFS per epoch (no symmetric keys onchain)
+- [ ] Wrapped key bundles published to offchain encrypted storage per epoch (no symmetric keys onchain)
 - [ ] Every wrapped-key bundle includes `ownerEscrowEntry`
 - [ ] `rotateEpoch` validates `expectedMembershipVersion` (concurrency control)
 - [ ] Historical Key Grant implemented:
@@ -22,11 +22,13 @@
   - [ ] `backup push`
   - [ ] `restore pull`
   - [ ] `events watch`
-  - [ ] `ipfs pin-all`
-- [ ] Markdown state encrypted before IPFS upload
-- [ ] Restore verifies embedded manifest + per-file hashes against on-chain `manifestHash`
+  - [ ] `identity create-agent`
+  - [ ] `identity register/update`
+  - [ ] `storage publish` / `storage fetch`
+- [ ] Markdown state encrypted before 0G upload
+- [ ] Restore verifies manifest + per-file hashes
 - [ ] Demo shows restore to fresh node/VPS
-- [ ] Owner pins all CIDs via configured provider (local node or Pinata/Web3Storage)
+- [ ] Backup publication writes explicit per-member file mappings (`storageLocator`, `merkleRoot`, `publishTxHash`, `manifestHash`, `epoch`) to every joined swarm contract
 
 ## 2) OpenClaw Integration Deliverable
 - [ ] `skills/soulvault/` skill exists
@@ -36,12 +38,12 @@
 
 ## 3) Messaging + Coordination Deliverable
 - [ ] Contract emits verified messaging events (`AgentMessagePosted`)
-- [ ] Message payload stored encrypted offchain (IPFS)
-- [ ] Event includes reference metadata only (CID/hash/topic/seq/epoch)
+- [ ] Message payload stored encrypted offchain
+- [ ] Event includes reference metadata only (storage ref/hash/topic/seq/epoch)
 - [ ] `epoch` equality check enforced in `postMessage`
 
 ## 4) Security Deliverable
-- [ ] No plaintext memory/persona markdowns on IPFS
+- [ ] No plaintext memory/persona markdowns in remote storage
 - [ ] No private keys in repo or backup bundle
 - [ ] Join gating enforced onchain; pubkey in calldata
 - [ ] Restore requires approval + decrypt capability
@@ -53,8 +55,8 @@
 - [ ] Deploy contract
 - [ ] Agent A requests join (pubkey in calldata)
 - [ ] Owner approves join and triggers `epoch rotate`
-- [ ] Backup encrypted markdown bundle to IPFS
-- [ ] Fresh node restores from latest CID
+- [ ] Backup encrypted markdown bundle to 0G Storage
+- [ ] Fresh node restores from latest published member file mapping
 - [ ] Agent starts with restored identity/memory
 - [ ] Owner issues historical key grant; new joiner decrypts past backup
 - [ ] Show contract events proving join + backup + message + keygrant flow

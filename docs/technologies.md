@@ -3,7 +3,8 @@
 ## 1) Product Components
 - **CLI + TUI control plane** (operator + agent workflows)
 - **EVM smart contracts** (swarm governance, joins, epochs, membershipVersion, pointers, events)
-- **Encrypted storage adapters** (IPFS for ciphertext artifacts; owner-pinned for MVP)
+- **Encrypted storage adapters** (0G Storage for ciphertext memories/backups in MVP)
+- **ERC-8004 identity integration** (optional per-agent public identity + metadata sync)
 - **Optional network overlay module** (WireGuard/relay in roadmap)
 
 ---
@@ -59,14 +60,14 @@ Selection criteria:
 
 ### Required Utilities
 - **EVM RPC provider** (read/write contract state + events)
-- **IPFS upload/download adapter** (gateway/pinning API; local IPFS node optional for MVP, owner-managed)
+- **0G upload/download adapter** (SDK/CLI-backed storage publication and retrieval)
 - **Local secure key store** (store agent private key + unwrapped epoch keys, indexed by epoch number)
 - **Archive utilities** (`tar`/`gzip`) for deterministic bundles
 - **Hashing utilities** (SHA-256 for file/archive/manifest hashes)
 - **KDF utilities** (HKDF for post-MVP derived keys)
 - **Process/system utils** for bootstrap/install orchestration
 
-> Each agent does **not** need to run a full IPFS daemon. MVP uses managed pinning/gateway clients. Local IPFS node is optional for self-hosted mode.
+> Each agent does **not** need to run additional storage infrastructure locally for MVP. SoulVault can publish encrypted artifacts to 0G Storage and retain the resulting storage locator + publish transaction hash.
 
 ### CLI / App
 - `typescript`
@@ -76,12 +77,19 @@ Selection criteria:
 - `zod` (runtime schema validation)
 - `pino` (structured logging)
 
+### ERC-8004 Identity Support
+- ERC-721-compatible identity registry integration
+- JSON schema validation for base64 `agentURI` registration payloads
+- helper commands to create/update per-agent ERC-8004 identities
+- inject optional `harness` metadata during registration
+
 ### Crypto
 - `libsodium-wrappers` (XChaCha20-Poly1305 for symmetric encryption; X25519 box for pubkey wrapping)
 - Node `crypto` (SHA-256/HKDF helpers for post-MVP derived keys)
 
-### IPFS
-- `helia` or Pinata/Web3Storage SDK (choose one MVP provider; owner responsible for pinning)
+### 0G Storage
+- 0G Storage SDK / CLI integration for upload, retrieval, and publication tracking
+- capture storage locator + publish transaction hash after upload
 
 ### Contract Dev
 - Foundry (`forge`, `cast`, `anvil`)
@@ -90,14 +98,14 @@ Selection criteria:
 
 ## 5) Key Contract Methods (MVP)
 
-- `requestJoin(pubkey, pubkeyRef, metadataCid)` — pubkey stored in calldata and member record
+- `requestJoin(pubkey, pubkeyRef, metadataRef)` — pubkey stored in calldata and member record
 - `approveJoin(requestId)` — activates member, increments `membershipVersion`
 - `removeMember(member)` — deactivates member, increments `membershipVersion`
-- `rotateEpoch(newEpoch, keyBundleCid, keyBundleHash, expectedMembershipVersion)` — reverts if `membershipVersion` has changed
-- `grantHistoricalKeys(member, bundleCid, bundleHash, fromEpoch, toEpoch)` — emits `HistoricalKeyBundleGranted`
-- `setLatestBackupPointer(epoch, bundleCid, manifestHash)` — updates backup pointer (manifest embedded in bundle; **no `manifestCid`** in MVP)
-- `postMessage(to, topic, seq, epoch, payloadCid, payloadHash, ttl)` — verified message metadata
-- `updateAgentManifest(manifestCid, manifestHash)` — emits `AgentManifestUpdated`
+- `rotateEpoch(newEpoch, keyBundleRef, keyBundleHash, expectedMembershipVersion)` — reverts if `membershipVersion` has changed
+- `grantHistoricalKeys(member, bundleRef, bundleHash, fromEpoch, toEpoch)` — emits `HistoricalKeyBundleGranted`
+- `updateMemberFileMapping(member, storageLocator, merkleRoot, publishTxHash, manifestHash, epoch)` — explicit Option B per-member file mapping update
+- `postMessage(to, topic, seq, epoch, payloadRef, payloadHash, ttl)` — verified message metadata
+- `updateAgentManifest(manifestRef, manifestHash)` — emits `AgentManifestUpdated`
 
 ---
 
@@ -124,14 +132,33 @@ Deliverable: `skills/soulvault/` skill wrapping CLI
 
 Expected skill operations:
 - `swarm list/use`
-- `join request/approve`
+- `join request/approve/reject/cancel`
+- `member show/remove`
 - `backup push / restore pull`
 - `keygrant` (historical key grant for new/recovered joiners)
 - `epoch rotate`
 - `events watch / status`
-- `ipfs pin-all`
+- `agent create/status`
+- `identity register/update/show`
+- `identity create-agent`
+- `identity render-agenturi`
+- `storage publish` / `storage fetch`
 
 ---
+
+## 7.1) Implementation Folder Layout
+
+Initial implementation layout:
+- `contracts/`
+  - `ISoulVaultSwarm.sol`
+  - swarm contract specs / notes
+  - ERC-8004 integration notes (agent identity is external to SoulVault)
+- `cli/`
+  - command tree spec
+  - workflow spec
+  - later TypeScript command handlers / subcommands
+
+This split keeps the swarm contract surface and the operator/agent command surface explicit from the beginning.
 
 ## 8) Packaging / Release
 
@@ -166,7 +193,7 @@ Keep protocol portable — users should never be locked into managed infrastruct
 - Owner escrow may remain as emergency fallback depending on governance policy.
 
 ### Principle
-Contract governs authorization and CID references. Key recovery and re-wrap happen offchain in authorized CLI tooling.
+Contract governs authorization and storage references. Key recovery and re-wrap happen offchain in authorized CLI tooling.
 
 ---
 
@@ -175,7 +202,8 @@ Contract governs authorization and CID references. Key recovery and re-wrap happ
 - **App:** TypeScript/Node CLI + TUI
 - **Contracts:** Solidity + Foundry
 - **Chain:** Base Sepolia (default)
-- **Storage:** IPFS (encrypted payloads; owner-pinned for MVP)
+- **Storage:** 0G Storage (encrypted memories/backups in MVP)
+- **Public identity:** ERC-8004 per agent (Model 1), optional but recommended for discovery/interoperability
 - **Crypto:** libsodium (XChaCha20-Poly1305 + X25519 box) + Node crypto (HKDF post-MVP)
 - **Automation:** Chainlink Automation (MVP+, trigger only)
 - **Agent UX:** OpenClaw skill wrapper over CLI

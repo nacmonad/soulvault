@@ -22,8 +22,13 @@ This is different from proof-of-compute/effort; it focuses on validated outcomes
 Existing SoulVault primitives already provide:
 - identity/auth (approved swarm members)
 - event log (verifiable history)
-- encrypted offchain artifact storage (IPFS)
+- encrypted offchain artifact storage (0G Storage / compatible backend)
 - governance hooks (owner/quorum)
+
+ERC-8004 adds an optional public-facing trust layer per agent:
+- portable public identity
+- standardized reputation hooks
+- standardized validation hooks
 
 PoUW adds:
 - task definitions + acceptance criteria
@@ -34,26 +39,26 @@ PoUW adds:
 
 ## 3) Minimal Data Model
 
-## TaskSpec (offchain, CID referenced)
+## TaskSpec (offchain, storage-referenced)
 - `taskId`
 - `swarmId`
 - `creator`
 - `objective`
-- `inputsCid[]`
+- `inputsRef[]`
 - `constraints` (time, cost, tool boundaries)
-- `evalSpecCid` (scoring rules)
+- `evalSpecRef` (scoring rules)
 - `deadline`
 
-## WorkSubmission (offchain, CID referenced)
+## WorkSubmission (offchain, storage-referenced)
 - `taskId`
 - `workerAgent`
 - `runConfigHash`
-- `artifactCid`
+- `artifactRef`
 - `artifactHash`
-- `logsCid` (optional)
+- `logsRef` (optional)
 - `metrics` / summary
 
-## VerificationReport (offchain, CID referenced)
+## VerificationReport (offchain, storage-referenced)
 - `taskId`
 - `submissionId`
 - `verifierType` (deterministic | benchmark | human/judge)
@@ -124,6 +129,12 @@ PoUW does not replace SoulVault security model.
 - membership changes still force epoch rekey for future confidentiality
 
 ---
+
+## 7.1) ERC-8004 Validation / Reputation Fit
+PoUW results map naturally to ERC-8004 post-MVP:
+- accepted work can contribute to offchain reputation feeds and onchain reputation submissions
+- verifier outputs can be surfaced through ERC-8004-style validation flows
+- agent-level reputation remains attached to the individual agent identity (Model 1), not to the swarm as a whole
 
 ## 8) Treasury / Incentives (Post-MVP)
 

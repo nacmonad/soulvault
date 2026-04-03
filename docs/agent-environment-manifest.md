@@ -5,6 +5,8 @@ Describe each agent’s execution capabilities so future task delegation can rou
 
 This is introduced now as schema/design, but not required for MVP enforcement.
 
+For ERC-8004 integration (Model 1), this document also defines the **public-safe manifest** shape that an individual agent MAY reference from its `agentURI` registration file.
+
 ---
 
 ## 1) What it enables later
@@ -75,11 +77,11 @@ This is introduced now as schema/design, but not required for MVP enforcement.
 Recommended:
 1. Agent generates manifest JSON locally.
 2. Agent signs manifest hash with its swarm identity key.
-3. Manifest is uploaded to IPFS (CID).
-4. Contract stores only CID/hash pointer via event/state update.
+3. Manifest is uploaded to the configured storage backend or embedded into public metadata when appropriate.
+4. Contract stores only the resulting locator/hash pointer via event/state update.
 
 Event example:
-- `AgentManifestUpdated(agent, manifestCid, manifestHash, timestamp)`
+- `AgentManifestUpdated(agent, manifestRef, manifestHash, timestamp)`
 
 ---
 
@@ -95,6 +97,26 @@ Event example:
 - Avoid exposing sensitive internals (hostnames, private IPs, secrets)
 - Round capacities if needed for privacy
 - Keep raw telemetry offchain; publish only required summaries
+- Treat this manifest as having **two possible views**:
+  - **private/full manifest** for SoulVault-internal use
+  - **public-safe manifest** for ERC-8004 discovery
+
+## 6.1) ERC-8004 mapping (Model 1)
+For agents that register an ERC-8004 identity, the public-safe manifest MAY be referenced from the `agentURI` registration payload via either:
+- a `services[]` entry named `SoulVault`, or
+- a custom `soulvault.publicManifestUri` field in the registration JSON
+
+Recommended additional public registration fields:
+- `soulvault.swarmId`
+- `soulvault.swarmContract`
+- `soulvault.memberAddress`
+- `soulvault.role`
+- `soulvault.harness`
+- `soulvault.publicManifestUri`
+- `soulvault.publicManifestHash`
+- `soulvault.backupHarnessCommand`
+
+`harness` is intentionally a custom extension field so callers can understand the agent runtime/framework (for example: `openclaw`, `hermes`, `custom`). `backupHarnessCommand` identifies the harness-specific backup command SoulVault should execute before encryption/upload.
 
 ---
 
@@ -102,3 +124,4 @@ Event example:
 - For MVP, manifests are optional and informational.
 - Do not block joins/restores on manifest validity yet.
 - Enforce only in future delegation/PoUW phases.
+- ERC-8004 linkage is optional and should enrich discovery, not gate admission.

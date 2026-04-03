@@ -10,17 +10,18 @@
 
 ## Slide 3 — Core Insight
 - Keep state encrypted end-to-end
-- Store ciphertext in IPFS
+- Store ciphertext in 0G Storage
 - Use swarm contracts as approval/coordination layer
 
 ## Slide 4 — Architecture
 (visual)
-Owner Wallet ↔ Swarm Contract ↔ SoulVault CLI ↔ IPFS ↔ OpenClaw Nodes
+Owner Wallet ↔ Swarm Contract ↔ SoulVault CLI ↔ 0G Storage ↔ OpenClaw Nodes
 
 ## Slide 5 — Security Model
 - Human root-of-trust for first join
 - Epoch content key model (`K_epoch`) with rotation on join/kick
-- Wrapped key bundles on IPFS (no symmetric keys onchain)
+- Wrapped key bundles in offchain encrypted storage (no symmetric keys onchain)
+- Explicit per-member file mappings onchain (storage locator + merkle root + publish tx hash)
 - Encrypted markdown bundles (`SOUL`, `MEMORY`, `HEARTBEAT`)
 - No private keys in backups
 - Hash verification at restore
@@ -29,7 +30,7 @@ Owner Wallet ↔ Swarm Contract ↔ SoulVault CLI ↔ IPFS ↔ OpenClaw Nodes
 1. Deploy swarm contract
 2. Agent requests join
 3. Owner approves
-4. Agent restores encrypted state from IPFS
+4. Agent restores encrypted state from 0G Storage
 5. Agent boots with recovered identity
 
 ## Slide 7 — Multi-Swarm + Event Watcher
@@ -46,7 +47,7 @@ Owner Wallet ↔ Swarm Contract ↔ SoulVault CLI ↔ IPFS ↔ OpenClaw Nodes
 **What exists:**
 - Agent coordination frameworks
 - DAO/multisig governance
-- IPFS + encrypted backup tools
+- decentralized storage + encrypted backup tools
 
 **What’s missing:**
 - End-to-end agent identity continuity for markdown memory/state

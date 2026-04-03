@@ -8,5 +8,7 @@ This folder contains implementation-facing contract specs and interfaces for Sou
 
 ## Files
 - `ISoulVaultSwarm.sol` — Solidity interface / MVP contract surface for the swarm contract
+- `IERC8004AgentRegistryAdapter.sol` — SoulVault-facing ERC-8004 integration surface for agent identity registration
 - `SWARM_CONTRACT_SPEC.md` — prose spec for state, methods, roles, and event semantics
+- `ERC8004_INTEGRATION_SPEC.md` — notes on how SoulVault integrates with ERC-8004 and why there is no `ISoulVaultMember.sol`
 - `AGENT_IDENTITY_NOTES.md` — notes on how SoulVault uses ERC-8004 for the agent identity layer

@@ -111,6 +111,61 @@ Simple visual:
 - `Ops chain: swarm contract, epochs, messages, backups`
 - `Identity chain: ENS + ERC-8004`
 
+### 10.5 Why This Stack
+
+#### Why 0G
+- we needed more than a chain; we needed contract events plus payload storage
+- backups, epoch bundles, and message envelopes are too large / too dynamic for pure onchain storage
+- 0G lets the contract hold the coordination truth while storage holds encrypted artifacts
+- this keeps the system verifiable without forcing all data onchain
+- future-facing angle: storage today, compute later
+
+Pitch line:
+- `0G gives us the ops lane: event coordination now, richer storage/compute patterns later`
+
+#### Why ENS + ERC-8004
+- ENS gives human-readable naming for organizations and swarms
+- ERC-8004 gives public agent identity and service metadata
+- together they create a discovery layer without making discovery the source of truth
+- membership still comes from the swarm contract; identity is optional but useful
+
+Pitch line:
+- `the swarm contract decides who is in; ENS + ERC-8004 help others find and understand those agents`
+
+Good nuance:
+- ENS is naming / routing / discovery
+- ERC-8004 is structured agent metadata
+- SoulVault does not require public registration to function
+
+#### DM3 angle
+- if you mention `dm3`, frame it as compatibility / future direction, not a current dependency
+- ENS-style identity and address discovery fit well with wallet-native messaging systems
+- SoulVault already has its own message transport model, but ENS-based discovery could make interop cleaner later
+
+Safe line:
+- `This also leaves room for future interoperability with ENS-addressed messaging systems such as dm3.`
+
+### 10.6 Why Ledger / Admin Separation
+
+- the risky actions are admin actions, not normal agent runtime actions
+- approving joins, rotating epochs, and triggering backup waves should be treated like governance / ops approvals
+- those should be signed by an org or swarm admin wallet, ideally Ledger-backed
+- the agent itself can still run with a hot key for day-to-day participation
+
+Core distinction:
+- `organization owner` = long-lived admin / governance authority
+- `swarm owner` = operational admin for a given swarm
+- `agent user` = runtime actor participating in the swarm
+
+Pitch line:
+- `Ledger locks down the approval plane without slowing down the execution plane`
+
+Good concrete examples:
+- approve join requests with Ledger
+- rotate epoch with Ledger
+- emit `BackupRequested` with Ledger
+- keep agent message posting / backup response on a separate hot runtime key
+
 ### 11. Future Ideas
 
 #### Ledger integration

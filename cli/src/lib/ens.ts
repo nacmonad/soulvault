@@ -1,5 +1,6 @@
-import { Contract, HDNodeWallet, JsonRpcProvider, Wallet } from 'ethers';
+import { Contract, JsonRpcProvider } from 'ethers';
 import { loadEnv } from './config.js';
+import { createSignerForProvider } from './signer.js';
 
 const ENS_REGISTRY_ABI = [
   'function owner(bytes32 node) view returns (address)',
@@ -35,25 +36,8 @@ export async function createEnsProvider() {
 }
 
 export async function createEnsSigner() {
-  const env = loadEnv();
   const provider = await createEnsProvider();
-
-  switch (env.SOULVAULT_SIGNER_MODE) {
-    case 'mnemonic':
-      if (!env.SOULVAULT_MNEMONIC) {
-        throw new Error('SOULVAULT_MNEMONIC is required when SOULVAULT_SIGNER_MODE=mnemonic');
-      }
-      return HDNodeWallet.fromPhrase(env.SOULVAULT_MNEMONIC, undefined, env.SOULVAULT_MNEMONIC_PATH).connect(provider);
-    case 'private-key':
-      if (!env.SOULVAULT_PRIVATE_KEY) {
-        throw new Error('SOULVAULT_PRIVATE_KEY is required when SOULVAULT_SIGNER_MODE=private-key');
-      }
-      return new Wallet(env.SOULVAULT_PRIVATE_KEY, provider);
-    case 'ledger':
-      throw new Error('Ledger signer mode is not scaffolded yet. Use mnemonic or private-key for MVP.');
-    default:
-      throw new Error(`Unsupported signer mode: ${env.SOULVAULT_SIGNER_MODE satisfies never}`);
-  }
+  return createSignerForProvider(provider);
 }
 
 export function getEnsContracts() {

@@ -13,3 +13,5 @@ Current stories:
 - `story01.md` — browse organizations, swarms, and member identities
 - `story03.md` — rotate a swarm epoch bundle and verify the member entry
 - `story04.md` — owner requests backup, agent watches event, agent uploads to 0G and publishes mapping
+- `story05.md` — swarm messaging protocol (public, group, DM) with envelope formats and verification
+- `story06.md` — messaging quick-start: three copy-paste examples (public broadcast, group coordination, encrypted DM)

@@ -6,7 +6,9 @@ import { getAgentProfile } from '../lib/agent.js';
 import { respondToBackupRequest } from '../lib/backup-respond.js';
 
 export function registerSwarmCommands(program: Command) {
-  const swarm = program.command('swarm').description('Swarm profiles, lifecycle, and debug/event tooling')
+  const swarm = program
+    .command('swarm')
+    .description('Swarm profiles, contract lifecycle, backup-request coordination, events')
     .addHelpText('after', `\nExamples:\n  soulvault swarm create --organization soulvault.eth --name ops\n  soulvault swarm use ops\n  soulvault swarm join-request --swarm ops\n  soulvault swarm approve-join --swarm ops --request-id 1\n  soulvault swarm member-identities --swarm ops\n  soulvault swarm backup-request --swarm ops --reason "manual test checkpoint"\n  soulvault swarm events watch --swarm ops`);
 
   swarm
@@ -125,6 +127,7 @@ export function registerSwarmCommands(program: Command) {
 
   swarm
     .command('backup-request')
+    .description('Emit BackupRequested on the swarm contract (owner/coordinator — signals members to back up)')
     .requiredOption('--reason <text>')
     .option('--swarm <nameOrEns>')
     .option('--epoch <n>')

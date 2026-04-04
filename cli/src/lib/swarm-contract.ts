@@ -22,6 +22,9 @@ const SOULVAULT_SWARM_ABI = [
   'event EpochRotated(uint64 indexed oldEpoch, uint64 indexed newEpoch, string keyBundleRef, bytes32 keyBundleHash, uint64 membershipVersion)',
   'event BackupRequested(address indexed requestedBy, uint64 indexed epoch, string reason, string targetRef, uint64 deadline, uint64 timestamp)',
   'event MemberFileMappingUpdated(address indexed member, uint64 indexed epoch, string storageLocator, bytes32 merkleRoot, bytes32 publishTxHash, bytes32 manifestHash, address indexed by)',
+  'function postMessage(address to, string topic, uint64 seq, uint64 epoch, string payloadRef, bytes32 payloadHash, uint64 ttl)',
+  'function getLastSenderSeq(address sender) view returns (uint64)',
+  'event AgentMessagePosted(address indexed from, address indexed to, string topic, uint64 seq, uint64 epoch, string payloadRef, bytes32 payloadHash, uint64 ttl, uint64 timestamp)',
 ] as const;
 
 async function resolveTargetSwarm(swarm?: string) {
@@ -146,13 +149,14 @@ export async function listRecentSwarmEvents(input: { swarm?: string; fromBlock?:
   const fromBlock = input.fromBlock ?? 0;
   const toBlock = input.toBlock ?? 'latest';
 
-  const [joinRequested, joinApproved, memberRemoved, epochRotated, backupRequested, mappingUpdated] = await Promise.all([
+  const [joinRequested, joinApproved, memberRemoved, epochRotated, backupRequested, mappingUpdated, messagesPosted] = await Promise.all([
     contract.queryFilter(contract.filters.JoinRequested(), fromBlock, toBlock),
     contract.queryFilter(contract.filters.JoinApproved(), fromBlock, toBlock),
     contract.queryFilter(contract.filters.MemberRemoved(), fromBlock, toBlock),
     contract.queryFilter(contract.filters.EpochRotated(), fromBlock, toBlock),
     contract.queryFilter(contract.filters.BackupRequested(), fromBlock, toBlock),
     contract.queryFilter(contract.filters.MemberFileMappingUpdated(), fromBlock, toBlock),
+    contract.queryFilter(contract.filters.AgentMessagePosted(), fromBlock, toBlock),
   ]);
 
   const events = [
@@ -203,6 +207,18 @@ export async function listRecentSwarmEvents(input: { swarm?: string; fromBlock?:
       member: String((log as any).args?.member ?? ''),
       epoch: (log as any).args?.epoch?.toString(),
       storageLocator: String((log as any).args?.storageLocator ?? ''),
+    })),
+    ...messagesPosted.map((log) => ({
+      type: 'AgentMessagePosted',
+      blockNumber: log.blockNumber,
+      txHash: log.transactionHash,
+      from: String((log as any).args?.from ?? ''),
+      to: String((log as any).args?.to ?? ''),
+      topic: String((log as any).args?.topic ?? ''),
+      seq: (log as any).args?.seq?.toString(),
+      epoch: (log as any).args?.epoch?.toString(),
+      payloadRef: String((log as any).args?.payloadRef ?? ''),
+      ttl: (log as any).args?.ttl?.toString(),
     })),
   ].sort((a, b) => a.blockNumber - b.blockNumber);
 
@@ -281,6 +297,69 @@ export async function updateMemberFileMappingOnchain(input: {
     console.error('[updateMemberFileMapping] error', message);
     throw error;
   }
+}
+
+export async function postMessageToSwarm(input: {
+  swarm?: string;
+  to?: string;
+  topic: string;
+  payloadRef: string;
+  payloadHash: string;
+  ttl?: number;
+}) {
+  const { profile, contract } = await getSwarmContract(input.swarm);
+  const currentEpoch = Number(await contract.currentEpoch());
+  const lastSeq = Number(await contract.getLastSenderSeq((await createSigner()).address));
+  const seq = lastSeq + 1;
+  const to = input.to ?? '0x0000000000000000000000000000000000000000';
+  const ttl = input.ttl ?? 3600;
+
+  const tx = await contract.postMessage(to, input.topic, seq, currentEpoch, input.payloadRef, input.payloadHash, ttl);
+  const receipt = await tx.wait();
+
+  return {
+    swarm: profile.slug,
+    contractAddress: profile.contractAddress,
+    txHash: receipt?.hash,
+    from: (await createSigner()).address,
+    to,
+    topic: input.topic,
+    seq,
+    epoch: currentEpoch,
+    payloadRef: input.payloadRef,
+    payloadHash: input.payloadHash,
+    ttl,
+  };
+}
+
+export async function listSwarmMessages(input: { swarm?: string; fromBlock?: number; toBlock?: number | 'latest' }) {
+  const { profile, contract } = await getSwarmContract(input.swarm);
+  const fromBlock = input.fromBlock ?? 0;
+  const toBlock = input.toBlock ?? 'latest';
+
+  const logs = await contract.queryFilter(contract.filters.AgentMessagePosted(), fromBlock, toBlock);
+
+  const messages = logs.map((log) => ({
+    blockNumber: log.blockNumber,
+    txHash: log.transactionHash,
+    from: String((log as any).args?.from ?? ''),
+    to: String((log as any).args?.to ?? ''),
+    topic: String((log as any).args?.topic ?? ''),
+    seq: (log as any).args?.seq?.toString(),
+    epoch: (log as any).args?.epoch?.toString(),
+    payloadRef: String((log as any).args?.payloadRef ?? ''),
+    payloadHash: String((log as any).args?.payloadHash ?? ''),
+    ttl: (log as any).args?.ttl?.toString(),
+    timestamp: (log as any).args?.timestamp?.toString(),
+  }));
+
+  return {
+    swarm: profile.slug,
+    contractAddress: profile.contractAddress,
+    fromBlock,
+    toBlock,
+    messages,
+  };
 }
 
 export async function getJoinRequestStatus(input: { swarm?: string; requestId: string }) {

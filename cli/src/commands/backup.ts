@@ -5,10 +5,13 @@ import { uploadPreparedArtifact } from '../lib/0g.js';
 import { writeLastBackup } from '../lib/state.js';
 
 export function registerBackupCommands(program: Command) {
-  const backup = program.command('backup').description('Backup flows');
+  const backup = program
+    .command('backup')
+    .description('Member-side backup: archive workspace, encrypt with current K_epoch, upload to 0G (not the onchain backup trigger — use `swarm backup-request` for that)');
 
   backup
     .command('push')
+    .description('Create encrypted backup artifact and upload; updates ~/.soulvault/last-backup.json')
     .option('--workspace <path>', 'Workspace to archive', process.cwd())
     .option('--skip-upload', 'Only create + encrypt the archive locally', false)
     .action(async (options) => {

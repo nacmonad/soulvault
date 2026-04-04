@@ -196,13 +196,21 @@ export async function decryptBundleForCurrentMember(input: { swarm?: string; pri
   decipher.setAuthTag(authTag);
   const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
   const unwrappedKeyHex = plaintext.toString('hex');
-  const expected = await readEpochKey(latest.swarm, Number(latest.newEpoch));
+  const keyFingerprint = keccak256(`0x${unwrappedKeyHex}`);
+  let expected = await readEpochKey(latest.swarm, Number(latest.newEpoch));
+
   if (!expected) {
-    throw new Error(`No local stored epoch key found for swarm ${latest.swarm} epoch ${latest.newEpoch}`);
+    // No local key — import the unwrapped key from the bundle (new machine / fresh state)
+    expected = await storeEpochKey({
+      swarm: latest.swarm,
+      epoch: Number(latest.newEpoch),
+      keyHex: `0x${unwrappedKeyHex}`,
+      source: 'imported',
+    });
   }
+
   const expectedKeyHex = normalizeHex(expected.keyHex);
   const matchesExpected = unwrappedKeyHex === expectedKeyHex;
-  const keyFingerprint = keccak256(`0x${unwrappedKeyHex}`);
 
   return {
     swarm: latest.swarm,
@@ -217,6 +225,7 @@ export async function decryptBundleForCurrentMember(input: { swarm?: string; pri
     expectedKeyFingerprint: keccak256(`0x${expectedKeyHex}`),
     keyBundleRef: latest.keyBundleRef,
     localKeySource: expected.source,
+    importedFromBundle: expected.source === 'imported',
     unwrappedKeyHex: input.printKey ? `0x${unwrappedKeyHex}` : undefined,
   };
 }

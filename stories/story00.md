@@ -32,11 +32,27 @@ At this point the ENS name is just the intended root name unless separately regi
 soulvault organization register-ens --organization soulvault.eth
 ```
 
-Behavior:
-- checks availability first
-- fails loudly if the name is already taken
-- commits and registers the `.eth` name on Sepolia
-- updates the local organization profile only after confirmed success
+Use the same `--organization` value as your profile’s slug or `ensName` (here: root `soulvault.eth` from step 1).
+
+This command is the **first** step that actually hits **Sepolia** on-chain. Step 1 only wrote local JSON; it did **not** register ENS.
+
+### What you should see on-chain (two transactions)
+
+The ETH Registrar Controller uses **commit–reveal**:
+
+1. **Tx 1 — `commit`** — submits the commitment hash (cheap gas).
+2. **Wait** — the CLI sleeps for `minCommitmentAge` (plus ~1 block) as required by the controller. On Sepolia this is often **~60 seconds or more**; the CLI prints **`[register-ens]`** progress lines on **stderr** (tx hashes, countdown) so it does not look “stuck”.
+3. **Tx 2 — `register`** — pays rent (`value` in wei) and completes registration.
+
+So there are **two** transactions to the controller (not one). On a **Ledger**, expect **separate signing prompts** for each, separated by that wait.
+
+With **`SOULVAULT_SIGNER_MODE=private-key`**, there are **no** device prompts — transactions are signed in software. Check **`SOULVAULT_SIGNER_MODE`** in `.env` if you expected the Ledger.
+
+### After success
+
+The CLI prints JSON including **`commitTxHash`** and **`registerTxHash`**. Look both up on a **Sepolia** explorer for the **wallet that signed** (`ownerAddress` in the same output, or `soulvault agent status` / your signer).
+
+If the command **throws** before any prompt or tx (e.g. name unavailable, wrong organization, missing `ensName` on the profile), you will not see registration txs — read the error text.
 
 ---
 

@@ -9,7 +9,11 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js"
+    "prepare": "pnpm run build",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "SOULVAULT_INTEGRATION=1 vitest run src/lib/ens-name.integration.test.ts"
   },
   "dependencies": {
     "@0gfoundation/0g-ts-sdk": "^1.2.1",
@@ -33,6 +37,7 @@
     "@types/fs-extra": "^11.0.4",
     "@types/node": "^22.15.33",
     "tsx": "^4.20.3",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^3.0.0"
   }
 }

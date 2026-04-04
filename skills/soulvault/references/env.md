@@ -12,6 +12,11 @@ All variables are loaded from `.env` in the project root via `dotenv`.
 | `SOULVAULT_PRIVATE_KEY` | Hex private key (when mode=private-key) | `0xabc...` |
 | `SOULVAULT_MNEMONIC` | BIP39 mnemonic phrase (when mode=mnemonic) | `word1 word2 ...` |
 | `SOULVAULT_MNEMONIC_PATH` | HD derivation path (default: `m/44'/60'/0'/0/0`) | `m/44'/60'/0'/0/0` |
+| `SOULVAULT_LEDGER_DERIVATION_PATH` | Ledger ETH derivation path | `m/44'/60'/0'/0/0` |
+| `SOULVAULT_LEDGER_CONFIRM_ADDRESS` | If `true`, approve address export on the Ledger when the CLI opens a session (default: silent `getAddress`) | `false` |
+| `SOULVAULT_LEDGER_AUTO_SYNC` | When `ledger` mode: after resolving the device address (`describeSigner`), run sync if org/swarm lists are set | `false` |
+| `SOULVAULT_SYNC_ORGANIZATION_ENS` | Comma-separated root ENS names for `sync` | — |
+| `SOULVAULT_SYNC_SWARM_ENS` | Comma-separated swarm ENS names (e.g. `ops.myorg.eth`) for `sync` | — |
 
 ---
 

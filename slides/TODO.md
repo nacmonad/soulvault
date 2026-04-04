@@ -173,6 +173,8 @@ Good concrete examples:
 - owner/admin signs privileged actions with Ledger
 - agent runtime uses a hot key for day-to-day participation
 - better model for real deployments: cold governance + hot operations
+- reduce or eliminate flows that still require blind / non-clear signing
+- improve contract call presentation so admin approvals feel safer and less opaque on-device
 
 Pitch it as:
 - `human admin security without breaking agent autonomy`

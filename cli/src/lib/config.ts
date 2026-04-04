@@ -12,6 +12,11 @@ const envSchema = z.object({
   SOULVAULT_MNEMONIC_PATH: z.string().default("m/44'/60'/0'/0/0"),
   SOULVAULT_PRIVATE_KEY: z.string().optional(),
   SOULVAULT_LEDGER_DERIVATION_PATH: z.string().default("m/44'/60'/0'/0/0"),
+  /** When `ledger` mode: if true, Ledger prompts to export/confirm the address on-device during connect (default is silent export). */
+  SOULVAULT_LEDGER_CONFIRM_ADDRESS: z.preprocess(
+    (v) => v === '1' || String(v ?? '').toLowerCase() === 'true',
+    z.boolean(),
+  ).default(false),
   SOULVAULT_RPC_URL: z.string().url().default('https://evmrpc-testnet.0g.ai'),
   SOULVAULT_CHAIN_ID: z.coerce.number().default(16602),
   SOULVAULT_ETH_RPC_URL: z.string().url().default('https://ethereum-sepolia-rpc.publicnode.com'),
@@ -32,6 +37,15 @@ const envSchema = z.object({
   SOULVAULT_TEST_K_EPOCH: z.string().default('0000000000000000000000000000000000000000000000000000000000000001'),
   SOULVAULT_PROFILE: z.string().default('default'),
   SOULVAULT_WORKSPACE: z.string().optional(),
+  /** Comma-separated ENS names (root org), e.g. `soulvault.eth`. Used by `soulvault sync` and optional ledger auto-sync. */
+  SOULVAULT_SYNC_ORGANIZATION_ENS: z.string().optional(),
+  /** Comma-separated swarm ENS names, e.g. `ops.soulvault.eth`. Parent org is inferred and must be owned by the wallet. */
+  SOULVAULT_SYNC_SWARM_ENS: z.string().optional(),
+  /** When `1`/`true` and signer mode is `ledger`, run ENS/registry sync after the device address is resolved (e.g. via `describeSigner`). */
+  SOULVAULT_LEDGER_AUTO_SYNC: z.preprocess(
+    (v) => v === '1' || String(v ?? '').toLowerCase() === 'true',
+    z.boolean(),
+  ).default(false),
 });
 
 export type SoulVaultEnv = z.infer<typeof envSchema>;

@@ -1,4 +1,5 @@
 import fs from 'fs-extra';
+import { normalize } from 'viem/ens';
 import { loadEnv } from './config.js';
 import { describeSigner } from './signer.js';
 import { readConfig, readJsonIfExists, writeConfig } from './state.js';
@@ -59,6 +60,45 @@ export async function createOrganizationProfile(input: {
   await fs.writeJson(resolveOrganizationPath(slug), profile, { spaces: 2 });
   await writeConfig({ activeOrganization: slug });
   return profile;
+}
+
+/** Normalize and validate a root ENS label (e.g. `foo.eth`). */
+export function normalizeRootEthEnsName(name: string) {
+  const normalized = normalize(name.trim());
+  const parts = normalized.split('.');
+  if (parts.length !== 2 || parts[1] !== 'eth') {
+    throw new Error(`Only root .eth organization names are supported right now. Got: ${name}`);
+  }
+  return normalized;
+}
+
+/**
+ * Attach a root `.eth` name to an existing local profile so `register-ens` can run.
+ * Does not register on-chain (use `organization register-ens` after).
+ */
+export async function setOrganizationEnsName(input: { nameOrSlug: string; ensName: string }) {
+  const profile = await getOrganizationProfile(input.nameOrSlug);
+  if (!profile) {
+    throw new Error(`Organization not found: ${input.nameOrSlug}`);
+  }
+
+  if (profile.ensRegistration?.status === 'registered') {
+    throw new Error(
+      `Organization ${profile.slug} already has a completed ENS registration (${profile.ensName}). Refusing to change ensName.`,
+    );
+  }
+
+  const ensName = normalizeRootEthEnsName(input.ensName);
+  const now = new Date().toISOString();
+  const updated: OrganizationProfile = {
+    ...profile,
+    ensName,
+    ensRegistration: { status: 'planned' },
+    updatedAt: now,
+  };
+
+  await fs.writeJson(resolveOrganizationPath(profile.slug), updated, { spaces: 2 });
+  return updated;
 }
 
 export async function getOrganizationProfile(nameOrSlug: string) {

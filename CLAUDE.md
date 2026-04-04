@@ -19,7 +19,7 @@ cli/src/commands/  Thin Commander.js handlers — one file per entity
 cli/src/lib/       Business logic (crypto, contract calls, state, storage)
 cli/src/index.ts   CLI entry point — all commands registered here
 docs/              Deep architecture, protocol, glossary
-stories/           Runnable demo walkthroughs (story00–story06)
+stories/           Runnable demo walkthroughs (story00–story07)
 skills/soulvault/  Agent skill package with full reference docs
 examples/          Standalone 0G SDK usage examples
 ```
@@ -87,11 +87,12 @@ Full catalog: `skills/soulvault/references/events.md`
 ## Testing
 
 ```bash
-pnpm test              # vitest, watch mode
-pnpm test -- --run     # single run
+cd cli && pnpm test              # vitest, single run (unit tests)
+cd cli && pnpm test:watch        # vitest watch
+cd cli && pnpm test:integration  # Sepolia read-only controller smoke test (needs .env; sets SOULVAULT_INTEGRATION=1)
 ```
 
-For integration tests that hit live chains, ensure `.env` is configured with funded wallets.
+Full `register-ens` still requires a **funded** Sepolia wallet; the integration test above only reads `minCommitmentAge` from the public RPC.
 
 ## Stories as executable documentation
 
@@ -105,6 +106,7 @@ The `stories/` directory contains numbered walkthroughs. Each one is designed to
 | story04 | Event-driven backup coordination |
 | story05 | Messaging protocol (detailed) |
 | story06 | Messaging quick-start (3 examples) |
+| story07 | Ledger: local profile/sync vs on-chain signing |
 
 ## When editing this repo
 

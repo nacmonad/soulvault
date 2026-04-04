@@ -8,6 +8,7 @@ import { registerBackupCommands } from './commands/backup.js';
 import { registerRestoreCommands } from './commands/restore.js';
 import { registerEpochCommands } from './commands/epoch.js';
 import { registerMessageCommands } from './commands/message.js';
+import { registerSyncCommands } from './commands/sync.js';
 
 const program = new Command();
 
@@ -46,6 +47,7 @@ registerBackupCommands(program);
 registerRestoreCommands(program);
 registerEpochCommands(program);
 registerMessageCommands(program);
+registerSyncCommands(program);
 
 program.parseAsync(process.argv).catch((error) => {
   console.error(error instanceof Error ? error.message : error);

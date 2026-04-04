@@ -4,13 +4,17 @@ import {
   getActiveOrganization,
   getOrganizationProfile,
   listOrganizationProfiles,
+  setOrganizationEnsName,
   useOrganization,
 } from '../lib/organization.js';
 import { registerOrganizationEns } from '../lib/ens-name.js';
 
 export function registerOrganizationCommands(program: Command) {
   const organization = program.command('organization').description('Organization profiles, ENS root context, and owner actions')
-    .addHelpText('after', `\nExamples:\n  soulvault organization create --name soulvault --ens-name soulvault.eth --public\n  soulvault organization list\n  soulvault organization status --organization soulvault.eth\n  soulvault organization register-ens --organization soulvault.eth`);
+    .addHelpText(
+      'after',
+      `\nExamples:\n  soulvault organization create --name soulvault --ens-name soulvault.eth --public\n  soulvault organization set-ens-name --organization soulvault --ens-name soulvault.eth\n  soulvault organization list\n  soulvault organization status --organization soulvault.eth\n  soulvault organization register-ens --organization soulvault.eth`,
+    );
 
   organization
     .command('create')
@@ -56,6 +60,21 @@ export function registerOrganizationCommands(program: Command) {
       if (!profile) {
         throw new Error('No organization profile found. Run `soulvault organization create` first.');
       }
+      console.log(JSON.stringify(profile, null, 2));
+    });
+
+  organization
+    .command('set-ens-name')
+    .description(
+      'Set the root .eth name on an existing local organization profile (needed before register-ens if create omitted --ens-name).',
+    )
+    .requiredOption('--organization <nameOrSlug>', 'Organization slug, name, or existing ensName')
+    .requiredOption('--ens-name <name>', 'Root ENS name, e.g. soulvault-ledger.eth')
+    .action(async (options) => {
+      const profile = await setOrganizationEnsName({
+        nameOrSlug: options.organization,
+        ensName: options.ensName,
+      });
       console.log(JSON.stringify(profile, null, 2));
     });
 

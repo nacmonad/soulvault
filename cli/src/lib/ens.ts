@@ -1,4 +1,5 @@
-import { Contract, JsonRpcProvider } from 'ethers';
+import { Contract, JsonRpcProvider, ZeroAddress } from 'ethers';
+import { namehash, normalize } from 'viem/ens';
 import { loadEnv } from './config.js';
 import { createSignerForProvider } from './signer.js';
 
@@ -14,6 +15,9 @@ const PUBLIC_RESOLVER_ABI = [
   'function setText(bytes32 node, string key, string value)',
   'function setName(bytes32 node, string newName)',
 ] as const;
+
+/** EIP-634 text records on the ENS resolver for a name. */
+const EXTENDED_RESOLVER_TEXT_ABI = ['function text(bytes32 node, string key) view returns (string)'] as const;
 
 const ETH_REGISTRAR_CONTROLLER_ABI = [
   'function available(string label) view returns (bool)',
@@ -76,4 +80,32 @@ export function getSoulVaultEnsTextRecordKeys() {
     'erc8004.registry',
     'erc8004.agentId',
   ] as const;
+}
+
+/** Normalized ENS full name, e.g. `foo.eth`. */
+export function normalizeEnsName(name: string) {
+  return normalize(name);
+}
+
+export async function readEnsNodeOwner(name: string) {
+  const fullName = normalizeEnsName(name);
+  const node = namehash(fullName);
+  const registry = await getEnsRegistry(false);
+  const owner = await registry.owner(node);
+  return { fullName, node, owner: String(owner) };
+}
+
+/** Read a single text record via the name's current resolver. */
+export async function readEnsText(ensName: string, key: string) {
+  const { node } = await readEnsNodeOwner(ensName);
+  const registry = await getEnsRegistry(false);
+  const resolverAddress = await registry.resolver(node);
+  const resolverStr = String(resolverAddress);
+  if (!resolverAddress || resolverStr.toLowerCase() === ZeroAddress.toLowerCase()) {
+    return '';
+  }
+  const provider = await createEnsProvider();
+  const resolver = new Contract(resolverAddress, EXTENDED_RESOLVER_TEXT_ABI, provider);
+  const value = await resolver.text(node, key);
+  return String(value ?? '');
 }

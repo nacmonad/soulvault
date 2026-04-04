@@ -9,10 +9,21 @@ import {
   type TransactionRequest,
   Wallet,
 } from 'ethers';
-import { DeviceActionStatus, DeviceManagementKitBuilder, type DeviceManagementKit, type DeviceSessionId, type DiscoveredDevice } from '@ledgerhq/device-management-kit';
-import { SignerEthBuilder, type Signature as LedgerSignature, type SignerEth } from '@ledgerhq/device-signer-kit-ethereum';
-import { nodeHidIdentifier, nodeHidTransportFactory } from '@ledgerhq/device-transport-kit-node-hid';
+import { createRequire } from 'node:module';
+import type { ClearSignContextType, ContextModule } from '@ledgerhq/context-module';
+import { ContextModuleBuilder } from '@ledgerhq/context-module';
+import type { DeviceManagementKit, DeviceSessionId, DiscoveredDevice } from '@ledgerhq/device-management-kit';
+import type { Signature as LedgerSignature, SignerEth } from '@ledgerhq/device-signer-kit-ethereum';
 import { loadEnv } from './config.js';
+
+/**
+ * Ledger DMK / signer packages ship a broken ESM entry on Node (directory `export * from "./src"`).
+ * CJS builds work; load them explicitly.
+ */
+const requireLedger = createRequire(import.meta.url);
+const { DeviceManagementKitBuilder } = requireLedger('@ledgerhq/device-management-kit');
+const { SignerEthBuilder } = requireLedger('@ledgerhq/device-signer-kit-ethereum');
+const { nodeHidIdentifier, nodeHidTransportFactory } = requireLedger('@ledgerhq/device-transport-kit-node-hid');
 
 const LEDGER_DISCOVERY_TIMEOUT_MS = 15_000;
 
@@ -60,7 +71,33 @@ class LedgerEthersSigner extends AbstractSigner {
 
   override async signTransaction(tx: TransactionRequest) {
     const populated = await this.populateTransaction(tx);
-    const transaction = Transaction.from(populated);
+    // populateTransaction sets `from`; ethers v6 rejects unsigned txs that still define `from`.
+    const { from: _dropFrom, ...unsigned } = populated;
+    let transaction = Transaction.from(unsigned);
+
+    // Ledger Ethereum app frequently returns 6a80 "Invalid data" on EIP-1559 / EIP-2930 serialized
+    // payloads from `unsignedSerialized`. Rebuild as legacy type-0 with a single gasPrice for signing.
+    if ((transaction.type === 1 || transaction.type === 2) && this.provider) {
+      const fd = await this.provider.getFeeData();
+      const gasPrice =
+        fd.gasPrice ?? fd.maxFeePerGas ?? transaction.maxFeePerGas ?? transaction.gasPrice ?? null;
+      if (gasPrice == null || gasPrice === 0n) {
+        throw new Error(
+          'Ledger signing needs a legacy gasPrice; network fee data was empty. Wait and retry or use a different RPC.',
+        );
+      }
+      transaction = Transaction.from({
+        type: 0,
+        chainId: transaction.chainId,
+        nonce: transaction.nonce,
+        gasLimit: transaction.gasLimit,
+        gasPrice,
+        to: transaction.to,
+        value: transaction.value,
+        data: transaction.data,
+      });
+    }
+
     const signature = await runLedgerAction<LedgerSignature>(
       this.ledgerClient.signerEth.signTransaction(this.derivationPath, getBytes(transaction.unsignedSerialized))
     );
@@ -115,19 +152,29 @@ export async function createSigner() {
   return createSignerForProvider(provider);
 }
 
-export async function describeSigner() {
+export async function describeSigner(options?: { skipLedgerAutoSync?: boolean }) {
   const signer = await createSigner();
-  if (isLedgerSigner(signer)) {
-    return {
-      address: signer.address,
-      publicKey: signer.publicKey,
-    };
+  const env = loadEnv();
+  const out = isLedgerSigner(signer)
+    ? { address: signer.address, publicKey: signer.publicKey }
+    : { address: signer.address, publicKey: signer.signingKey.publicKey };
+
+  const shouldAutoSync =
+    !options?.skipLedgerAutoSync &&
+    env.SOULVAULT_SIGNER_MODE === 'ledger' &&
+    env.SOULVAULT_LEDGER_AUTO_SYNC;
+
+  if (shouldAutoSync) {
+    const { maybeLedgerAutoSync } = await import('./ledger-sync.js');
+    try {
+      await maybeLedgerAutoSync(out.address);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[soulvault] ledger auto-sync failed: ${msg}`);
+    }
   }
 
-  return {
-    address: signer.address,
-    publicKey: signer.signingKey.publicKey,
-  };
+  return out;
 }
 
 export async function getSignerPrivateKey() {
@@ -150,6 +197,47 @@ function isLedgerSigner(signer: SoulVaultSigner): signer is LedgerEthersSigner {
 async function createLedgerSigner(provider: JsonRpcProvider) {
   const ledgerClient = await getLedgerClient();
   return new LedgerEthersSigner(provider, ledgerClient);
+}
+
+/** Subset shape from Ledger ETH mapper (chainId + contract `to`) when fetching clear-sign contexts. */
+function isTransactionSubsetInput(input: unknown): boolean {
+  if (!input || typeof input !== 'object') return false;
+  const o = input as Record<string, unknown>;
+  return typeof o.chainId === 'number' && typeof o.to === 'string';
+}
+
+/**
+ * Default `@ledgerhq/context-module` tries to push clear-sign CAL payloads for many contract calls.
+ * Unsupported selectors (e.g. ENS commit) make the device report "cannot be clear-signed" / 6a80
+ * before blind signing runs. Returning no contexts skips those APDUs so signing uses the generic path.
+ */
+function wrapContextModuleSkipTxClearSign(inner: ContextModule): ContextModule {
+  return {
+    async getContexts(input: unknown, expectedTypes?: ClearSignContextType[]) {
+      if (isTransactionSubsetInput(input)) {
+        return [];
+      }
+      return inner.getContexts(input, expectedTypes);
+    },
+    getFieldContext(field, expectedType) {
+      return inner.getFieldContext(field, expectedType);
+    },
+    getTypedDataFilters(typedData) {
+      return inner.getTypedDataFilters(typedData);
+    },
+    getSolanaContext(tx) {
+      return inner.getSolanaContext(tx);
+    },
+  };
+}
+
+function buildLedgerSignerEth(dmk: DeviceManagementKit, sessionId: DeviceSessionId) {
+  const innerModule = new ContextModuleBuilder({
+    originToken: undefined,
+    loggerFactory: (tag) => dmk.getLoggerFactory()(['ContextModule', tag]),
+  }).build();
+  const contextModule = wrapContextModuleSkipTxClearSign(innerModule);
+  return new SignerEthBuilder({ dmk, sessionId }).withContextModule(contextModule).build();
 }
 
 async function getLedgerClient() {
@@ -177,19 +265,31 @@ async function initializeLedgerClient(): Promise<LedgerClient> {
   let sessionId: DeviceSessionId | undefined;
   try {
     const device = await discoverLedgerDevice(dmk);
-    sessionId = await dmk.connect({
+    const connectedSessionId = await dmk.connect({
       device,
       sessionRefresherOptions: { isRefresherDisabled: true },
     });
+    sessionId = connectedSessionId;
 
-    const signerEth = new SignerEthBuilder({ dmk, sessionId }).build();
+    const signerEth = buildLedgerSignerEth(dmk, connectedSessionId);
+    const checkOnDevice = env.SOULVAULT_LEDGER_CONFIRM_ADDRESS;
     const account = await runLedgerAction<LedgerAddressResponse>(
-      signerEth.getAddress(derivationPath, { checkOnDevice: false })
+      signerEth.getAddress(derivationPath, {
+        checkOnDevice,
+        // When verifying on-device, the app APDU includes chainId; align with identity lane (Sepolia).
+        ...(checkOnDevice ? { chainId: env.SOULVAULT_ENS_CHAIN_ID } : {}),
+      })
     );
+    if (!account.address) {
+      throw new Error('Ledger getAddress did not return an address');
+    }
+    if (!account.publicKey) {
+      throw new Error('Ledger getAddress did not return a public key');
+    }
 
     return {
       dmk,
-      sessionId,
+      sessionId: connectedSessionId,
       signerEth,
       derivationPath,
       address: account.address,
@@ -200,7 +300,7 @@ async function initializeLedgerClient(): Promise<LedgerClient> {
       await dmk.disconnect({ sessionId }).catch(() => undefined);
     }
     dmk.close();
-    throw error;
+    throw wrapLedgerCommunicationError(error);
   }
 }
 
@@ -232,10 +332,13 @@ async function discoverLedgerDevice(dmk: DeviceManagementKit): Promise<Discovere
   });
 }
 
+/** DMK string statuses (avoid importing enum — ESM re-exports can miss it on some runtimes). */
+type LedgerDeviceActionStatus = 'not-started' | 'pending' | 'stopped' | 'completed' | 'error';
+
 async function runLedgerAction<T>(action: {
   observable: {
     subscribe(observer: {
-      next(state: { status: DeviceActionStatus; output?: T; error?: unknown }): void;
+      next(state: { status: LedgerDeviceActionStatus; output?: T; error?: unknown }): void;
       error?(error: unknown): void;
     }): { unsubscribe(): void };
   };
@@ -245,13 +348,13 @@ async function runLedgerAction<T>(action: {
     let subscription: { unsubscribe(): void } | undefined;
     subscription = action.observable.subscribe({
       next: (state) => {
-        if (state.status === DeviceActionStatus.Completed) {
+        if (state.status === 'completed') {
           subscription?.unsubscribe();
           resolve(state.output as T);
           return;
         }
 
-        if (state.status === DeviceActionStatus.Error) {
+        if (state.status === 'error') {
           subscription?.unsubscribe();
           action.cancel();
           reject(state.error ?? new Error('Ledger device action failed.'));
@@ -267,7 +370,56 @@ async function runLedgerAction<T>(action: {
 }
 
 function normalizeLedgerDerivationPath(path: string) {
-  return path.replace(/^m\//, '');
+  const trimmed = path.trim().replace(/^["']|["']$/g, '');
+  return trimmed.replace(/^m\//, '');
+}
+
+function extractLedgerApduCode(err: unknown): string | undefined {
+  if (typeof err !== 'object' || err === null) return undefined;
+  const o = err as Record<string, unknown>;
+  if (typeof o.errorCode === 'string') return o.errorCode;
+  const orig = o.originalError;
+  if (typeof orig === 'object' && orig !== null && 'errorCode' in orig) {
+    const c = (orig as { errorCode?: unknown }).errorCode;
+    return typeof c === 'string' ? c : undefined;
+  }
+  return undefined;
+}
+
+/** Turn low-level DMK / APDU failures into actionable messages. */
+function wrapLedgerCommunicationError(error: unknown): Error {
+  if (typeof error !== 'object' || error === null) {
+    return new Error(String(error));
+  }
+
+  const code = extractLedgerApduCode(error);
+  const msg = error instanceof Error ? error.message : JSON.stringify(error);
+  const tag =
+    '_tag' in error && error._tag !== undefined ? String(error._tag as unknown) : '';
+
+  const hints = [
+    'Unlock the device and open the Ethereum app, then retry (stay on the app home / dashboard inside Ethereum).',
+    'Quit Ledger Live and any other wallet that might be using the device over USB.',
+    'Update device firmware and the Ethereum app in Ledger Live.',
+    'Use a direct USB port (not an unpowered hub); try another cable.',
+    'If `SOULVAULT_LEDGER_DERIVATION_PATH` is non-default, confirm it matches "44\'/60\'/…" (CLI strips the leading `m/`).',
+  ].join('\n');
+
+  const isExchangeFailure =
+    code === '6a87' ||
+    code === '6a80' ||
+    msg.includes('6a87') ||
+    msg.includes('6a80') ||
+    msg.includes('UnknownDeviceExchangeError') ||
+    tag === 'UnknownDeviceExchangeError';
+
+  if (isExchangeFailure) {
+    return new Error(
+      `Ledger communication failed (APDU/status ${code ?? 'unknown'}). This often means the Ethereum app and CLI disagree on a command, or the device was not ready.\n\n${hints}\n\nOriginal: ${msg}`,
+    );
+  }
+
+  return error instanceof Error ? error : new Error(msg);
 }
 
 function toHexPrefixed(value: string) {

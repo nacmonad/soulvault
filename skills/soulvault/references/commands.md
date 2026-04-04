@@ -4,6 +4,20 @@ Run all commands with `npx tsx cli/src/index.ts` or the `soulvault` alias.
 
 ---
 
+## Sync
+
+### `soulvault sync`
+Rebuild local `~/.soulvault/organizations/*.json` and `swarms/*.json` from ENS (`soulvault.swarmContract`, `soulvault.chainId`) and on-chain checks. The signer wallet must be the ENS owner of each org and the `owner()` of each swarm contract on the ops chain. Optionally discovers ERC-8004 agents for the same wallet when `SOULVAULT_ERC8004_REGISTRY_ADDRESS` is set.
+
+```
+--organization-ens <names>   Comma-separated org ENS names (overrides SOULVAULT_SYNC_ORGANIZATION_ENS)
+--swarm-ens <names>          Comma-separated swarm ENS names (overrides SOULVAULT_SYNC_SWARM_ENS)
+```
+
+With `SOULVAULT_SIGNER_MODE=ledger` and `SOULVAULT_LEDGER_AUTO_SYNC=true`, the same sync runs automatically after the Ledger address is resolved (no second run when using this command: sync skips the nested auto-sync).
+
+---
+
 ## Organization
 
 ### `soulvault organization create`
@@ -29,6 +43,14 @@ Show active organization details (profile, ENS state, visibility).
 
 ```
 --organization <nameOrEns> Target organization (defaults to active)
+```
+
+### `soulvault organization set-ens-name`
+Attach a root `.eth` name to an **existing** local profile when `create` was run without `--ens-name`. Updates `~/.soulvault/organizations/<slug>.json` (not `config.json`). Does not register on-chain — run `register-ens` after.
+
+```
+--organization <nameOrSlug>  Organization slug, display name, or prior ensName
+--ens-name <name>            Root ENS name (e.g. soulvault-ledger.eth)
 ```
 
 ### `soulvault organization register-ens`

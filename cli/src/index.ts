@@ -6,6 +6,7 @@ import { registerAgentCommands } from './commands/agent.js';
 import { registerIdentityCommands } from './commands/identity.js';
 import { registerBackupCommands } from './commands/backup.js';
 import { registerRestoreCommands } from './commands/restore.js';
+import { registerEpochCommands } from './commands/epoch.js';
 
 const program = new Command();
 
@@ -21,6 +22,7 @@ registerAgentCommands(program);
 registerIdentityCommands(program);
 registerBackupCommands(program);
 registerRestoreCommands(program);
+registerEpochCommands(program);
 
 program.parseAsync(process.argv).catch((error) => {
   console.error(error instanceof Error ? error.message : error);

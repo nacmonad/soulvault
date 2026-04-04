@@ -17,6 +17,7 @@ const SOULVAULT_SWARM_ABI = [
   'event JoinRequested(uint256 indexed requestId, address indexed requester, bytes pubkey, string pubkeyRef, string metadataRef)',
   'event JoinApproved(uint256 indexed requestId, address indexed requester, address indexed approver, uint64 epoch)',
   'event MemberRemoved(address indexed member, address indexed by, uint64 epoch)',
+  'event EpochRotated(uint64 indexed oldEpoch, uint64 indexed newEpoch, string keyBundleRef, bytes32 keyBundleHash, uint64 membershipVersion)',
 ] as const;
 
 async function resolveTargetSwarm(swarm?: string) {

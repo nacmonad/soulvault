@@ -11,3 +11,4 @@ Each story is meant to be:
 Current stories:
 - `story00.md` — bootstrap organization + swarm + join/approve flow
 - `story01.md` — browse organizations, swarms, and member identities
+- `story03.md` — rotate a swarm epoch bundle and verify the member entry

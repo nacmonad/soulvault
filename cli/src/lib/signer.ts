@@ -39,3 +39,8 @@ export async function describeSigner() {
     publicKey: signer.signingKey.publicKey,
   };
 }
+
+export async function getSignerPrivateKey() {
+  const signer = await createSigner();
+  return signer.privateKey;
+}

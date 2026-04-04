@@ -171,13 +171,15 @@ Example hierarchy:
   - swarm contract: `0x72fC68297AE86aef652B61D46C0510b75E493A40`
 
 ## H) Epoch bundle creation / publication
-- [ ] Implement `soulvault epoch rotate` as the next focused stream.
-- [ ] Generate a fresh swarm-scoped `K_epoch` for the target swarm.
-- [ ] Build the plaintext wrapped-key JSON bundle for all active members.
-- [ ] Upload the bundle JSON to 0G Storage.
-- [ ] Persist/emit `keyBundleRef` + `keyBundleHash` for the new epoch.
-- [ ] Add `soulvault epoch show-bundle --swarm <name>` for testability/verification.
-- [ ] Add optional self-entry unwrap/verify support without dumping raw `K_epoch` by default.
+- [x] Implement `soulvault epoch rotate` as the next focused stream.
+- [x] Generate a fresh swarm-scoped `K_epoch` for the target swarm.
+- [x] Build the plaintext wrapped-key JSON bundle for all active members.
+- [x] Upload the bundle JSON to 0G Storage.
+- [x] Persist/emit `keyBundleRef` + `keyBundleHash` for the new epoch.
+- [x] Add `soulvault epoch show-bundle --swarm <name>` for testability/verification.
+- [x] Add `soulvault epoch decrypt-bundle-member --swarm <name>` (or similar) to unwrap the current member's entry and verify it matches the expected epoch key material.
+- [x] Default behavior should verify/decode without printing raw `K_epoch` unless an explicit unsafe/dev flag is supplied.
+- [x] Consider disabling raw key output in production contexts while still allowing member-side verification in dev/MVP.
 - [ ] Keep owner escrow / historical epoch recovery explicitly deferred until after MVP.
 
 ## Notes

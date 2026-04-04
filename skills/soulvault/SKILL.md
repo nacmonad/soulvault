@@ -32,6 +32,10 @@ Organization (public namespace, optional ENS root)
 6. **Message** — Post messages via `msg post` (public/group/dm) → upload envelope to 0G → call `postMessage` onchain with 0G hash as `payloadRef`
 7. **Identity** — Optionally register ERC-8004 agent identity on Sepolia with services and swarm metadata
 
+## Quick Status
+
+`soulvault status` prints a unified dashboard of all local and on-chain state. Use `--json` for machine-readable output or `--offline` to skip RPC calls.
+
 ## Command Reference
 
 See `references/commands.md` for the full CLI surface with every flag and option.

@@ -45,6 +45,7 @@ Both lanes share a single signer wallet. The CLI routes to the correct chain aut
 
 | Entity | Commands | State file |
 |--------|----------|------------|
+| Status | `status [--json] [--offline]` | (aggregates all state) |
 | Organization | `organization create/list/use/status/register-ens` | `~/.soulvault/organizations/<slug>.json` |
 | Swarm | `swarm create/list/use/status/join-request/approve-join/member-identities` | `~/.soulvault/swarms/<slug>.json` |
 | Agent | `agent create/status/register/update/show` | `~/.soulvault/agent.json` |

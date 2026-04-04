@@ -9,6 +9,7 @@ import { registerRestoreCommands } from './commands/restore.js';
 import { registerEpochCommands } from './commands/epoch.js';
 import { registerMessageCommands } from './commands/message.js';
 import { registerSyncCommands } from './commands/sync.js';
+import { registerStatusCommand } from './commands/status.js';
 
 const program = new Command();
 
@@ -31,6 +32,9 @@ Backups (event-driven coordination):
     soulvault swarm events watch --respond-backup [--swarm <nameOrEns>]
 
 Examples:
+  soulvault status
+  soulvault status --json
+  soulvault status --offline
   soulvault organization create --name soulvault --ens-name soulvault.eth --public
   soulvault organization register-ens --organization soulvault.eth
   soulvault swarm create --organization soulvault.eth --name ops
@@ -48,6 +52,7 @@ registerRestoreCommands(program);
 registerEpochCommands(program);
 registerMessageCommands(program);
 registerSyncCommands(program);
+registerStatusCommand(program);
 
 program.parseAsync(process.argv).catch((error) => {
   console.error(error instanceof Error ? error.message : error);

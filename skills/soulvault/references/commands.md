@@ -4,6 +4,33 @@ Run all commands with `npx tsx cli/src/index.ts` or the `soulvault` alias.
 
 ---
 
+## Status
+
+### `soulvault status`
+Unified dashboard showing wallet, agent, organization, swarm, on-chain state, local epoch keys, last backup, and environment configuration in a single view.
+
+```
+--json                     Output raw JSON instead of human-readable text
+--offline                  Skip on-chain RPC calls (local state only)
+```
+
+Sections displayed:
+
+| Section | Source | Data |
+|---------|--------|------|
+| Wallet | env / agent profile | signer mode, address, public key |
+| Agent | `~/.soulvault/agent.json` | name, harness, ERC-8004 agentId |
+| Organization | `~/.soulvault/organizations/<active>.json` | name, ENS, visibility, registration status |
+| Swarm | `~/.soulvault/swarms/<active>.json` | name, ENS, contract address, chain ID |
+| On-chain | RPC to swarm contract | epoch, member count, membership version, your membership status, contract owner |
+| Local Keys | `~/.soulvault/keys/<swarm>/` | count of epoch key files, latest epoch number |
+| Last Backup | `~/.soulvault/last-backup.json` | timestamp, epoch, 0G root hash, workspace path |
+| Environment | `.env` config | ops RPC, identity RPC, 0G indexer URL, profile, state directory |
+
+On-chain calls degrade gracefully — if the RPC is unreachable the section shows `(unreachable)` instead of failing.
+
+---
+
 ## Sync
 
 ### `soulvault sync`

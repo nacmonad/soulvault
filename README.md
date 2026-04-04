@@ -54,6 +54,13 @@ Run through the [stories](stories/) for guided walkthroughs, starting with [stor
 
 The CLI follows an entity-first model:
 
+### Status
+| Command | Description |
+|---------|-------------|
+| `status` | Unified dashboard: wallet, agent, org, swarm, on-chain, keys, backup, env |
+| `status --json` | Machine-readable JSON output |
+| `status --offline` | Skip RPC calls, local state only |
+
 ### Organization
 | Command | Description |
 |---------|-------------|

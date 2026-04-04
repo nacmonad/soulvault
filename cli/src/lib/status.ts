@@ -185,14 +185,8 @@ export async function gatherStatus(options: { offline?: boolean } = {}): Promise
   };
 }
 
-function trunc(value: string | null | undefined, len = 10): string {
-  if (!value) return '—';
-  if (value.length <= len + 4) return value;
-  return `${value.slice(0, len)}…${value.slice(-4)}`;
-}
-
-function check(ok: boolean): string {
-  return ok ? '✓' : '✗';
+function show(value: string | null | undefined): string {
+  return value || '—';
 }
 
 export function formatStatusText(report: StatusReport): string {
@@ -210,7 +204,7 @@ export function formatStatusText(report: StatusReport): string {
   push('Wallet');
   kv('Mode', report.wallet.signerMode);
   kv('Address', report.wallet.address ?? '(not configured)');
-  kv('Public Key', trunc(report.wallet.publicKey, 16));
+  kv('Public Key', show(report.wallet.publicKey));
 
   push();
   push('Agent');
@@ -218,7 +212,7 @@ export function formatStatusText(report: StatusReport): string {
     kv('Name', report.agent.name);
     kv('Harness', report.agent.harness);
     if (report.agent.identity?.agentId) {
-      kv('ERC-8004', `#${report.agent.identity.agentId} @ ${trunc(report.agent.identity.registry)}`);
+      kv('ERC-8004', `#${report.agent.identity.agentId} @ ${report.agent.identity.registry}`);
     } else {
       kv('ERC-8004', '(not registered)');
     }
@@ -244,7 +238,7 @@ export function formatStatusText(report: StatusReport): string {
     const sw = report.swarms.active;
     kv('Name', sw.name);
     kv('ENS', sw.ensName ?? '(none)');
-    kv('Contract', trunc(sw.contractAddress, 16));
+    kv('Contract', show(sw.contractAddress));
     kv('Chain', `${sw.chainId}`);
   } else {
     kv('Status', '(none active)');
@@ -267,7 +261,7 @@ export function formatStatusText(report: StatusReport): string {
               ? 'not joined'
               : 'unknown';
       kv('You', memberStr);
-      kv('Owner', trunc(report.onchain.owner, 16));
+      kv('Owner', show(report.onchain.owner));
     } else {
       kv('RPC', `${report.env.opsRpc} ✗`);
     }
@@ -282,7 +276,7 @@ export function formatStatusText(report: StatusReport): string {
   if (report.lastBackup?.createdAt) {
     kv('Time', report.lastBackup.createdAt);
     kv('Epoch', report.lastBackup.epoch);
-    kv('Root Hash', trunc(report.lastBackup.rootHash, 16));
+    kv('Root Hash', show(report.lastBackup.rootHash));
     kv('Workspace', report.lastBackup.workspace);
   } else {
     kv('Status', '(no backups recorded)');

@@ -101,8 +101,8 @@ Examples:
 - [x] Add initial CLI helpers for ENS read/write flows on Sepolia devnet first.
 - [ ] Support public vs private swarm posture:
   - [x] public swarm -> ENS name stored and public-safe records prepared
-  - [ ] private swarm -> no ENS binding required
-  - [ ] semi-private swarm -> org ENS only, no direct swarm publication required
+  - [x] private swarm -> no ENS binding required (operator/docs semantics clarified)
+  - [x] semi-private swarm -> org ENS only, no direct swarm publication required (operator/docs semantics clarified)
   - [x] live public org root: `soulvault.eth`
   - [x] live public swarm subdomain: `ops.soulvault.eth`
 - [x] Test plan: Rusty creates a SoulVault organization ENS name on Sepolia for development.

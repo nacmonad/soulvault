@@ -24,7 +24,7 @@ Good opening line:
 - shared state is usually ad hoc
 - backups are not coordinated
 - identity and permissions are fuzzy
-- multi-agent systems need a real control plane
+- multi-agent systems need shared encrypted state and verifiable coordination
 
 Possible framing:
 - today: "prompt + runtime"
@@ -35,9 +35,10 @@ Possible framing:
 - encrypted 0G storage for artifacts and envelopes
 - optional ERC-8004 + ENS on Sepolia for public identity and naming
 - local CLI for operators and agents
+- `sync` lets agents bootstrap org/swarm profiles from ENS on any new machine — no shared filesystem needed
 
 Short line:
-- `SoulVault = swarm control plane + encrypted persistence layer`
+- `SoulVault = swarm coordination protocol + encrypted persistence layer`
 
 ### 4. Core Model
 - `Organization -> Swarm -> Agent`
@@ -74,16 +75,19 @@ Keep this visual, not academic:
 ### 7. Demo Story
 - create org + swarm
 - agent joins
-- owner approves
+- Ledger-signed admin approval
 - rotate epoch
-- trigger backup
-- agent auto-responds
-- restore and verify
+- post encrypted group message
+- decrypt and verify
+- trigger backup, agent auto-responds
+
+This shows the full stack in one pass: governance, crypto, messaging, and coordination.
 
 Use the stories as demo anchors:
 - `story00` bootstrap
-- `story04` backup flow
+- `story07` Ledger signing (shipped, not future)
 - `story05` or `story06` messaging
+- `story04` backup flow
 
 ### 8. Messaging Layer
 - public broadcast
@@ -101,17 +105,33 @@ Pitch line:
 
 Avoid biography. Make this the "why now / why this matters" slide.
 
-### 10. Architecture Slide
+### 10. Why CLI + SKILL.md
+- I did not have enough time to build a full MCP integration for the hackathon
+- the CLI gives a stable, testable interface for humans right now
+- `SKILL.md` gives agents structured operating context, workflows, and guardrails right now
+- together they act as an intermediate layer between raw code and future agent-native interfaces
+- this is useful because we are now building software for both humans and agents
+
+Pitch line:
+- `CLI for execution, SKILL.md for agent understanding, MCP later`
+
+Good framing:
+- not the final interface
+- the right hackathon interface
+- already good enough for both operator workflows and agent-assisted use
+
+### 11. Architecture Slide
 - two lanes:
 - ops lane on 0G Galileo
 - identity lane on Sepolia
-- single signer today, but separable roles later
+- Ledger for admin signing (shipped), hot key for agent runtime
 
 Simple visual:
 - `Ops chain: swarm contract, epochs, messages, backups`
 - `Identity chain: ENS + ERC-8004`
+- `Signer split: Ledger (cold governance) / hot key (agent autonomy)`
 
-### 10.5 Why This Stack
+### 11.5 Why This Stack
 
 #### Why 0G
 - we needed more than a chain; we needed contract events plus payload storage
@@ -137,56 +157,26 @@ Good nuance:
 - ERC-8004 is structured agent metadata
 - SoulVault does not require public registration to function
 
-#### DM3 angle
-- if you mention `dm3`, frame it as compatibility / future direction, not a current dependency
-- ENS-style identity and address discovery fit well with wallet-native messaging systems
-- SoulVault already has its own message transport model, but ENS-based discovery could make interop cleaner later
-
-Safe line:
-- `This also leaves room for future interoperability with ENS-addressed messaging systems such as dm3.`
-
-### 10.6 Why Ledger / Admin Separation
-
-- the risky actions are admin actions, not normal agent runtime actions
-- approving joins, rotating epochs, and triggering backup waves should be treated like governance / ops approvals
-- those should be signed by an org or swarm admin wallet, ideally Ledger-backed
-- the agent itself can still run with a hot key for day-to-day participation
-
-Core distinction:
-- `organization owner` = long-lived admin / governance authority
-- `swarm owner` = operational admin for a given swarm
-- `agent user` = runtime actor participating in the swarm
+#### DM3 / ENS messaging interop
+- SoulVault already has its own message transport (public, group, DM via `postMessage`)
+- ENS-style identity and address discovery fit naturally with wallet-native messaging systems like dm3
+- frame as compatibility / future direction, not a current dependency
+- worth a visible bullet on the architecture slide if ENS/dm3 judges are in the room
 
 Pitch line:
-- `Ledger locks down the approval plane without slowing down the execution plane`
+- `SoulVault's ENS naming + swarm messaging leave a clean surface for interop with ENS-addressed messaging systems like dm3.`
 
-Good concrete examples:
-- approve join requests with Ledger
-- rotate epoch with Ledger
-- emit `BackupRequested` with Ledger
-- keep agent message posting / backup response on a separate hot runtime key
+### 12. Future Ideas
 
-### 11. Future Ideas
-
-#### Ledger integration
-- split `organization/swarm owner` from `agent user`
-- owner/admin signs privileged actions with Ledger
-- agent runtime uses a hot key for day-to-day participation
-- better model for real deployments: cold governance + hot operations
-- reduce or eliminate flows that still require blind / non-clear signing
-- improve contract call presentation so admin approvals feel safer and less opaque on-device
+#### Task coordination + validation systems
+- SoulVault can become the coordination substrate for higher-level agent systems
+- use swarm messages + events for task assignment, handoff, checkpointing, and completion
+- use encrypted artifacts + onchain references for validation inputs, outputs, and audit trails
+- useful for systems like `Proof of Claw`, where another team wants shared coordination plus verifiable result publication
+- SoulVault does not need to own the application logic; it can provide the continuity, membership, and evidence layer underneath
 
 Pitch it as:
-- `human admin security without breaking agent autonomy`
-
-#### API layer + cache layer
-- index events and storage refs into a queryable API
-- cache member state, latest epoch, backup status, message metadata
-- make dashboards, automation, and hosted control planes easy
-- reduce repeated chain scans and 0G fetches
-
-Pitch it as:
-- `from raw protocol to usable platform`
+- `application-specific agent systems on top, SoulVault underneath as the coordination + verification rail`
 
 #### Good third future idea options
 - policy engine for automatic approvals / backup SLAs / rotation rules
@@ -194,7 +184,7 @@ Pitch it as:
 - multi-swarm federation and cross-swarm handoff
 - richer SDKs for agent frameworks beyond the CLI
 
-### 12. Close / Ask
+### 13. Close / Ask
 - SoulVault is early, but the shape is clear:
 - membership
 - encrypted continuity
@@ -203,13 +193,16 @@ Pitch it as:
 - swarm-native messaging
 
 Possible close:
-- `We think agent systems will need something like Kubernetes for continuity and coordination. SoulVault is an early version of that layer.`
+- `LLMs gave us agent behavior. SoulVault gives agents infrastructure — membership, encrypted memory, and a coordination bus.`
+
+Alternative close:
+- `Agent frameworks are great at thinking. SoulVault makes them survivable, recoverable, and governable as a swarm.`
 
 ## Recommended deck size
 
 For a hackathon:
-- 7 slides if very tight: 1, 2, 3, 5, 7, 11, 12
-- 10 slides if normal: 1 through 10, then 12
+- 7 slides if very tight: 1, 2, 3, 5, 7, 12, 13
+- 10 slides if normal: 1 through 11, then 13
 
 ## Notes on tone
 

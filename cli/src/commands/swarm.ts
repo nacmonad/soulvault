@@ -1,5 +1,6 @@
 import { Command } from 'commander';
 import { createSwarmProfile, getActiveSwarm, getSwarmProfile, listSwarmProfiles, useSwarm } from '../lib/swarm.js';
+import { approveJoinSwarm, getJoinRequestStatus, requestJoinSwarm } from '../lib/swarm-contract.js';
 
 export function registerSwarmCommands(program: Command) {
   const swarm = program.command('swarm').description('Swarm profiles and active swarm context');
@@ -55,5 +56,45 @@ export function registerSwarmCommands(program: Command) {
         throw new Error('No swarm profile found. Run `soulvault swarm create` first.');
       }
       console.log(JSON.stringify(profile, null, 2));
+    });
+
+  swarm
+    .command('join-request')
+    .option('--swarm <nameOrEns>')
+    .option('--pubkey <hex>')
+    .option('--pubkey-ref <ref>')
+    .option('--metadata-ref <ref>')
+    .action(async (options) => {
+      const result = await requestJoinSwarm({
+        swarm: options.swarm,
+        pubkeyHex: options.pubkey,
+        pubkeyRef: options.pubkeyRef,
+        metadataRef: options.metadataRef,
+      });
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  swarm
+    .command('approve-join')
+    .requiredOption('--request-id <id>')
+    .option('--swarm <nameOrEns>')
+    .action(async (options) => {
+      const result = await approveJoinSwarm({
+        swarm: options.swarm,
+        requestId: options.requestId,
+      });
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  swarm
+    .command('join-status')
+    .requiredOption('--request-id <id>')
+    .option('--swarm <nameOrEns>')
+    .action(async (options) => {
+      const result = await getJoinRequestStatus({
+        swarm: options.swarm,
+        requestId: options.requestId,
+      });
+      console.log(JSON.stringify(result, null, 2));
     });
 }

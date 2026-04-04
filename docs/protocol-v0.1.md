@@ -43,7 +43,7 @@ SoulVault adopts **Model 1** for ERC-8004 integration:
 
 ### Identity layering
 For a given agent, the layers are:
-1. **ERC-8004 identity** — portable public identity + base64-encoded `agentURI`
+1. **ERC-8004 identity** — portable public identity + base64-encoded `agentURI` (stored directly in the registry for MVP; no external hosting required)
 2. **Agent wallet** — control/payment/admin identity
 3. **SoulVault member pubkey** — wrapping/decryption identity used in join + rekey flows
 4. **SoulVault manifests/profiles** — capabilities and swarm-scoped metadata
@@ -76,9 +76,9 @@ Not suitable for ERC-8004:
 ENS is an **optional public naming and discovery layer** for SoulVault swarms and organizations.
 
 Recommended layering:
-1. **SoulVault swarm contract** — authoritative membership, epochs, messaging metadata, recovery references
-2. **ERC-8004** — per-agent public identity
-3. **ENS** — public namespace / discoverability for the organization, swarm, and optionally agents
+1. **SoulVault swarm contract** — authoritative membership, epochs, messaging metadata, recovery references (0G Galileo)
+2. **ERC-8004** — per-agent public identity (Sepolia for MVP)
+3. **ENS** — public namespace / discoverability for the organization and swarm, and optionally agents (Sepolia for MVP)
 
 ### Good ENS fits
 - human-readable organization/swarm names
@@ -127,12 +127,13 @@ For publicly discoverable swarms, ENS text records may include:
 ENS records should contain only public-safe metadata.
 
 ### Chain placement
-For SoulVault swarms running on 0G Galileo, ENS integration is expected to use Ethereum / ENS-supported infrastructure rather than a native 0G ENS deployment.
+For SoulVault swarms running on 0G Galileo, the public identity/discovery lane is expected to use Ethereum / ENS-supported infrastructure rather than a native 0G ENS deployment.
 
 Practical model:
 - ENS name + records live on Ethereum / ENS-supported infrastructure (Sepolia by default for dev/test, mainnet later if desired)
+- ERC-8004 registry also lives on Sepolia for MVP public identity flows
 - the records point at SoulVault contracts and public metadata deployed or published for 0G
-- CLI/config should therefore treat the SoulVault swarm RPC and the ENS RPC as separate endpoints even though both environments are EVM-compatible
+- CLI/config should therefore treat the SoulVault swarm RPC and the ETH/ENS/identity RPC as separate endpoints even though both environments are EVM-compatible
 
 Default Sepolia ENS contract set for development:
 - Registry: `0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e`

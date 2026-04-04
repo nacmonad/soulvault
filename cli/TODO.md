@@ -21,8 +21,10 @@ Examples:
 - agent handles registration/update/public identity helpers
 
 ## A) Agent identity create flow (ERC-8004 / OpenClaw agent)
+- Public identity lane decision: deploy/use the ERC-8004 registry on Sepolia for MVP, while the SoulVault swarm contract remains on 0G Galileo.
+- MVP `agentURI` policy: use base64 `data:application/json;base64,...` payloads directly in-registry to avoid external hosting.
 - [x] Implement the real `soulvault identity create-agent` onchain transaction flow against the configured ERC-8004 registry adapter ABI.
-- [ ] Promote `soulvault agent register/update/show/render-agenturi` as the preferred UX, with `identity ...` retained only as compatibility aliases if needed.
+- [x] Promote `soulvault agent register/update/show/render-agenturi` as the preferred UX, with `identity ...` retained only as compatibility aliases if needed.
 - [x] Accept and validate required registry inputs from config/flags:
   - [x] `SOULVAULT_ERC8004_REGISTRY_ADDRESS`
   - [x] optional swarm contract address
@@ -36,7 +38,9 @@ Examples:
   - [x] portable base64 `agentURI`
 - [x] Persist created identity details locally in `~/.soulvault/agent.json` and `~/.soulvault/config.json`.
 - [x] Add `identity show` / update-path improvements so the local agent can inspect and refresh its onchain identity.
-- [ ] Verify a live registry create/update transaction end-to-end once a concrete ERC-8004 registry contract address is provided.
+- [x] Deploy the minimal ERC-8004 registry adapter on Sepolia and store its address in env/config.
+- [ ] Verify a live registry create/update transaction end-to-end once the Sepolia registry contract address is deployed and configured.
+  - deployed Sepolia registry adapter: `0xfFb7D6E80E962f3A6c7FB29876C97c37F088a266`
 
 ## B) Backup publish flow (archive, encrypt, upload)
 - [x] Keep the local agent backup flow working end-to-end:
@@ -80,20 +84,20 @@ Examples:
   - [x] `SOULVAULT_ENS_CHAIN_ID`
   - [x] Sepolia ENS contract addresses from env
 - [x] Implement initial ENS-aware provider/resolver helpers separate from the 0G swarm provider.
-- [ ] Define the first SoulVault ENS record schema for public-safe swarm/org metadata:
-  - [ ] `soulvault.swarmContract`
-  - [ ] `soulvault.chainId`
+- [x] Define the first SoulVault ENS record schema for public-safe swarm/org metadata:
+  - [x] `soulvault.swarmContract`
+  - [x] `soulvault.chainId`
   - [ ] `soulvault.publicManifestUri`
   - [ ] `soulvault.publicManifestHash`
   - [ ] optional ERC-8004 references
-- [ ] Add CLI support for attaching optional ENS metadata to a swarm profile.
-- [ ] Add CLI helpers for ENS read/write flows on Sepolia devnet first.
+- [x] Add CLI support for attaching optional ENS metadata to a swarm profile.
+- [x] Add initial CLI helpers for ENS read/write flows on Sepolia devnet first.
 - [ ] Support public vs private swarm posture:
-  - [ ] public swarm -> ENS name stored and public-safe records prepared
+  - [x] public swarm -> ENS name stored and public-safe records prepared
   - [ ] private swarm -> no ENS binding required
   - [ ] semi-private swarm -> org ENS only, no direct swarm publication required
-- [ ] Test plan: Rusty creates a SoulVault organization ENS name on Sepolia for development.
-- [ ] Test plan: first swarm under that org should use an ENS subname like `ops.<org>`.
+- [x] Test plan: Rusty creates a SoulVault organization ENS name on Sepolia for development.
+- [x] Test plan: first swarm under that org should use an ENS subname like `ops.<org>`.
 - [ ] Define future agent subname workflow for swarm agents (not required for MVP swarm create).
 
 ### Suggested ENS terminology
@@ -120,7 +124,7 @@ Example hierarchy:
   - [x] owner wallet / treasury defaults
   - [ ] future org-level metadata pointers
 - [x] Support a profile-only organization create flow before ENS write operations are fully wired.
-- [ ] Add optional ENS registration / binding workflow for organization create on Sepolia first.
+- [x] Add optional ENS registration / binding workflow for organization create on Sepolia first.
 - [x] Test plan: Rusty creates the SoulVault organization ENS root for development.
 
 ## G) Swarm epoch / rekey model across organizations
@@ -131,6 +135,14 @@ Example hierarchy:
 - [ ] Define future policy hooks if an organization ever wants coordinated multi-swarm checkpointing without shared symmetric keys.
 
 ## F) Swarm create / local swarm profile scaffolding
+- [ ] Add `soulvault swarm member-identities --swarm <name>` to print public identity links/details for known swarm members.
+- [ ] MVP lookup strategy for `swarm member-identities`:
+  - [ ] resolve member wallets from swarm state first
+  - [ ] look up ERC-8004 identities by wallet against the configured registry on Sepolia
+  - [ ] merge in any known local agent/profile data
+  - [ ] render human-readable links/details plus machine-friendly JSON output
+- [ ] Optional later lookup path:
+  - [ ] enrich member identity output from ENS public manifest / public metadata pointers when available
 - [x] Implement `soulvault swarm create` in the real TypeScript CLI.
 - [x] Require or accept `--organization <ens-name|local-org-name>` so swarms can anchor under an organization namespace.
 - [x] Add local swarm profile storage (likely under `~/.soulvault/swarms/`).
@@ -145,12 +157,12 @@ Example hierarchy:
 - [x] Allow `swarm create` to work in profile-only mode before contract deployment is wired.
 - [x] If the parent organization has an ENS root, derive or validate the swarm ENS name beneath it (example: `ops.soulvault.eth`).
 - [x] Add follow-on `swarm use`, `swarm list`, and `swarm status` state integration against the saved profiles.
-- [ ] Define deploy/configure flow for later contract deployment support.
+- [x] Define initial deploy/configure flow for contract deployment support.
 - [ ] Ensure the swarm profile model cleanly separates:
-  - [ ] SoulVault swarm RPC/chain config (0G)
+  - [x] SoulVault swarm RPC/chain config (0G)
   - [ ] ENS/Ethereum RPC config (Sepolia for dev/test)
 - [ ] Add CLI output that clearly explains when ENS is advisory/public metadata vs when SoulVault contract state is authoritative.
-- [ ] Test plan: `soulvault swarm create --organization soulvault.eth --name ops` should prepare/use `ops.soulvault.eth` as the swarm ENS name.
+- [x] Test plan: `soulvault swarm create --organization soulvault.eth --name ops` should prepare/use `ops.soulvault.eth` as the swarm ENS name.
 
 ## Notes
 - `.env` should provide default signer/RPC settings, not be the sole home of organization identity.

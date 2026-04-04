@@ -93,10 +93,13 @@ Selection rationale:
 - `tar` (deterministic archive creation)
 
 ### ERC-8004 Identity Support
+- MVP deployment target: Sepolia
+- current deployed SoulVault registry adapter (dev): `0xfFb7D6E80E962f3A6c7FB29876C97c37F088a266`
 - ERC-721-compatible identity registry integration
 - JSON schema validation for base64 `agentURI` registration payloads
 - helper commands to create/update per-agent ERC-8004 identities
 - inject optional `harness` metadata during registration
+- store base64 `agentURI` directly in-registry for MVP to avoid external hosting requirements
 
 ### ENS Integration
 - optional public naming/discovery for organizations and swarms
@@ -242,8 +245,8 @@ Contract governs authorization and storage references. Key recovery and re-wrap 
 - **Contracts:** Solidity + Foundry
 - **Chain:** 0G Galileo Testnet (`16602`)
 - **Storage:** 0G Storage (encrypted memories/backups in MVP)
-- **Public identity:** ERC-8004 per agent (Model 1), optional but recommended for discovery/interoperability
-- **Public namespace/discovery:** ENS for optional swarm/org naming and agent subnames
+- **Public identity:** ERC-8004 per agent on Sepolia (Model 1), optional but recommended for discovery/interoperability
+- **Public namespace/discovery:** ENS on Sepolia for optional swarm/org naming and agent subnames
 - **Crypto:** libsodium (XChaCha20-Poly1305 + X25519 box) + Node crypto (HKDF post-MVP)
 - **Automation:** Chainlink Automation (MVP+, trigger only)
 - **Agent UX:** OpenClaw skill wrapper over CLI

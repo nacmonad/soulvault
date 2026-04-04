@@ -67,6 +67,58 @@ Not suitable for ERC-8004:
 - encrypted payload locations that should stay swarm-private
 - private hostnames, private IPs, secrets, or internal topology
 
+## 2.6) ENS Swarm / Organization Identity Model
+ENS is an **optional public naming and discovery layer** for SoulVault swarms and organizations.
+
+Recommended layering:
+1. **SoulVault swarm contract** — authoritative membership, epochs, messaging metadata, recovery references
+2. **ERC-8004** — per-agent public identity
+3. **ENS** — public namespace / discoverability for the organization, swarm, and optionally agents
+
+### Good ENS fits
+- human-readable organization/swarm names
+- optional public discovery of a swarm or organization
+- optional agent subnames under an org or swarm namespace
+- text records pointing to public-safe metadata
+
+### Not a good ENS fit
+ENS should **not** be treated as the source of truth for:
+- swarm membership
+- epoch access
+- encrypted message authorization
+- backup publication rights
+- rekey policy
+
+### Recommended naming patterns
+- organization root: `acme.eth`
+- swarm namespace: `ops.acme.eth`
+- agent subname: `rusty.ops.acme.eth`
+
+### Discoverability policy
+A swarm may be:
+- **publicly discoverable** — ENS name published and points to public-safe metadata
+- **semi-private** — org ENS exists, but specific swarm is not directly published
+- **private** — no ENS binding required at all
+
+### Recommended ENS records
+For publicly discoverable swarms, ENS text records may include:
+- `soulvault.swarmContract`
+- `soulvault.chainId`
+- `soulvault.publicManifestUri`
+- `soulvault.publicManifestHash`
+- `erc8004.registry`
+- `erc8004.agentId` (for agent names)
+
+ENS records should contain only public-safe metadata.
+
+### Chain placement
+For SoulVault swarms running on 0G Galileo, ENS integration is expected to use Ethereum / ENS-supported infrastructure rather than a native 0G ENS deployment.
+
+Practical model:
+- ENS name + records live on Ethereum / ENS-supported infrastructure (Sepolia by default for dev/test, mainnet later if desired)
+- the records point at SoulVault contracts and public metadata deployed or published for 0G
+- CLI/config should therefore treat the SoulVault swarm RPC and the ENS RPC as separate endpoints even though both environments are EVM-compatible
+
 ## 3) Swarm State Model
 
 Per swarm contract:
@@ -250,10 +302,35 @@ Checks:
 Event:
 `AgentMessagePosted(from, to, topic, seq, epoch, payloadRef, payloadHash, ttl, timestamp)`
 
-### 7.3 Payload encryption
-- Encrypt payload directly with current `K_epoch` (XChaCha20-Poly1305 via libsodium).
+### 7.3 Payload audience + encryption inference (MVP)
+SoulVault uses a single `postMessage(...)` primitive for multiple message classes. MVP does **not** include an explicit onchain `messageMode` field; clients infer intent from the offchain payload form plus the `to` address.
+
+Inference rules:
+- **Public broadcast**: plaintext/public payload + `to == address(0)`
+- **Swarm-encrypted broadcast**: encrypted payload + `to == address(0)`
+- **Direct message (DM)**: encrypted payload + `to != address(0)`
+
+Notes:
+- `address(0)` is the MVP broadcast/null convention.
+- A plaintext message with nonzero `to` is discouraged in MVP because it creates ambiguous semantics; if needed later, it should be treated as a public directed note.
+- Offchain payloads SHOULD carry a tiny envelope describing encryption/cipher details even when audience is inferable.
+
+### 7.4 Payload encryption by class
+#### Swarm-encrypted
+- Encrypt payload directly with current `K_epoch`.
+- MVP working implementation may use `AES-256-GCM` for test flows.
+- Planned stronger/default path remains `XChaCha20-Poly1305` via libsodium.
 - Include metadata in AAD: `from/to/topic/seq/epoch`.
-- All approved members can decrypt any message payload (swarm-readable model).
+- All approved members can decrypt any swarm-encrypted payload.
+
+#### DM
+- Encrypt payload to the recipient's public key.
+- Sender MAY also include a sender-readable copy/wrap for sent-message history.
+- Include metadata in AAD: `from/to/topic/seq/epoch`.
+
+#### Public
+- No encryption required.
+- Sender signatures are recommended when authenticity matters.
 
 ---
 

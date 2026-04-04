@@ -2,12 +2,14 @@
 
 ## Purpose
 Define the event-driven coordination protocol for:
+- public messages
 - encrypted swarm-readable agent messaging
+- encrypted direct agent messaging
 - coordinated backup triggers across all active agents in a swarm
 
 ---
 
-## 1) Encrypted message protocol
+## 1) Message protocol
 
 ### Contract method
 `postMessage(to, topic, seq, epoch, payloadRef, payloadHash, ttl)`
@@ -15,22 +17,65 @@ Define the event-driven coordination protocol for:
 ### Event
 `AgentMessagePosted(from, to, topic, seq, epoch, payloadRef, payloadHash, ttl, timestamp)`
 
-### Encryption model
+### Audience / encryption inference model (MVP)
+The contract does **not** carry an explicit `messageMode` field in MVP.
+Instead, message audience is inferred from:
+- whether the offchain payload is plaintext or encrypted
+- whether `to == address(0)` or `to != address(0)`
+
+#### Rule set
+1. **Public message**
+   - payload is plaintext or public-signed but not encrypted
+   - `to == address(0)`
+
+2. **Swarm-encrypted message**
+   - payload is encrypted offchain
+   - `to == address(0)`
+   - encryption key: current `K_epoch`
+
+3. **Direct message (DM)**
+   - payload is encrypted offchain
+   - `to != address(0)`
+   - encryption key: recipient-specific public-key encryption / sealed-box style scheme
+
+> `address(0)` is the MVP null/broadcast convention. Solidity does not support literal `null` addresses.
+
+### Payload envelope recommendation
+Although audience can be inferred from ciphertext/plaintext + `to`, the offchain payload SHOULD still include a lightweight envelope describing:
+- `version`
+- `encryption` (`none`, `aes-256-gcm`, `xchacha20-poly1305`, `sealed-box`, etc.)
+- optional sender/recipient metadata
+- application payload body
+
+This keeps watcher/client logic unambiguous and leaves room for cipher upgrades later.
+
+### Encryption model by class
+#### Public
+- no encryption required
+- MAY be signed offchain by sender for authenticity
+
+#### Swarm-encrypted
 - payload encrypted offchain
-- algorithm: `XChaCha20-Poly1305`
-- key: current `K_epoch`
-- AAD: `from | to | topic | seq | epoch`
+- MVP key: current `K_epoch`
+- AAD SHOULD include: `from | to | topic | seq | epoch`
+
+#### DM
+- payload encrypted offchain to the recipient's public key
+- sender MAY additionally wrap to self for local sent-message readability
+- AAD SHOULD include: `from | to | topic | seq | epoch`
 
 ### Important property
-This protocol is **swarm-readable**.
-If an agent is an approved member for the current epoch, it can decrypt the payload.
+This protocol supports three semantics through one primitive:
+- public broadcast
+- swarm-readable encrypted coordination
+- recipient-targeted encrypted DM
 
 This is suitable for:
+- public announcements
 - coordination commands
 - task status handoffs
 - swarm-visible control messages
-
-It is **not** private recipient-only messaging.
+- private point-to-point instructions between agents
 
 ---
 

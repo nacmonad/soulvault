@@ -5,6 +5,7 @@
 - **EVM smart contracts** (swarm governance, joins, epochs, membershipVersion, pointers, events)
 - **Encrypted storage adapters** (0G Storage for ciphertext memories/backups in MVP)
 - **ERC-8004 identity integration** (optional per-agent public identity + metadata sync)
+- **ENS integration** (optional public naming + swarm/organization discovery)
 - **Optional network overlay module** (WireGuard/relay in roadmap)
 
 ---
@@ -90,6 +91,20 @@ Selection rationale:
 - helper commands to create/update per-agent ERC-8004 identities
 - inject optional `harness` metadata during registration
 
+### ENS Integration
+- optional public naming/discovery for organizations and swarms
+- support for organization root names and agent/swarm subnames
+- expected operational model for SoulVault-on-0G: ENS lives on Ethereum-facing ENS infrastructure (Sepolia by default for dev/test) and points at 0G-deployed SoulVault contracts/metadata
+- optional ENS text records pointing to:
+  - swarm contract address
+  - chain id
+  - public manifest URI/hash
+  - ERC-8004 identity references
+- ENS remains advisory/public metadata, not authorization state
+- config should therefore expose separate RPCs for:
+  - SoulVault swarm operations on 0G
+  - ENS reads/writes on Ethereum
+
 ### Crypto
 - `libsodium-wrappers` (XChaCha20-Poly1305 for symmetric encryption; X25519 box for pubkey wrapping)
 - Node `crypto` (SHA-256/HKDF helpers for post-MVP derived keys)
@@ -113,7 +128,7 @@ Selection rationale:
 - `rotateEpoch(newEpoch, keyBundleRef, keyBundleHash, expectedMembershipVersion)` — reverts if `membershipVersion` has changed
 - `grantHistoricalKeys(member, bundleRef, bundleHash, fromEpoch, toEpoch)` — emits `HistoricalKeyBundleGranted`
 - `updateMemberFileMapping(member, storageLocator, merkleRoot, publishTxHash, manifestHash, epoch)` — explicit Option B per-member file mapping update
-- `postMessage(to, topic, seq, epoch, payloadRef, payloadHash, ttl)` — verified message metadata
+- `postMessage(to, topic, seq, epoch, payloadRef, payloadHash, ttl)` — verified message metadata for public, swarm-encrypted, or DM payloads (audience inferred in MVP)
 - `requestBackup(epoch, reason, targetRef, deadline)` — emits coordinated swarm backup trigger event
 - `updateAgentManifest(manifestRef, manifestHash)` — emits `AgentManifestUpdated`
 
@@ -153,6 +168,7 @@ Expected skill operations:
 - `identity register/update/show`
 - `identity create-agent`
 - `identity render-agenturi`
+- future: optional ENS sync / record update helpers
 - `storage publish` / `storage fetch`
 
 ---
@@ -216,6 +232,7 @@ Contract governs authorization and storage references. Key recovery and re-wrap 
 - **Chain:** 0G Galileo Testnet (`16602`)
 - **Storage:** 0G Storage (encrypted memories/backups in MVP)
 - **Public identity:** ERC-8004 per agent (Model 1), optional but recommended for discovery/interoperability
+- **Public namespace/discovery:** ENS for optional swarm/org naming and agent subnames
 - **Crypto:** libsodium (XChaCha20-Poly1305 + X25519 box) + Node crypto (HKDF post-MVP)
 - **Automation:** Chainlink Automation (MVP+, trigger only)
 - **Agent UX:** OpenClaw skill wrapper over CLI

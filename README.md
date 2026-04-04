@@ -7,6 +7,7 @@ It combines:
 - a **SoulVault CLI** for backup, restore, rekey, watch, and identity operations
 - **0G Storage** for encrypted memories/backups and related ciphertext artifacts
 - **ERC-8004** for public per-agent identity metadata
+- **ENS** for optional public swarm / organization naming and discovery
 
 ## Current architecture
 
@@ -37,6 +38,23 @@ Primary interface:
 This split is intentional:
 - **swarm membership** is a SoulVault concern
 - **public agent identity** is an ERC-8004 concern
+
+### Swarm / organization identity
+SoulVault may also use **ENS** as an optional naming and discovery layer for swarms or organizations.
+
+Recommended layering:
+- **SoulVault swarm contract** = authoritative private coordination + membership
+- **ERC-8004** = public per-agent identity
+- **ENS** = optional public organization/swarm namespace and discoverability
+
+Examples:
+- organization root: `acme.eth`
+- swarm: `ops.acme.eth`
+- agent subnames: `rusty.ops.acme.eth`
+
+ENS is **not** the source of truth for membership or epoch access. It is the public face / namespace layer.
+
+For SoulVault-on-0G, ENS can point into the 0G world via text records / multichain address records while living on Ethereum-facing ENS infrastructure. For development, default ETH/ENS config can target Sepolia rather than mainnet. The source code can stay largely chain-agnostic because both sides are EVM-shaped; the main operational difference is which RPC + chain ID the CLI is talking to.
 
 ## Storage model
 
@@ -76,11 +94,17 @@ In MVP:
 - symmetric keys are never stored onchain
 
 ### Messaging
-SoulVault includes an encrypted messaging event protocol:
+SoulVault includes a unified messaging event protocol:
 - onchain metadata
-- offchain encrypted payload
-- payload encrypted with current `K_epoch`
-- payloads are **swarm-readable**, not private recipient-only
+- offchain payload reference
+- audience inferred in MVP from payload form + `to`
+
+Message classes:
+- **public**: plaintext/public payload + `to = address(0)`
+- **swarm**: encrypted payload + `to = address(0)`
+- **DM**: encrypted payload + `to = recipient`
+
+Swarm messages use the current `K_epoch`. DMs use recipient-specific public-key encryption.
 
 Core method:
 - `postMessage(to, topic, seq, epoch, payloadRef, payloadHash, ttl)`

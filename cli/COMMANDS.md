@@ -16,6 +16,15 @@ Flags:
 - `--rpc <url>`
 - `--contract <address>`
 - `--owner <address>`
+- `--ens-name <name>` (optional public swarm/org ENS name)
+- `--public` (mark swarm as intended for public discovery)
+- `--private` (default posture when ENS is omitted)
+
+Notes:
+- ENS is optional and is used for naming/discovery only.
+- For SoulVault-on-0G, ENS is expected to be managed through Ethereum-facing ENS infrastructure (Sepolia by default for dev/test).
+- SoulVault contract state remains the source of truth for membership and coordination.
+- The CLI should therefore keep separate RPC config for swarm operations vs ENS operations.
 
 ## `soulvault swarm list`
 List known swarm profiles.
@@ -232,11 +241,18 @@ Update the current agent's manifest ref/hash on the active swarm.
 Post verified message metadata.
 
 Flags:
-- `--to <address>`
+- `--to <address>` (`address(0)` / omitted for broadcast)
 - `--topic <topic>`
 - `--payload-ref <ref>`
 - `--payload-hash <hash>`
 - `--ttl <seconds>`
+
+MVP audience inference:
+- plaintext/public payload + `to = address(0)` => public message
+- encrypted payload + `to = address(0)` => swarm-encrypted broadcast
+- encrypted payload + `to = recipient` => DM
+
+`messageMode` is not an explicit contract field in MVP.
 
 ## `soulvault events watch`
 Watch swarm events and react locally.

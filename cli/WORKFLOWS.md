@@ -7,7 +7,20 @@
 4. owner runs `soulvault join approve <requestId>`
 5. owner runs `soulvault epoch rotate`
 6. optional: `soulvault identity create-agent ...`
-7. `soulvault restore pull`
+7. optional: bind or record public ENS swarm/agent metadata
+8. `soulvault restore pull`
+
+## 1.1) Swarm creation with optional ENS identity
+1. `soulvault swarm create --name ops --owner <address>`
+2. optional: include `--ens-name ops.acme.eth` for public discovery
+3. deploy/configure the swarm contract
+4. store the ENS name in the local swarm profile if supplied
+5. optionally publish public-safe ENS records pointing to the swarm contract and public metadata
+
+Important:
+- ENS is optional
+- ENS is public naming/discovery only
+- SoulVault contract state still governs membership and authorization
 
 ## 2) Event-driven backup flow (preferred)
 1. owner/coordinator runs `soulvault backup request --reason checkpoint --deadline <ts>`

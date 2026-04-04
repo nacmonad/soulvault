@@ -23,7 +23,9 @@ export type StatusReport = {
   wallet: {
     signerMode: string;
     address: string | null;
+    addressSource: string | null;
     publicKey: string | null;
+    ledgerDerivationPath: string | null;
   };
   agent: AgentProfile | null;
   organizations: {
@@ -139,7 +141,24 @@ export async function gatherStatus(options: { offline?: boolean } = {}): Promise
     listSwarmProfiles(),
   ]);
 
-  const agentAddress = agent?.address ?? config?.activeAddress ?? null;
+  let agentAddress: string | null = null;
+  let addressSource: string | null = null;
+  if (agent?.address) {
+    agentAddress = agent.address;
+    addressSource = 'agent profile';
+  } else if (config?.activeAddress) {
+    agentAddress = config.activeAddress;
+    addressSource = 'config';
+  } else if (activeSwarm?.ownerAddress) {
+    agentAddress = activeSwarm.ownerAddress;
+    addressSource = 'swarm owner';
+  } else if (activeOrg?.ownerAddress) {
+    agentAddress = activeOrg.ownerAddress;
+    addressSource = 'org owner';
+  } else if (activeOrg?.ensRegistration?.ownerAddress) {
+    agentAddress = activeOrg.ensRegistration.ownerAddress;
+    addressSource = 'ENS registration';
+  }
 
   const epochKeys = activeSwarm
     ? await countEpochKeys(activeSwarm.slug)
@@ -161,7 +180,9 @@ export async function gatherStatus(options: { offline?: boolean } = {}): Promise
     wallet: {
       signerMode: env.SOULVAULT_SIGNER_MODE,
       address: agentAddress,
+      addressSource,
       publicKey: agent?.publicKey ?? null,
+      ledgerDerivationPath: env.SOULVAULT_SIGNER_MODE === 'ledger' ? env.SOULVAULT_LEDGER_DERIVATION_PATH : null,
     },
     agent,
     organizations: { active: activeOrg, count: orgList.length },
@@ -203,8 +224,15 @@ export function formatStatusText(report: StatusReport): string {
   push();
   push('Wallet');
   kv('Mode', report.wallet.signerMode);
-  kv('Address', report.wallet.address ?? '(not configured)');
-  kv('Public Key', show(report.wallet.publicKey));
+  if (report.wallet.signerMode === 'ledger') {
+    kv('Derivation', report.wallet.ledgerDerivationPath ?? "m/44'/60'/0'/0/0");
+  }
+  kv('Address', report.wallet.address
+    ? `${report.wallet.address}${report.wallet.addressSource ? ` (from ${report.wallet.addressSource})` : ''}`
+    : '(not configured — run `soulvault agent create` or `soulvault sync`)');
+  if (report.wallet.publicKey) {
+    kv('Public Key', report.wallet.publicKey);
+  }
 
   push();
   push('Agent');

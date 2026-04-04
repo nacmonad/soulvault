@@ -24,3 +24,23 @@ export function resolveAgentProfilePath(): string {
 export function resolveKeysDir(): string {
   return path.join(resolveCliStateDir(), 'keys');
 }
+
+export function resolveOrganizationsDir(): string {
+  return path.join(resolveCliStateDir(), 'organizations');
+}
+
+export function resolveSwarmsDir(): string {
+  return path.join(resolveCliStateDir(), 'swarms');
+}
+
+export function resolveOrganizationPath(nameOrSlug: string): string {
+  return path.join(resolveOrganizationsDir(), `${nameOrSlug}.json`);
+}
+
+export function resolveSwarmPath(nameOrSlug: string): string {
+  return path.join(resolveSwarmsDir(), `${nameOrSlug}.json`);
+}
+
+export function resolveLastBackupPath(): string {
+  return path.join(resolveCliStateDir(), 'last-backup.json');
+}

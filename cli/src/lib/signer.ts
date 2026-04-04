@@ -6,6 +6,10 @@ export async function createProvider() {
   return new JsonRpcProvider(env.SOULVAULT_RPC_URL, env.SOULVAULT_CHAIN_ID);
 }
 
+export async function createSwarmProvider() {
+  return createProvider();
+}
+
 export async function createSigner() {
   const env = loadEnv();
   const provider = await createProvider();

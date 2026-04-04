@@ -8,6 +8,7 @@ const SOULVAULT_SWARM_ABI = [
   'function currentEpoch() view returns (uint64)',
   'function membershipVersion() view returns (uint64)',
   'function memberCount() view returns (uint256)',
+  'function getMember(address member) view returns ((bool active, bytes pubkey, uint64 joinedEpoch))',
   'function requestJoin(bytes pubkey, string pubkeyRef, string metadataRef) returns (uint256 requestId)',
   'function approveJoin(uint256 requestId)',
   'function rejectJoin(uint256 requestId, string reason)',
@@ -15,6 +16,7 @@ const SOULVAULT_SWARM_ABI = [
   'function getJoinRequest(uint256 requestId) view returns ((address requester, bytes pubkey, string pubkeyRef, string metadataRef, uint8 status))',
   'event JoinRequested(uint256 indexed requestId, address indexed requester, bytes pubkey, string pubkeyRef, string metadataRef)',
   'event JoinApproved(uint256 indexed requestId, address indexed requester, address indexed approver, uint64 epoch)',
+  'event MemberRemoved(address indexed member, address indexed by, uint64 epoch)',
 ] as const;
 
 async function resolveTargetSwarm(swarm?: string) {
@@ -87,6 +89,31 @@ export async function approveJoinSwarm(input: { swarm?: string; requestId: strin
     currentEpoch: currentEpoch.toString(),
     membershipVersion: membershipVersion.toString(),
     memberCount: memberCount.toString(),
+  };
+}
+
+export async function listSwarmMembers(input: { swarm?: string }) {
+  const { profile, contract } = await getSwarmContract(input.swarm);
+  const approvedLogs = await contract.queryFilter(contract.filters.JoinApproved(), 0, 'latest');
+  const removedLogs = await contract.queryFilter(contract.filters.MemberRemoved(), 0, 'latest');
+
+  const removedSet = new Set(removedLogs.map((log) => String((log as any).args?.member).toLowerCase()));
+  const uniqueRequesters = [...new Set(approvedLogs.map((log) => String((log as any).args?.requester)))];
+
+  const members = await Promise.all(uniqueRequesters.map(async (wallet) => {
+    const member = await contract.getMember(wallet);
+    return {
+      wallet,
+      active: Boolean(member.active) && !removedSet.has(wallet.toLowerCase()),
+      joinedEpoch: member.joinedEpoch.toString(),
+      pubkey: member.pubkey,
+    };
+  }));
+
+  return {
+    swarm: profile.slug,
+    contractAddress: profile.contractAddress,
+    members,
   };
 }
 

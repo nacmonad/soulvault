@@ -1,7 +1,7 @@
 import { Contract } from 'ethers';
+import { createEnsProvider, createEnsSigner } from './ens.js';
 import { getAgentProfile } from './agent.js';
 import { loadEnv } from './config.js';
-import { createSigner } from './signer.js';
 import { writeAgentProfile, writeConfig } from './state.js';
 
 type ServiceInput = { type: string; url: string };
@@ -11,6 +11,8 @@ const ERC8004_ADAPTER_ABI = [
   'function updateAgentURI(uint256 agentId, string agentURI)',
   'function agentURI(uint256 agentId) view returns (string)',
   'function agentWallet(uint256 agentId) view returns (address)',
+  'function agentIdsForWallet(address wallet) view returns (uint256[])',
+  'event AgentRegistered(uint256 indexed agentId, address indexed agentWallet, string agentURI)',
 ] as const;
 
 export function buildAgentRegistration(input: {
@@ -98,7 +100,7 @@ export async function createAgentIdentityOnchain(input: {
   if (!profile) throw new Error('No local agent profile found. Run `soulvault agent create` first.');
 
   const registry = getRegistryAddress(input.registry);
-  const signer = await createSigner();
+  const signer = await createEnsSigner();
   const contract = new Contract(registry, ERC8004_ADAPTER_ABI, signer);
   const rendered = await renderAgentUri({
     name: input.name,
@@ -146,7 +148,7 @@ export async function updateAgentIdentityOnchain(input: {
   swarmContract?: string;
 }) {
   const registry = getRegistryAddress(input.registry);
-  const signer = await createSigner();
+  const signer = await createEnsSigner();
   const contract = new Contract(registry, ERC8004_ADAPTER_ABI, signer);
   const rendered = await renderAgentUri({
     name: input.name,
@@ -190,8 +192,8 @@ export async function showAgentIdentity(input: { agentId?: string; registry?: st
     };
   }
 
-  const signer = await createSigner();
-  const contract = new Contract(registry, ERC8004_ADAPTER_ABI, signer);
+  const provider = await createEnsProvider();
+  const contract = new Contract(registry, ERC8004_ADAPTER_ABI, provider);
   const [onchainURI, onchainWallet] = await Promise.all([
     contract.agentURI(agentId),
     contract.agentWallet(agentId),
@@ -204,6 +206,62 @@ export async function showAgentIdentity(input: { agentId?: string; registry?: st
     onchainURI,
     localProfile: profile,
   };
+}
+
+export async function findAgentIdentitiesByWallet(input: { wallet: string; registry?: string }) {
+  const registry = getRegistryAddress(input.registry);
+  const provider = await createEnsProvider();
+  const contract = new Contract(registry, ERC8004_ADAPTER_ABI, provider);
+
+  let ids: bigint[] = [];
+  try {
+    ids = await contract.agentIdsForWallet(input.wallet);
+  } catch {
+    ids = [];
+  }
+
+  if (ids.length === 0) {
+    const results: Array<{ agentId: string; wallet: string; agentURI: string; decoded?: unknown }> = [];
+    for (let i = 1; i < 512; i++) {
+      try {
+        const [wallet, uri] = await Promise.all([
+          contract.agentWallet(i),
+          contract.agentURI(i),
+        ]);
+        if (String(wallet).toLowerCase() === input.wallet.toLowerCase()) {
+          results.push({ agentId: String(i), wallet: String(wallet), agentURI: String(uri), decoded: decodeAgentUri(String(uri)) });
+        }
+      } catch {
+        // skip holes
+      }
+    }
+    return { registry, identities: results };
+  }
+
+  const identities = await Promise.all(ids.map(async (id) => {
+    const [wallet, uri] = await Promise.all([
+      contract.agentWallet(id),
+      contract.agentURI(id),
+    ]);
+    return {
+      agentId: id.toString(),
+      wallet: String(wallet),
+      agentURI: String(uri),
+      decoded: decodeAgentUri(String(uri)),
+    };
+  }));
+
+  return { registry, identities };
+}
+
+function decodeAgentUri(agentURI: string) {
+  const prefix = 'data:application/json;base64,';
+  if (!agentURI.startsWith(prefix)) return undefined;
+  try {
+    return JSON.parse(Buffer.from(agentURI.slice(prefix.length), 'base64').toString('utf8'));
+  } catch {
+    return undefined;
+  }
 }
 
 async function readAgentIdFromReceipt(contract: Contract, logs: readonly unknown[], fallbackWallet: string, fallbackUri: string) {

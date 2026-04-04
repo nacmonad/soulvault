@@ -1,6 +1,8 @@
 import { Command } from 'commander';
 import { createSwarmProfile, getActiveSwarm, getSwarmProfile, listSwarmProfiles, useSwarm } from '../lib/swarm.js';
-import { approveJoinSwarm, getJoinRequestStatus, requestJoinSwarm } from '../lib/swarm-contract.js';
+import { approveJoinSwarm, getJoinRequestStatus, listSwarmMembers, requestJoinSwarm } from '../lib/swarm-contract.js';
+import { findAgentIdentitiesByWallet } from '../lib/identity.js';
+import { getAgentProfile } from '../lib/agent.js';
 
 export function registerSwarmCommands(program: Command) {
   const swarm = program.command('swarm').description('Swarm profiles and active swarm context');
@@ -96,5 +98,26 @@ export function registerSwarmCommands(program: Command) {
         requestId: options.requestId,
       });
       console.log(JSON.stringify(result, null, 2));
+    });
+
+  swarm
+    .command('member-identities')
+    .option('--swarm <nameOrEns>')
+    .action(async (options) => {
+      const roster = await listSwarmMembers({ swarm: options.swarm });
+      const localAgent = await getAgentProfile();
+      const members = await Promise.all(roster.members.map(async (member) => {
+        const identities = await findAgentIdentitiesByWallet({ wallet: member.wallet });
+        return {
+          ...member,
+          localAgentMatch: localAgent?.address?.toLowerCase() === member.wallet.toLowerCase(),
+          identities: identities.identities,
+        };
+      }));
+      console.log(JSON.stringify({
+        swarm: roster.swarm,
+        contractAddress: roster.contractAddress,
+        members,
+      }, null, 2));
     });
 }

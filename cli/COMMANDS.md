@@ -168,6 +168,10 @@ Show member state and latest file mapping.
 
 ## 3) Epoch / recovery commands
 
+MVP note:
+- focus is on swarm-scoped epoch rotation and wrapped-key bundle publication to 0G
+- owner historical recovery / keygrant flows are deferred until after MVP stabilization
+
 ## `soulvault epoch rotate`
 Owner-only.
 
@@ -184,13 +188,13 @@ Behavior:
 - calls `rotateEpoch(...)`
 
 ## `soulvault keygrant --member <address> --from-epoch <N>`
-Owner-only historical key grant.
+Owner-only historical key grant (post-MVP target).
 
 Flags:
 - `--to-epoch <N>`
 - `--swarm <name>`
 
-Behavior:
+Behavior (post-MVP):
 - reconstructs historical key bundle
 - uploads encrypted bundle
 - calls `grantHistoricalKeys(...)`

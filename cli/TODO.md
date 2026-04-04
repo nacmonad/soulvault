@@ -39,8 +39,9 @@ Examples:
 - [x] Persist created identity details locally in `~/.soulvault/agent.json` and `~/.soulvault/config.json`.
 - [x] Add `identity show` / update-path improvements so the local agent can inspect and refresh its onchain identity.
 - [x] Deploy the minimal ERC-8004 registry adapter on Sepolia and store its address in env/config.
-- [ ] Verify a live registry create/update transaction end-to-end once the Sepolia registry contract address is deployed and configured.
+- [x] Verify a live registry create/update transaction end-to-end once the Sepolia registry contract address is deployed and configured.
   - deployed Sepolia registry adapter: `0xfFb7D6E80E962f3A6c7FB29876C97c37F088a266`
+  - live RustyBot registration: `agentId = 1`
 
 ## B) Backup publish flow (archive, encrypt, upload)
 - [x] Keep the local agent backup flow working end-to-end:
@@ -96,6 +97,8 @@ Examples:
   - [x] public swarm -> ENS name stored and public-safe records prepared
   - [ ] private swarm -> no ENS binding required
   - [ ] semi-private swarm -> org ENS only, no direct swarm publication required
+  - [x] live public org root: `soulvault.eth`
+  - [x] live public swarm subdomain: `ops.soulvault.eth`
 - [x] Test plan: Rusty creates a SoulVault organization ENS name on Sepolia for development.
 - [x] Test plan: first swarm under that org should use an ENS subname like `ops.<org>`.
 - [ ] Define future agent subname workflow for swarm agents (not required for MVP swarm create).
@@ -111,6 +114,7 @@ Example hierarchy:
 - agent: `rusty.ops.soulvault.eth`
 
 ## E) Organization create / local organization profile scaffolding
+- [x] Live milestone: registered `soulvault.eth` on Sepolia and persisted the confirmed org state locally.
 - [x] Implement `soulvault organization create` in the real TypeScript CLI.
 - [ ] Implement `soulvault organization fund-agent` for native gas funding of agent wallets.
 - [ ] Implement `soulvault organization fund-swarm` for batch top-ups across known swarm agent wallets.
@@ -135,12 +139,12 @@ Example hierarchy:
 - [ ] Define future policy hooks if an organization ever wants coordinated multi-swarm checkpointing without shared symmetric keys.
 
 ## F) Swarm create / local swarm profile scaffolding
-- [ ] Add `soulvault swarm member-identities --swarm <name>` to print public identity links/details for known swarm members.
-- [ ] MVP lookup strategy for `swarm member-identities`:
-  - [ ] resolve member wallets from swarm state first
-  - [ ] look up ERC-8004 identities by wallet against the configured registry on Sepolia
-  - [ ] merge in any known local agent/profile data
-  - [ ] render human-readable links/details plus machine-friendly JSON output
+- [x] Add `soulvault swarm member-identities --swarm <name>` to print public identity links/details for known swarm members.
+- [x] MVP lookup strategy for `swarm member-identities`:
+  - [x] resolve member wallets from swarm state first
+  - [x] look up ERC-8004 identities by wallet against the configured registry on Sepolia
+  - [x] merge in any known local agent/profile data
+  - [x] render human-readable links/details plus machine-friendly JSON output
 - [ ] Optional later lookup path:
   - [ ] enrich member identity output from ENS public manifest / public metadata pointers when available
 - [x] Implement `soulvault swarm create` in the real TypeScript CLI.
@@ -163,6 +167,18 @@ Example hierarchy:
   - [ ] ENS/Ethereum RPC config (Sepolia for dev/test)
 - [ ] Add CLI output that clearly explains when ENS is advisory/public metadata vs when SoulVault contract state is authoritative.
 - [x] Test plan: `soulvault swarm create --organization soulvault.eth --name ops` should prepare/use `ops.soulvault.eth` as the swarm ENS name.
+- [x] Live milestone: deployed 0G swarm contract for `ops` and approved the first join request.
+  - swarm contract: `0x72fC68297AE86aef652B61D46C0510b75E493A40`
+
+## H) Epoch bundle creation / publication
+- [ ] Implement `soulvault epoch rotate` as the next focused stream.
+- [ ] Generate a fresh swarm-scoped `K_epoch` for the target swarm.
+- [ ] Build the plaintext wrapped-key JSON bundle for all active members.
+- [ ] Upload the bundle JSON to 0G Storage.
+- [ ] Persist/emit `keyBundleRef` + `keyBundleHash` for the new epoch.
+- [ ] Add `soulvault epoch show-bundle --swarm <name>` for testability/verification.
+- [ ] Add optional self-entry unwrap/verify support without dumping raw `K_epoch` by default.
+- [ ] Keep owner escrow / historical epoch recovery explicitly deferred until after MVP.
 
 ## Notes
 - `.env` should provide default signer/RPC settings, not be the sole home of organization identity.

@@ -5,7 +5,8 @@ import { findAgentIdentitiesByWallet } from '../lib/identity.js';
 import { getAgentProfile } from '../lib/agent.js';
 
 export function registerSwarmCommands(program: Command) {
-  const swarm = program.command('swarm').description('Swarm profiles and active swarm context');
+  const swarm = program.command('swarm').description('Swarm profiles and active swarm context')
+    .addHelpText('after', `\nExamples:\n  soulvault swarm create --organization soulvault.eth --name ops\n  soulvault swarm use ops\n  soulvault swarm join-request --swarm ops\n  soulvault swarm approve-join --swarm ops --request-id 1\n  soulvault swarm member-identities --swarm ops`);
 
   swarm
     .command('create')

@@ -9,7 +9,8 @@ import {
 import { registerOrganizationEns } from '../lib/ens-name.js';
 
 export function registerOrganizationCommands(program: Command) {
-  const organization = program.command('organization').description('Organization profiles, ENS root context, and owner actions');
+  const organization = program.command('organization').description('Organization profiles, ENS root context, and owner actions')
+    .addHelpText('after', `\nExamples:\n  soulvault organization create --name soulvault --ens-name soulvault.eth --public\n  soulvault organization list\n  soulvault organization status --organization soulvault.eth\n  soulvault organization register-ens --organization soulvault.eth`);
 
   organization
     .command('create')

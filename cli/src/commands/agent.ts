@@ -26,7 +26,8 @@ async function resolveDefaultSwarmContract(explicit?: string) {
 }
 
 export function registerAgentCommands(program: Command) {
-  const agent = program.command('agent').description('Local agent profile management');
+  const agent = program.command('agent').description('Local agent profile and ERC-8004 public identity operations')
+    .addHelpText('after', `\nExamples:\n  soulvault agent create --name RustyBot --harness openclaw\n  soulvault agent register --swarm ops --name RustyBot\n  soulvault agent show\n  soulvault agent render-agenturi --swarm ops`);
 
   agent
     .command('create')

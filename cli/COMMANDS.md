@@ -5,18 +5,103 @@
 
 ---
 
-## 1) Swarm commands
+## 1) Entity-first command model
+
+Top-level CLI nouns should map to real SoulVault entities:
+- `soulvault organization ...`
+- `soulvault swarm ...`
+- `soulvault agent ...`
+
+Auxiliary surfaces like `identity`, `backup`, `restore`, and `storage` may remain as helpers during scaffold phases, but the long-term UX should hang primary lifecycle actions off the owning entity.
+
+State model assumptions:
+- `.env` provides default signer/RPC/bootstrap values
+- canonical local entities live under `~/.soulvault/`
+- SoulVault should support 0..N organizations and 0..N swarms locally
+- `organization use` / `swarm use` select active context
+
+## 2) Organization + swarm commands
+
+## `soulvault organization create`
+Create a local organization profile and optionally bind or register an ENS root name.
+
+Flags:
+- `--name <name>`
+- `--ens-name <name>`
+- `--public`
+- `--private`
+- `--eth-rpc <url>`
+- `--ens-rpc <url>`
+
+Notes:
+- Organization is the root public namespace layer.
+- Example: `soulvault.eth`
+- ENS binding/registration is optional in early scaffold phases but the organization entity should exist locally either way.
+
+## `soulvault organization list`
+List known organization profiles.
+
+## `soulvault organization use <name|ens-name>`
+Set the active organization context.
+
+## `soulvault organization status [--organization <name|ens-name>]`
+Show:
+- local organization profile
+- ENS root name if configured
+- visibility posture
+- linked swarms
+- owner wallet / treasury settings if configured
+
+## `soulvault organization fund-agent`
+Send ETH/native gas funds from the organization owner wallet to an agent wallet.
+
+Flags:
+- `--organization <name|ens-name>`
+- `--to <address>`
+- `--amount <value>`
+- `--asset <native>` (MVP default: native gas token only)
+- `--chain <0g|eth|ens>`
+- `--reason <text>`
+
+Behavior:
+- resolves the organization owner signer
+- chooses the correct RPC lane based on target chain
+- sends native gas funds to the target agent wallet
+- records a local funding history entry for operator visibility
+
+## `soulvault organization fund-swarm`
+Fund one or more known agent wallets associated with a swarm.
+
+Flags:
+- `--organization <name|ens-name>`
+- `--swarm <name>`
+- `--amount <value>`
+- `--chain <0g|eth|ens>`
+- `--only <address>` (repeatable, optional filter)
+- `--dry-run`
+
+Behavior:
+- resolves known member/agent wallets for the swarm
+- previews or executes a batch of native gas transfers
+- useful for topping up agents before joins, ENS writes, backups, or registry actions
+
+## `soulvault organization register-ens`
+Register or bind the organization's ENS root name.
+
+## `soulvault organization update-metadata`
+Update public-safe organization ENS metadata / records.
 
 ## `soulvault swarm create`
 Create a local swarm profile and optionally deploy/configure a new swarm contract.
 
 Flags:
+- `--organization <name|ens-name>`
 - `--name <name>`
 - `--chain-id <id>`
 - `--rpc <url>`
 - `--contract <address>`
 - `--owner <address>`
-- `--ens-name <name>` (optional public swarm/org ENS name)
+- `--ens-name <name>` (optional explicit swarm ENS name; otherwise derived from organization + swarm name when appropriate)
 - `--public` (mark swarm as intended for public discovery)
 - `--private` (default posture when ENS is omitted)
 
@@ -25,6 +110,8 @@ Notes:
 - For SoulVault-on-0G, ENS is expected to be managed through Ethereum-facing ENS infrastructure (Sepolia by default for dev/test).
 - SoulVault contract state remains the source of truth for membership and coordination.
 - The CLI should therefore keep separate RPC config for swarm operations vs ENS operations.
+- The CLI env/config should also carry explicit Sepolia ENS contract defaults so lookup/write support is straightforward.
+- Example: `soulvault swarm create --organization soulvault.eth --name ops` -> `ops.soulvault.eth`
 
 ## `soulvault swarm list`
 List known swarm profiles.
@@ -37,6 +124,7 @@ Show:
 - contract address
 - chain id
 - owner
+- parent organization
 - current epoch
 - membership version
 - current member count
@@ -174,7 +262,7 @@ Low-level helper to fetch an encrypted artifact from 0G.
 
 ---
 
-## 5) Agent identity commands (ERC-8004)
+## 5) Agent commands
 
 ## `soulvault agent create`
 Create local agent profile/config if missing.
@@ -194,7 +282,7 @@ Show local agent identity/config:
 - linked ERC-8004 identity if present
 - joined swarms
 
-## `soulvault identity create-agent`
+## `soulvault agent register`
 Create/register an ERC-8004 identity for this agent.
 
 Flags:
@@ -212,7 +300,7 @@ Behavior:
 - base64-encodes `agentURI`
 - calls ERC-8004 identity registry `register(...)` / equivalent flow using the agent wallet signer under Model 1 / Option A
 
-## `soulvault identity update`
+## `soulvault agent update`
 Update the existing ERC-8004 registration payload.
 
 Flags:
@@ -224,11 +312,14 @@ Flags:
 - `--backup-command <cmd>`
 - `--service <name=url>` (repeatable)
 
-## `soulvault identity show`
+## `soulvault agent show`
 Show the resolved local ERC-8004 registration payload.
 
-## `soulvault identity render-agenturi`
+## `soulvault agent render-agenturi`
 Render the exact base64 `agentURI` string without broadcasting.
+
+Notes:
+- `identity ...` commands can remain as compatibility aliases during transition, but `agent ...` should be the preferred surface.
 
 ---
 

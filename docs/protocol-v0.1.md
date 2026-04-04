@@ -26,9 +26,9 @@ Define a minimal, implementable protocol for:
 
 ## 2) Actors
 
-- **Owner**: deploys swarm contract, approves joins, holds owner escrow key, triggers rekey operations from CLI. Ledger-class signer support is a recommended later path, not an MVP requirement.
+- **Owner**: deploys swarm contract, approves joins, holds owner escrow key, triggers rekey operations from CLI, and may fund agent wallets from an organization owner/treasury context. Ledger-class signer support is a recommended later path, not an MVP requirement.
 - **Member Agent**: approved participant in swarm using an agent-local software wallet in MVP
-- **SoulVault CLI**: offchain orchestrator (watches events, encrypts/decrypts, wraps/unwraps keys, triggers rekey, issues historical key grants, creates/updates ERC-8004 identities, runs scheduled harness-aware backups)
+- **SoulVault CLI**: offchain orchestrator (watches events, encrypts/decrypts, wraps/unwraps keys, triggers rekey, issues historical key grants, creates/updates ERC-8004 identities, manages optional ENS naming metadata, runs scheduled harness-aware backups)
 - **0G Storage**: stores encrypted memories/backups and related ciphertext artifacts
 
 ---
@@ -94,6 +94,16 @@ ENS should **not** be treated as the source of truth for:
 - swarm namespace: `ops.acme.eth`
 - agent subname: `rusty.ops.acme.eth`
 
+### Terminology
+- **Organization**: the root ENS namespace and public umbrella identity
+- **Swarm**: a first-level ENS subdomain under the organization, used for swarm-level public metadata and pointers to the authoritative SoulVault contract on 0G
+- **Agent**: an optional deeper subdomain under the swarm or organization, used for public-facing agent identity and discovery
+
+Example:
+- organization: `soulvault.eth`
+- swarm: `ops.soulvault.eth`
+- agent: `rusty.ops.soulvault.eth`
+
 ### Discoverability policy
 A swarm may be:
 - **publicly discoverable** — ENS name published and points to public-safe metadata
@@ -119,6 +129,13 @@ Practical model:
 - the records point at SoulVault contracts and public metadata deployed or published for 0G
 - CLI/config should therefore treat the SoulVault swarm RPC and the ENS RPC as separate endpoints even though both environments are EVM-compatible
 
+Default Sepolia ENS contract set for development:
+- Registry: `0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e`
+- Base Registrar: `0x57f1887a8bf19b14fc0df6fd9b2acc9af147ea85`
+- ETH Registrar Controller: `0xfb3cE5D01e0f33f41DbB39035dB9745962F1f968`
+- Public Resolver: `0xE99638b40E4Fff0129D56f03b55b6bbC4BBE49b5`
+- Universal Resolver: `0xeEeEEEeE14D718C2B47D9923Deab1335E144EeEe`
+
 ## 3) Swarm State Model
 
 Per swarm contract:
@@ -132,11 +149,15 @@ Per swarm contract:
 
 > **Critical:** Member `pubkey` is stored directly in the join request struct (submitted in calldata) and copied into the member record at approval time. This eliminates any dependency on offchain storage availability during rekey operations — the owner can always fetch pubkeys directly from contract state.
 
-### Local CLI state (per swarm)
-- active chain + contract address
-- local agent keypair
-- known epoch keys (local secure store, indexed by epoch number)
-- last processed event block
+### Local CLI state
+Per local installation, SoulVault should keep:
+- active organization reference
+- active swarm reference
+- local agent keypair/profile
+- per-swarm chain + contract address
+- per-swarm known epoch keys (local secure store, indexed by swarm + epoch number)
+- last processed event block(s)
+- optional organization owner/treasury defaults for funding flows
 
 ---
 
@@ -219,6 +240,24 @@ Use an **epoch group key** (`K_epoch`) — not pairwise double-ratchet. One key 
 - Manual security rotate (owner CLI: `soulvault epoch rotate`)
 - Swarm backup trigger event (`requestBackup`) for coordinated state publication
 - Scheduled backup execution (heartbeat-driven or system cron-driven) as fallback
+
+### Organization vs swarm scope
+`K_epoch` is a **swarm-scoped** key, not an organization-scoped key.
+
+Design rule:
+- each swarm maintains its own independent epoch lineage
+- an organization with multiple swarms therefore has multiple independent `K_epoch` sequences
+- membership changes in one swarm do **not** force rekey in sibling swarms
+- backup/message encryption always uses the current epoch key for the specific target swarm
+
+Rationale:
+- different swarms may have different membership sets
+- independent rekey avoids unnecessary churn across unrelated swarms
+- organization is a namespace / treasury / policy umbrella, not a shared symmetric-key domain in MVP
+
+Example:
+- `ops.soulvault.eth` and `research.soulvault.eth` belong to the same organization
+- `ops` can rotate from epoch 4 -> 5 without affecting `research` at epoch 2
 
 ### Who triggers rekey
 **MVP:** The owner initiates rekey manually from the SoulVault CLI. This is deliberate — the owner holds the escrow key and must sign the `rotateEpoch` transaction. The CLI watches for `JoinApproved` and `MemberRemoved` events and prompts the owner to trigger a rekey when membership changes are detected.

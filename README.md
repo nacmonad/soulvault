@@ -52,9 +52,21 @@ Examples:
 - swarm: `ops.acme.eth`
 - agent subnames: `rusty.ops.acme.eth`
 
+Recommended ENS terminology:
+- **organization** = the root ENS/app-owned namespace (for example `acme.eth`)
+- **swarm** = a first-level subdomain under the organization (for example `ops.acme.eth`)
+- **agent** = an optional deeper subdomain beneath the swarm or organization (for example `rusty.ops.acme.eth`)
+
 ENS is **not** the source of truth for membership or epoch access. It is the public face / namespace layer.
 
-For SoulVault-on-0G, ENS can point into the 0G world via text records / multichain address records while living on Ethereum-facing ENS infrastructure. For development, default ETH/ENS config can target Sepolia rather than mainnet. The source code can stay largely chain-agnostic because both sides are EVM-shaped; the main operational difference is which RPC + chain ID the CLI is talking to.
+For SoulVault-on-0G, ENS can point into the 0G world via text records / multichain address records while living on Ethereum-facing ENS infrastructure. For development, default ETH/ENS config targets Sepolia rather than mainnet. The source code can stay largely chain-agnostic because both sides are EVM-shaped; the main operational difference is which RPC + chain ID the CLI is talking to.
+
+Current Sepolia ENS defaults for CLI config:
+- Registry: `0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e`
+- Base Registrar: `0x57f1887a8bf19b14fc0df6fd9b2acc9af147ea85`
+- ETH Registrar Controller: `0xfb3cE5D01e0f33f41DbB39035dB9745962F1f968`
+- Public Resolver: `0xE99638b40E4Fff0129D56f03b55b6bbC4BBE49b5`
+- Universal Resolver: `0xeEeEEEeE14D718C2B47D9923Deab1335E144EeEe`
 
 ## Storage model
 
@@ -135,7 +147,17 @@ Cron / `HEARTBEAT.md` can still exist, but as fallback rather than primary coord
 
 ## CLI surface
 
-The CLI now has two major surfaces.
+The CLI is converging on an **entity-first** model.
+
+### Organization operations
+- `soulvault organization create`
+- `soulvault organization list`
+- `soulvault organization use`
+- `soulvault organization status`
+- `soulvault organization register-ens`
+- `soulvault organization update-metadata`
+- `soulvault organization fund-agent`
+- `soulvault organization fund-swarm`
 
 ### Swarm operations
 - `soulvault swarm create`
@@ -150,6 +172,16 @@ The CLI now has two major surfaces.
 - `soulvault member remove <address>`
 - `soulvault epoch rotate`
 - `soulvault keygrant --member <address> --from-epoch <N>`
+
+### Agent operations
+- `soulvault agent create`
+- `soulvault agent status`
+- `soulvault agent register`
+- `soulvault agent update`
+- `soulvault agent show`
+- `soulvault agent render-agenturi`
+
+### Helper operations
 - `soulvault backup request`
 - `soulvault backup push`
 - `soulvault backup show`
@@ -160,13 +192,7 @@ The CLI now has two major surfaces.
 - `soulvault msg post`
 - `soulvault events watch`
 
-### Agent identity operations
-- `soulvault agent create`
-- `soulvault agent status`
-- `soulvault identity create-agent`
-- `soulvault identity update`
-- `soulvault identity show`
-- `soulvault identity render-agenturi`
+Legacy `identity ...` commands may remain temporarily as compatibility aliases, but `agent ...` is the preferred public surface.
 
 Detailed CLI docs:
 - `cli/COMMANDS.md`
@@ -210,6 +236,7 @@ Supporting references:
 - `docs/protocol-v0.1.md`
 - `docs/architecture.md`
 - `docs/technologies.md`
+- `docs/cli-state-model.md`
 
 ## Status
 

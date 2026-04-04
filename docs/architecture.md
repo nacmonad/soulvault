@@ -2,18 +2,21 @@
 
 ## Components
 1. **SoulVault CLI (owner + agents)**
+   - Uses an entity-first model built around organizations, swarms, and agents
    - Watches contract events
    - Handles join requests/approvals
    - Manages encrypted backup/restore
    - Triggers and validates epoch rekey (owner)
    - Issues Historical Key Grants for new/recovered joiners (owner)
    - Creates/updates per-agent ERC-8004 identities (Model 1)
+   - Manages organization ENS roots and swarm/agent public naming metadata
+   - Supports owner funding flows for agent wallets
    - Injects optional harness metadata during ERC-8004 registration
    - Responds to swarm backup-trigger events by running local harness backup commands
    - Falls back to heartbeat/system cron scheduling when no event trigger is used
    - Uploads encrypted backup artifacts to 0G Storage
    - Publishes per-swarm backup file mappings onchain for every swarm the agent belongs to
-   - Supports multiple swarms
+   - Supports multiple organizations and multiple swarms
 
 2. **Swarm Contract (one per swarm)**
    - Membership registry (stores member pubkeys directly in contract state)
@@ -92,15 +95,36 @@ New joiners and recovered nodes obtain access to historical epochs via a **Histo
 
 ---
 
-## Multi-Swarm Model
-Every swarm is identified by a contract address + chainId. SoulVault keeps local profiles:
+## Organization / Swarm / Agent Model
+SoulVault keeps local state for three primary entities:
+- **organization**
+- **swarm**
+- **agent**
+
+### Organization
+- optional ENS root name
+- owner/treasury context
+- visibility/discoverability posture
+- zero or more linked swarms
+
+### Swarm
+Every swarm is identified by a contract address + chainId and belongs to one organization.
+Recommended local profile fields:
+- `organizationRef`
 - `swarmName`
 - `chainId`
 - `contractAddress`
 - `ownerAddress`
+- optional ENS swarm name
 - `active` flag
 
-SoulVault commands execute against the active swarm unless `--swarm` is provided.
+### Agent
+- local wallet / public key / harness profile
+- optional ERC-8004 registration metadata
+- may participate in multiple swarms
+
+SoulVault commands execute against the active organization/swarm unless explicit flags are provided.
+The `.env` file should supply defaults, but canonical organization/swarm state lives in local SoulVault state under `~/.soulvault/`.
 
 ---
 
@@ -130,8 +154,9 @@ This avoids polling-heavy UX and makes all coordination auditable onchain.
 ---
 
 ## Public Identity vs Private Coordination
-SoulVault uses a two-layer model:
+SoulVault uses a three-layer public/private model:
 
+- **Public namespace layer (ENS):** optional organization, swarm, and agent naming/discovery
 - **Public identity layer (ERC-8004, Model 1):** one ERC-8004 registration per agent. This is for discovery, public metadata, public endpoints, reputation, and validation hooks.
 - **Private coordination layer (SoulVault):** membership, epoch keys, encrypted backups, encrypted message payloads, and historical recovery.
 

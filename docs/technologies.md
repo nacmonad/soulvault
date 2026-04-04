@@ -15,6 +15,13 @@
 ### CLI / TUI
 **Decision: TypeScript (Node 20+)**
 
+Primary command model:
+- `soulvault organization ...`
+- `soulvault swarm ...`
+- `soulvault agent ...`
+
+Helper surfaces may remain for operational tasks (`backup`, `restore`, `storage`, `events`), but the owning entity should remain obvious.
+
 Why:
 - Fastest path for web3 + contract event handling
 - Great Ethereum ecosystem tooling (`ethers`, `viem`)
@@ -94,6 +101,7 @@ Selection rationale:
 ### ENS Integration
 - optional public naming/discovery for organizations and swarms
 - support for organization root names and agent/swarm subnames
+- recommended hierarchy: organization root -> swarm subdomain -> optional agent subdomain
 - expected operational model for SoulVault-on-0G: ENS lives on Ethereum-facing ENS infrastructure (Sepolia by default for dev/test) and points at 0G-deployed SoulVault contracts/metadata
 - optional ENS text records pointing to:
   - swarm contract address
@@ -104,6 +112,7 @@ Selection rationale:
 - config should therefore expose separate RPCs for:
   - SoulVault swarm operations on 0G
   - ENS reads/writes on Ethereum
+- Sepolia development defaults should also expose explicit ENS contract addresses (registry, registrar, controller, public resolver, universal resolver)
 
 ### Crypto
 - `libsodium-wrappers` (XChaCha20-Poly1305 for symmetric encryption; X25519 box for pubkey wrapping)
@@ -156,7 +165,10 @@ Selection rationale:
 Deliverable: `skills/soulvault/` skill wrapping CLI
 
 Expected skill operations:
-- `swarm list/use`
+- `organization create/list/use/status`
+- `organization register-ens/update-metadata`
+- `organization fund-agent/fund-swarm`
+- `swarm create/list/use/status`
 - `join request/approve/reject/cancel`
 - `member show/remove`
 - `backup request/push/show`
@@ -165,9 +177,8 @@ Expected skill operations:
 - `epoch rotate`
 - `events watch / status`
 - `agent create/status`
-- `identity register/update/show`
-- `identity create-agent`
-- `identity render-agenturi`
+- `agent register/update/show`
+- `agent render-agenturi`
 - future: optional ENS sync / record update helpers
 - `storage publish` / `storage fetch`
 

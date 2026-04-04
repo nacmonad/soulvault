@@ -41,6 +41,14 @@ export function resolveSwarmPath(nameOrSlug: string): string {
   return path.join(resolveSwarmsDir(), `${nameOrSlug}.json`);
 }
 
+export function resolveSwarmKeysDir(swarmNameOrSlug: string): string {
+  return path.join(resolveKeysDir(), swarmNameOrSlug);
+}
+
+export function resolveEpochKeyPath(swarmNameOrSlug: string, epoch: number | string): string {
+  return path.join(resolveSwarmKeysDir(swarmNameOrSlug), `epoch-${epoch}.json`);
+}
+
 export function resolveLastBackupPath(): string {
   return path.join(resolveCliStateDir(), 'last-backup.json');
 }

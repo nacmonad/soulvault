@@ -135,6 +135,8 @@ Recommended fields:
 - backup command
 - optional ERC-8004 identity metadata
 
+`backup command` should mean the literal artifact-producing command that the agent actually runs for that harness/runtime, not an invented abstraction label.
+
 ### `organizations/*.json`
 Stores one local organization profile per known organization.
 
@@ -164,15 +166,28 @@ Stores future encrypted keystore material, wrapped epoch key material, and relat
 Recommended indexing model:
 - keys should be stored per swarm, then per epoch
 - organization does not imply one shared epoch key across all swarms
+- the live MVP path now stores generated swarm epoch keys locally under this layout
 
 Example:
 ```text
 ~/.soulvault/keys/
   ops/
-    epoch-4.json
-    epoch-5.json
+    epoch-1.json
+    epoch-2.json
   research/
     epoch-2.json
+```
+
+Example stored epoch key record:
+```json
+{
+  "swarm": "ops",
+  "epoch": 2,
+  "keyHex": "0x...",
+  "keyFingerprint": "...",
+  "createdAt": "2026-04-04T14:20:12.217Z",
+  "source": "generated"
+}
 ```
 
 ---

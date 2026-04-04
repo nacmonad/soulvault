@@ -14,12 +14,10 @@ export async function createWorkspaceArchive(workspacePath: string) {
   return archivePath;
 }
 
-export async function encryptArchiveWithEpochKey(archivePath: string) {
-  const env = loadEnv();
-  const keyHex = env.SOULVAULT_TEST_K_EPOCH || TEST_K_EPOCH_HEX;
+export async function encryptArchiveWithKey(archivePath: string, keyHex: string, keySource = 'provided') {
   const key = Buffer.from(keyHex.replace(/^0x/, ''), 'hex');
   if (key.length !== 32) {
-    throw new Error('SOULVAULT_TEST_K_EPOCH must be 32 bytes / 64 hex chars');
+    throw new Error('Epoch key must be 32 bytes / 64 hex chars');
   }
 
   const plaintext = await fs.readFile(archivePath);
@@ -44,9 +42,15 @@ export async function encryptArchiveWithEpochKey(archivePath: string) {
       authTag: authTag.toString('hex'),
       aad: aad.toString('utf8'),
       algorithm: 'aes-256-gcm-test-scaffold',
-      keySource: env.SOULVAULT_TEST_K_EPOCH ? 'env' : 'const:TEST_K_EPOCH_HEX'
+      keySource
     }
   };
+}
+
+export async function encryptArchiveWithEpochKey(archivePath: string) {
+  const env = loadEnv();
+  const keyHex = env.SOULVAULT_TEST_K_EPOCH || TEST_K_EPOCH_HEX;
+  return encryptArchiveWithKey(archivePath, keyHex, env.SOULVAULT_TEST_K_EPOCH ? 'env' : 'const:TEST_K_EPOCH_HEX');
 }
 
 function sha256Hex(input: Uint8Array) {

@@ -1,12 +1,13 @@
 import { Command } from 'commander';
 import { createSwarmProfile, getActiveSwarm, getSwarmProfile, listSwarmProfiles, useSwarm } from '../lib/swarm.js';
-import { approveJoinSwarm, getJoinRequestStatus, listSwarmMembers, requestJoinSwarm } from '../lib/swarm-contract.js';
+import { approveJoinSwarm, getJoinRequestStatus, listRecentSwarmEvents, listSwarmMembers, requestBackupForSwarm, requestJoinSwarm, watchSwarmEvents } from '../lib/swarm-contract.js';
 import { findAgentIdentitiesByWallet } from '../lib/identity.js';
 import { getAgentProfile } from '../lib/agent.js';
+import { respondToBackupRequest } from '../lib/backup-respond.js';
 
 export function registerSwarmCommands(program: Command) {
-  const swarm = program.command('swarm').description('Swarm profiles and active swarm context')
-    .addHelpText('after', `\nExamples:\n  soulvault swarm create --organization soulvault.eth --name ops\n  soulvault swarm use ops\n  soulvault swarm join-request --swarm ops\n  soulvault swarm approve-join --swarm ops --request-id 1\n  soulvault swarm member-identities --swarm ops`);
+  const swarm = program.command('swarm').description('Swarm profiles, lifecycle, and debug/event tooling')
+    .addHelpText('after', `\nExamples:\n  soulvault swarm create --organization soulvault.eth --name ops\n  soulvault swarm use ops\n  soulvault swarm join-request --swarm ops\n  soulvault swarm approve-join --swarm ops --request-id 1\n  soulvault swarm member-identities --swarm ops\n  soulvault swarm backup-request --swarm ops --reason "manual test checkpoint"\n  soulvault swarm events watch --swarm ops`);
 
   swarm
     .command('create')
@@ -120,5 +121,72 @@ export function registerSwarmCommands(program: Command) {
         contractAddress: roster.contractAddress,
         members,
       }, null, 2));
+    });
+
+  swarm
+    .command('backup-request')
+    .requiredOption('--reason <text>')
+    .option('--swarm <nameOrEns>')
+    .option('--epoch <n>')
+    .option('--target-ref <ref>')
+    .option('--deadline-seconds <n>')
+    .action(async (options) => {
+      const result = await requestBackupForSwarm({
+        swarm: options.swarm,
+        reason: options.reason,
+        epoch: options.epoch ? Number(options.epoch) : undefined,
+        targetRef: options.targetRef,
+        deadlineSeconds: options.deadlineSeconds ? Number(options.deadlineSeconds) : undefined,
+      });
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  const events = swarm.command('events').description('Inspect or watch live swarm contract events');
+
+  events
+    .command('list')
+    .option('--swarm <nameOrEns>')
+    .option('--from-block <n>')
+    .option('--to-block <n>')
+    .action(async (options) => {
+      const result = await listRecentSwarmEvents({
+        swarm: options.swarm,
+        fromBlock: options.fromBlock ? Number(options.fromBlock) : undefined,
+        toBlock: options.toBlock ? Number(options.toBlock) : undefined,
+      });
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  events
+    .command('watch')
+    .option('--swarm <nameOrEns>')
+    .option('--poll-seconds <n>', 'Polling interval in seconds', '5')
+    .option('--from-block <n>')
+    .option('--once', 'Poll once and exit', false)
+    .option('--respond-backup', 'When BackupRequested is observed, run backup/upload/mapping response', false)
+    .action(async (options) => {
+      await watchSwarmEvents({
+        swarm: options.swarm,
+        pollSeconds: options.pollSeconds ? Number(options.pollSeconds) : undefined,
+        fromBlock: options.fromBlock ? Number(options.fromBlock) : undefined,
+        once: Boolean(options.once),
+        onEvents: options.respondBackup ? async (batch) => {
+          for (const event of batch.events) {
+            if (event.type !== 'BackupRequested') continue;
+            const backupEvent = event as { type: 'BackupRequested'; epoch?: string; reason?: string };
+            try {
+              const result = await respondToBackupRequest({
+                swarm: options.swarm,
+                epoch: Number(backupEvent.epoch),
+                reason: backupEvent.reason,
+              });
+              console.log(JSON.stringify({ type: 'BackupResponseCompleted', result }, null, 2));
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              console.error(`Backup response failed: ${message}`);
+            }
+          }
+        } : undefined,
+      });
     });
 }

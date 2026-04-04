@@ -130,6 +130,22 @@ Show:
 - current member count
 - latest mapping for current agent if any
 
+## `soulvault swarm member-file-mapping`
+Inspect the current onchain backup/file mapping for a swarm member.
+
+Flags:
+- `--swarm <name|ens-name>`
+- `--member <address>`
+
+Show:
+- member address
+- epoch
+- storage locator / 0G root hash
+- publish tx hash
+- manifest hash
+- merkle root
+- updater address / source when available
+
 ---
 
 ## 2) Join / membership commands

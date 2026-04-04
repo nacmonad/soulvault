@@ -29,7 +29,9 @@ const envSchema = z.object({
   SOULVAULT_DEFAULT_SWARM_ADDRESS: z.string().optional(),
   SOULVAULT_DEFAULT_HARNESS: z.string().default('openclaw'),
   SOULVAULT_DEFAULT_BACKUP_COMMAND: z.string().optional(),
-  SOULVAULT_TEST_K_EPOCH: z.string().default('0000000000000000000000000000000000000000000000000000000000000001')
+  SOULVAULT_TEST_K_EPOCH: z.string().default('0000000000000000000000000000000000000000000000000000000000000001'),
+  SOULVAULT_PROFILE: z.string().default('default'),
+  SOULVAULT_WORKSPACE: z.string().optional(),
 });
 
 export type SoulVaultEnv = z.infer<typeof envSchema>;

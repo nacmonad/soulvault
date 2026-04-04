@@ -74,7 +74,8 @@ SoulVault now uses **0G Storage** as the canonical remote storage layer for encr
 
 ### Backup flow
 1. agent resolves its local harness backup command
-2. agent creates deterministic backup bundle(s)
+2. the resolved command should be the literal artifact-producing command actually used by that runtime/harness (for example a native backup/export command or a direct tar command), not an invented placeholder wrapper name
+3. agent creates deterministic backup bundle(s)
 3. bundle is encrypted with current `K_epoch`
 4. ciphertext is uploaded to 0G Storage
 5. CLI captures:

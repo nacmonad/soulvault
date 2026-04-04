@@ -11,6 +11,13 @@ export type AgentProfile = {
   backupCommand: string;
   createdAt: string;
   runtime: 'openclaw' | 'unknown' | string;
+  identity?: {
+    registry?: string;
+    agentId?: string;
+    txHash?: string;
+    updatedAt?: string;
+    lastAgentURI?: string;
+  };
 };
 
 export async function createOrLoadAgentProfile(input: Partial<Pick<AgentProfile, 'name' | 'harness' | 'backupCommand'>> = {}) {

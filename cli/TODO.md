@@ -72,6 +72,12 @@ Examples:
 - [x] Add file-level compare report after archive extraction to a temp directory (currently compares whichever key/default files exist in the backed-up workspace, including project files such as `package.json`, `tsconfig.json`, `src/index.ts`, `src/commands/identity.ts`, and `src/lib/0g.ts`).
 - [x] Output verification summary showing whether the backup/restore roundtrip preserved contents exactly.
 
+## Backup command metadata policy
+- `backupHarnessCommand` should record the literal command that actually produces the backup artifact for the runtime/harness.
+- If the runtime uses a native backup/export command, store that exact command.
+- If the runtime currently uses a tar/workspace archive fallback, store that exact tar/archive command.
+- Do not publish invented placeholder wrapper commands in ERC-8004 metadata if they are not really executable in the current environment.
+
 ## Signer role model
 - Default policy: infer signer by command family rather than asking the user every time.
 - **Admin signer** should back privileged org/swarm actions like `organization register-ens`, `organization fund-agent`, `join approve`, `epoch rotate`, and `keygrant`.
@@ -132,9 +138,9 @@ Example hierarchy:
 - [x] Test plan: Rusty creates the SoulVault organization ENS root for development.
 
 ## G) Swarm epoch / rekey model across organizations
-- [ ] Explicitly model `K_epoch` as swarm-scoped, not organization-scoped, in the implementation.
+- [x] Explicitly model `K_epoch` as swarm-scoped, not organization-scoped, in the implementation.
 - [ ] Introduce explicit admin-signer configuration/wiring for privileged swarm commands (`join approve`, `member remove`, `epoch rotate`, `keygrant`).
-- [ ] Ensure local key storage is indexed by swarm + epoch, not only by epoch number.
+- [x] Ensure local key storage is indexed by swarm + epoch, not only by epoch number.
 - [ ] Add CLI/operator messaging that membership changes in one swarm do not force rekey in sibling swarms.
 - [ ] Define future policy hooks if an organization ever wants coordinated multi-swarm checkpointing without shared symmetric keys.
 
@@ -169,6 +175,18 @@ Example hierarchy:
 - [x] Test plan: `soulvault swarm create --organization soulvault.eth --name ops` should prepare/use `ops.soulvault.eth` as the swarm ENS name.
 - [x] Live milestone: deployed 0G swarm contract for `ops` and approved the first join request.
   - swarm contract: `0x72fC68297AE86aef652B61D46C0510b75E493A40`
+
+## I) Event-driven backup request / watch / respond flow
+- [ ] Add `soulvault swarm member-file-mapping --swarm <name> --member <address>` as the canonical operator command for inspecting the current member backup mapping.
+- [x] Implement `soulvault swarm backup-request --swarm <name> --reason <text>` to call `requestBackup(...)` on the swarm contract.
+- [x] Implement `soulvault swarm events watch --swarm <name>` (and `events list`) to poll/watch `BackupRequested` events.
+- [ ] When a matching backup request is seen, run the backup/archive/encrypt/upload flow and publish the member file mapping.
+- [ ] Add loud failure output when the agent does not have enough 0G gas/storage balance to upload the backup artifact.
+- [x] Add operator-friendly status/fetch commands to inspect backup requests and resulting file mappings on the event side.
+- [ ] Validate the two-terminal story:
+  - [x] terminal 1 issues `backup request`
+  - [x] terminal 2 runs watcher/respond flow (debug/watch side)
+  - [ ] artifact lands in 0G and mapping is updated onchain
 
 ## H) Epoch bundle creation / publication
 - [x] Implement `soulvault epoch rotate` as the next focused stream.

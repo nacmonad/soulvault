@@ -13,11 +13,15 @@ const SOULVAULT_SWARM_ABI = [
   'function approveJoin(uint256 requestId)',
   'function rejectJoin(uint256 requestId, string reason)',
   'function rotateEpoch(uint64 newEpoch, string keyBundleRef, bytes32 keyBundleHash, uint64 expectedMembershipVersion)',
+  'function requestBackup(uint64 epoch, string reason, string targetRef, uint64 deadline)',
+  'function updateMemberFileMapping(address member, string storageLocator, bytes32 merkleRoot, bytes32 publishTxHash, bytes32 manifestHash, uint64 epoch)',
   'function getJoinRequest(uint256 requestId) view returns ((address requester, bytes pubkey, string pubkeyRef, string metadataRef, uint8 status))',
   'event JoinRequested(uint256 indexed requestId, address indexed requester, bytes pubkey, string pubkeyRef, string metadataRef)',
   'event JoinApproved(uint256 indexed requestId, address indexed requester, address indexed approver, uint64 epoch)',
   'event MemberRemoved(address indexed member, address indexed by, uint64 epoch)',
   'event EpochRotated(uint64 indexed oldEpoch, uint64 indexed newEpoch, string keyBundleRef, bytes32 keyBundleHash, uint64 membershipVersion)',
+  'event BackupRequested(address indexed requestedBy, uint64 indexed epoch, string reason, string targetRef, uint64 deadline, uint64 timestamp)',
+  'event MemberFileMappingUpdated(address indexed member, uint64 indexed epoch, string storageLocator, bytes32 merkleRoot, bytes32 publishTxHash, bytes32 manifestHash, address indexed by)',
 ] as const;
 
 async function resolveTargetSwarm(swarm?: string) {
@@ -116,6 +120,167 @@ export async function listSwarmMembers(input: { swarm?: string }) {
     contractAddress: profile.contractAddress,
     members,
   };
+}
+
+export async function requestBackupForSwarm(input: { swarm?: string; epoch?: number; reason: string; targetRef?: string; deadlineSeconds?: number }) {
+  const { profile, contract } = await getSwarmContract(input.swarm);
+  const currentEpoch = Number(await contract.currentEpoch());
+  const epoch = input.epoch ?? currentEpoch;
+  const now = Math.floor(Date.now() / 1000);
+  const deadline = now + (input.deadlineSeconds ?? 3600);
+  const tx = await contract.requestBackup(epoch, input.reason, input.targetRef ?? '', deadline);
+  const receipt = await tx.wait();
+  return {
+    swarm: profile.slug,
+    contractAddress: profile.contractAddress,
+    epoch,
+    reason: input.reason,
+    targetRef: input.targetRef ?? '',
+    deadline,
+    txHash: receipt?.hash,
+  };
+}
+
+export async function listRecentSwarmEvents(input: { swarm?: string; fromBlock?: number; toBlock?: number | 'latest' }) {
+  const { profile, contract } = await getSwarmContract(input.swarm);
+  const fromBlock = input.fromBlock ?? 0;
+  const toBlock = input.toBlock ?? 'latest';
+
+  const [joinRequested, joinApproved, memberRemoved, epochRotated, backupRequested, mappingUpdated] = await Promise.all([
+    contract.queryFilter(contract.filters.JoinRequested(), fromBlock, toBlock),
+    contract.queryFilter(contract.filters.JoinApproved(), fromBlock, toBlock),
+    contract.queryFilter(contract.filters.MemberRemoved(), fromBlock, toBlock),
+    contract.queryFilter(contract.filters.EpochRotated(), fromBlock, toBlock),
+    contract.queryFilter(contract.filters.BackupRequested(), fromBlock, toBlock),
+    contract.queryFilter(contract.filters.MemberFileMappingUpdated(), fromBlock, toBlock),
+  ]);
+
+  const events = [
+    ...joinRequested.map((log) => ({
+      type: 'JoinRequested',
+      blockNumber: log.blockNumber,
+      txHash: log.transactionHash,
+      requestId: (log as any).args?.requestId?.toString(),
+      requester: String((log as any).args?.requester ?? ''),
+    })),
+    ...joinApproved.map((log) => ({
+      type: 'JoinApproved',
+      blockNumber: log.blockNumber,
+      txHash: log.transactionHash,
+      requestId: (log as any).args?.requestId?.toString(),
+      requester: String((log as any).args?.requester ?? ''),
+      epoch: (log as any).args?.epoch?.toString(),
+    })),
+    ...memberRemoved.map((log) => ({
+      type: 'MemberRemoved',
+      blockNumber: log.blockNumber,
+      txHash: log.transactionHash,
+      member: String((log as any).args?.member ?? ''),
+      epoch: (log as any).args?.epoch?.toString(),
+    })),
+    ...epochRotated.map((log) => ({
+      type: 'EpochRotated',
+      blockNumber: log.blockNumber,
+      txHash: log.transactionHash,
+      oldEpoch: (log as any).args?.oldEpoch?.toString(),
+      newEpoch: (log as any).args?.newEpoch?.toString(),
+      keyBundleRef: String((log as any).args?.keyBundleRef ?? ''),
+    })),
+    ...backupRequested.map((log) => ({
+      type: 'BackupRequested',
+      blockNumber: log.blockNumber,
+      txHash: log.transactionHash,
+      requestedBy: String((log as any).args?.requestedBy ?? ''),
+      epoch: (log as any).args?.epoch?.toString(),
+      reason: String((log as any).args?.reason ?? ''),
+      targetRef: String((log as any).args?.targetRef ?? ''),
+      deadline: (log as any).args?.deadline?.toString(),
+    })),
+    ...mappingUpdated.map((log) => ({
+      type: 'MemberFileMappingUpdated',
+      blockNumber: log.blockNumber,
+      txHash: log.transactionHash,
+      member: String((log as any).args?.member ?? ''),
+      epoch: (log as any).args?.epoch?.toString(),
+      storageLocator: String((log as any).args?.storageLocator ?? ''),
+    })),
+  ].sort((a, b) => a.blockNumber - b.blockNumber);
+
+  return {
+    swarm: profile.slug,
+    contractAddress: profile.contractAddress,
+    fromBlock,
+    toBlock,
+    events,
+  };
+}
+
+export async function watchSwarmEvents(input: { swarm?: string; pollSeconds?: number; once?: boolean; fromBlock?: number; onEvents?: (batch: Awaited<ReturnType<typeof listRecentSwarmEvents>>) => Promise<void> | void }) {
+  const { profile, contract } = await getSwarmContract(input.swarm);
+  let cursor = input.fromBlock ?? Math.max(0, Number(await contract.runner?.provider?.getBlockNumber?.() ?? 0) - 20);
+  const intervalMs = Math.max(2, input.pollSeconds ?? 5) * 1000;
+
+  while (true) {
+    const latestBlock = Number(await contract.runner?.provider?.getBlockNumber?.());
+    if (latestBlock >= cursor) {
+      const batch = await listRecentSwarmEvents({ swarm: profile.slug, fromBlock: cursor, toBlock: latestBlock });
+      if (batch.events.length > 0) {
+        console.log(JSON.stringify(batch, null, 2));
+        await input.onEvents?.(batch);
+      }
+      cursor = latestBlock + 1;
+    }
+
+    if (input.once) {
+      return { swarm: profile.slug, contractAddress: profile.contractAddress, cursor };
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
+export async function updateMemberFileMappingOnchain(input: {
+  swarm?: string;
+  member: string;
+  storageLocator: string;
+  merkleRoot: string;
+  publishTxHash: string;
+  manifestHash: string;
+  epoch: number;
+}) {
+  const { profile, contract } = await getSwarmContract(input.swarm);
+  const payload = {
+    member: input.member,
+    storageLocator: input.storageLocator,
+    merkleRoot: input.merkleRoot,
+    publishTxHash: input.publishTxHash,
+    manifestHash: input.manifestHash,
+    epoch: input.epoch,
+  };
+  console.error('[updateMemberFileMapping] payload', JSON.stringify({ swarm: profile.slug, contractAddress: profile.contractAddress, payload }, null, 2));
+  try {
+    const tx = await contract.updateMemberFileMapping(
+      input.member,
+      input.storageLocator,
+      input.merkleRoot,
+      input.publishTxHash,
+      input.manifestHash,
+      input.epoch,
+    );
+    const receipt = await tx.wait();
+    return {
+      swarm: profile.slug,
+      contractAddress: profile.contractAddress,
+      txHash: receipt?.hash,
+      epoch: input.epoch,
+      member: input.member,
+      storageLocator: input.storageLocator,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[updateMemberFileMapping] error', message);
+    throw error;
+  }
 }
 
 export async function getJoinRequestStatus(input: { swarm?: string; requestId: string }) {

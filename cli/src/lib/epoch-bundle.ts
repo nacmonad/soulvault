@@ -1,6 +1,5 @@
 import crypto from 'node:crypto';
 import { keccak256 } from 'ethers';
-import { loadEnv } from './config.js';
 import { listSwarmMembers, getSwarmContract } from './swarm-contract.js';
 import { getAgentProfile } from './agent.js';
 import { uploadJsonTo0G, downloadFrom0G } from './0g.js';
@@ -8,6 +7,7 @@ import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
 import { getSignerPrivateKey } from './signer.js';
+import { generateEpochKeyHex, readEpochKey, storeEpochKey } from './epoch-key-store.js';
 
 export type EpochBundleEntry = {
   memberName?: string;
@@ -64,13 +64,16 @@ export function wrapEpochKeyForSecp256k1PublicKey(epochKeyHex: string, recipient
 }
 
 export async function generateEpochBundleJson(input: { swarm?: string; newEpoch?: number }) {
-  const env = loadEnv();
   const { profile, contract } = await getSwarmContract(input.swarm);
   const roster = await listSwarmMembers({ swarm: input.swarm });
   const currentEpoch = Number(await contract.currentEpoch());
   const membershipVersion = Number(await contract.membershipVersion());
   const nextEpoch = input.newEpoch ?? currentEpoch + 1;
-  const epochKeyHex = env.SOULVAULT_TEST_K_EPOCH;
+  const existing = await readEpochKey(profile.slug, nextEpoch);
+  const epochKeyHex = existing?.keyHex ?? generateEpochKeyHex();
+  if (!existing) {
+    await storeEpochKey({ swarm: profile.slug, epoch: nextEpoch, keyHex: epochKeyHex, source: 'generated' });
+  }
   const localAgent = await getAgentProfile();
 
   const entries: Record<string, EpochBundleEntry> = {};
@@ -106,6 +109,7 @@ export async function generateEpochBundleJson(input: { swarm?: string; newEpoch?
     bundleHash,
     membershipVersion,
     nextEpoch,
+    epochKeyHex,
   };
 }
 
@@ -130,6 +134,7 @@ export async function rotateEpochWithBundle(input: { swarm?: string; newEpoch?: 
     publishTxHash,
     rotateTxHash: receipt?.hash,
     entryCount: Object.keys(generated.bundle.entries).length,
+    keyFingerprint: crypto.createHash('sha256').update(Buffer.from(generated.epochKeyHex.replace(/^0x/, ''), 'hex')).digest('hex'),
     bundle: generated.bundle,
   };
 }
@@ -165,7 +170,6 @@ export async function getLatestEpochBundle(input: { swarm?: string }) {
 }
 
 export async function decryptBundleForCurrentMember(input: { swarm?: string; printKey?: boolean }) {
-  const env = loadEnv();
   const agent = await getAgentProfile();
   if (!agent) throw new Error('No local agent profile found. Run `soulvault agent create` first.');
 
@@ -192,7 +196,11 @@ export async function decryptBundleForCurrentMember(input: { swarm?: string; pri
   decipher.setAuthTag(authTag);
   const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
   const unwrappedKeyHex = plaintext.toString('hex');
-  const expectedKeyHex = normalizeHex(env.SOULVAULT_TEST_K_EPOCH);
+  const expected = await readEpochKey(latest.swarm, Number(latest.newEpoch));
+  if (!expected) {
+    throw new Error(`No local stored epoch key found for swarm ${latest.swarm} epoch ${latest.newEpoch}`);
+  }
+  const expectedKeyHex = normalizeHex(expected.keyHex);
   const matchesExpected = unwrappedKeyHex === expectedKeyHex;
   const keyFingerprint = keccak256(`0x${unwrappedKeyHex}`);
 
@@ -208,6 +216,7 @@ export async function decryptBundleForCurrentMember(input: { swarm?: string; pri
     keyFingerprint,
     expectedKeyFingerprint: keccak256(`0x${expectedKeyHex}`),
     keyBundleRef: latest.keyBundleRef,
+    localKeySource: expected.source,
     unwrappedKeyHex: input.printKey ? `0x${unwrappedKeyHex}` : undefined,
   };
 }

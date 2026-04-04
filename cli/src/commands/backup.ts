@@ -2,6 +2,7 @@ import path from 'node:path';
 import { Command } from 'commander';
 import { createWorkspaceArchive, encryptArchiveWithEpochKey } from '../lib/backup.js';
 import { uploadPreparedArtifact } from '../lib/0g.js';
+import { writeLastBackup } from '../lib/state.js';
 
 export function registerBackupCommands(program: Command) {
   const backup = program.command('backup').description('Backup flows');
@@ -21,6 +22,19 @@ export function registerBackupCommands(program: Command) {
       }
 
       const upload = await uploadPreparedArtifact(encrypted.encryptedPath);
-      console.log(JSON.stringify({ archivePath, ...encrypted, upload }, null, 2));
+      const rootHash = upload.rootHash ?? upload.rootHashes?.[0];
+      const txHash = upload.txHash ?? upload.txHashes?.[0];
+      const record = {
+        createdAt: new Date().toISOString(),
+        workspace,
+        archivePath,
+        encryptedPath: encrypted.encryptedPath,
+        manifest: encrypted.manifest,
+        upload,
+        rootHash,
+        txHash,
+      };
+      await writeLastBackup(record);
+      console.log(JSON.stringify(record, null, 2));
     });
 }

@@ -253,10 +253,12 @@ Equivalent shorthand conceptually:
 ```
 
 Storage/publication flow:
-1. Generate bundle JSON locally.
-2. Upload JSON to 0G Storage.
-3. Record `keyBundleRef` + `keyBundleHash` in `rotateEpoch(...)`.
-4. Allow inspection via a future CLI command such as `soulvault epoch show-bundle --swarm <name>`.
+1. Generate a fresh swarm-scoped `K_epoch` locally.
+2. Persist it under local swarm/epoch key storage (for the rotating/admin runtime and for later member-side verification).
+3. Generate bundle JSON locally.
+4. Upload JSON to 0G Storage.
+5. Record `keyBundleRef` + `keyBundleHash` in `rotateEpoch(...)`.
+6. Allow inspection via CLI commands such as `soulvault epoch show-bundle --swarm <name>` and member-side verification via `soulvault epoch decrypt-bundle-member --swarm <name>`.
 
 ### 4.4 Historical Key Bundle (post-MVP)
 Historical key grant bundles are intentionally deferred until after MVP.
@@ -415,10 +417,11 @@ Notes:
 ### 8.1 Backup
 The preferred trigger is a swarm event emitted through `requestBackup(...)`, not cron. Cron / `HEARTBEAT.md` remain fallback mechanisms.
 
-1. Resolve the backup harness command from SoulVault config / agent metadata. In MVP, use trusted local harness adapter commands for supported harnesses:
-   - `openclaw` -> `soulvault-harness-openclaw backup`
-   - `hermes` -> `soulvault-harness-hermes backup`
-   - `ironclaw` -> `soulvault-harness-ironclaw backup`
+1. Resolve the backup harness command from SoulVault config / agent metadata.
+   - `backupHarnessCommand` should record the literal artifact-producing command actually used by that runtime/harness.
+   - If the harness has a native backup/export command, store that exact command.
+   - If the current implementation falls back to a tar/workspace archive command, store that exact command instead.
+   - Do **not** store a fake placeholder wrapper command in metadata if it is not the command that really produces the backup artifact.
    This may be triggered by `BackupRequested`, or scheduled from `HEARTBEAT.md` / system cron as fallback.
 2. Run the harness-specific backup command, producing a deterministic archive (tar/gzip) or equivalent bundle.
 3. Compute per-file hashes + archive hash + manifest + merkle root.

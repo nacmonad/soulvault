@@ -11,7 +11,6 @@ import {
 } from 'ethers';
 import { createRequire } from 'node:module';
 import type { ClearSignContextType, ContextModule } from '@ledgerhq/context-module';
-import { ContextModuleBuilder } from '@ledgerhq/context-module';
 import type { DeviceManagementKit, DeviceSessionId, DiscoveredDevice } from '@ledgerhq/device-management-kit';
 import type { Signature as LedgerSignature, SignerEth } from '@ledgerhq/device-signer-kit-ethereum';
 import { loadEnv } from './config.js';
@@ -21,6 +20,7 @@ import { loadEnv } from './config.js';
  * CJS builds work; load them explicitly.
  */
 const requireLedger = createRequire(import.meta.url);
+const { ContextModuleBuilder } = requireLedger('@ledgerhq/context-module');
 const { DeviceManagementKitBuilder } = requireLedger('@ledgerhq/device-management-kit');
 const { SignerEthBuilder } = requireLedger('@ledgerhq/device-signer-kit-ethereum');
 const { nodeHidIdentifier, nodeHidTransportFactory } = requireLedger('@ledgerhq/device-transport-kit-node-hid');
@@ -234,7 +234,7 @@ function wrapContextModuleSkipTxClearSign(inner: ContextModule): ContextModule {
 function buildLedgerSignerEth(dmk: DeviceManagementKit, sessionId: DeviceSessionId) {
   const innerModule = new ContextModuleBuilder({
     originToken: undefined,
-    loggerFactory: (tag) => dmk.getLoggerFactory()(['ContextModule', tag]),
+    loggerFactory: (tag: string) => dmk.getLoggerFactory()(['ContextModule', tag]),
   }).build();
   const contextModule = wrapContextModuleSkipTxClearSign(innerModule);
   return new SignerEthBuilder({ dmk, sessionId }).withContextModule(contextModule).build();

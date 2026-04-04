@@ -26,7 +26,7 @@ Define a minimal, implementable protocol for:
 
 ## 2) Actors
 
-- **Owner**: deploys swarm contract, approves joins, holds owner escrow key, triggers rekey operations from CLI, and may fund agent wallets from an organization owner/treasury context. Ledger-class signer support is a recommended later path, not an MVP requirement.
+- **Owner**: deploys swarm contract, approves joins, holds owner escrow key, triggers rekey operations from CLI, and may fund agent wallets from an organization owner/treasury context. Ledger-class signer support is a recommended admin-signer path, not an MVP requirement.
 - **Member Agent**: approved participant in swarm using an agent-local software wallet in MVP
 - **SoulVault CLI**: offchain orchestrator (watches events, encrypts/decrypts, wraps/unwraps keys, triggers rekey, issues historical key grants, creates/updates ERC-8004 identities, manages optional ENS naming metadata, runs scheduled harness-aware backups)
 - **0G Storage**: stores encrypted memories/backups and related ciphertext artifacts
@@ -51,7 +51,12 @@ For a given agent, the layers are:
 MVP signer guidance:
 - agent runtime uses a local software wallet (`mnemonic` or `private-key` signer mode)
 - the same agent wallet can own the ERC-8004 identity under Model 1 / Option A
-- owner/governance flows may later use Ledger without changing the contract model because the contract keys on addresses, not signer backend type
+- privileged owner/governance flows should conceptually use an **admin signer**
+- the admin signer may later be backed by Ledger without changing the contract model because the contract keys on addresses, not signer backend type
+
+Default signer inference by command family:
+- **agent signer**: `agent register/update/show`, backup publication, storage publication, agent-side join request
+- **admin signer**: `organization register-ens`, org funding commands, `join approve/reject`, `member remove`, `epoch rotate`, `keygrant`
 
 ### What goes in ERC-8004
 Allowed / recommended public fields:

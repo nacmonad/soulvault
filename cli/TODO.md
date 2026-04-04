@@ -67,13 +67,19 @@ Examples:
 - [x] Add file-level compare report after archive extraction to a temp directory (currently compares whichever key/default files exist in the backed-up workspace, including project files such as `package.json`, `tsconfig.json`, `src/index.ts`, `src/commands/identity.ts`, and `src/lib/0g.ts`).
 - [x] Output verification summary showing whether the backup/restore roundtrip preserved contents exactly.
 
+## Signer role model
+- Default policy: infer signer by command family rather than asking the user every time.
+- **Admin signer** should back privileged org/swarm actions like `organization register-ens`, `organization fund-agent`, `join approve`, `epoch rotate`, and `keygrant`.
+- **Agent signer** should back runtime/public-agent actions like `agent register`, `backup push`, `storage publish`, and agent-side join request.
+- Ledger support should be added as a backend for the admin signer role.
+
 ## D) ENS integration (Ethereum/Sepolia-facing naming + discovery)
-- [ ] Add ENS config handling throughout the CLI using the dedicated env split:
-  - [ ] `SOULVAULT_ETH_RPC_URL`
-  - [ ] `SOULVAULT_ENS_RPC_URL`
-  - [ ] `SOULVAULT_ENS_CHAIN_ID`
-  - [ ] Sepolia ENS contract addresses from env
-- [ ] Implement ENS-aware provider/resolver helpers separate from the 0G swarm provider.
+- [x] Add ENS config handling throughout the CLI using the dedicated env split:
+  - [x] `SOULVAULT_ETH_RPC_URL`
+  - [x] `SOULVAULT_ENS_RPC_URL`
+  - [x] `SOULVAULT_ENS_CHAIN_ID`
+  - [x] Sepolia ENS contract addresses from env
+- [x] Implement initial ENS-aware provider/resolver helpers separate from the 0G swarm provider.
 - [ ] Define the first SoulVault ENS record schema for public-safe swarm/org metadata:
   - [ ] `soulvault.swarmContract`
   - [ ] `soulvault.chainId`
@@ -101,42 +107,44 @@ Example hierarchy:
 - agent: `rusty.ops.soulvault.eth`
 
 ## E) Organization create / local organization profile scaffolding
-- [ ] Implement `soulvault organization create` in the real TypeScript CLI.
+- [x] Implement `soulvault organization create` in the real TypeScript CLI.
 - [ ] Implement `soulvault organization fund-agent` for native gas funding of agent wallets.
 - [ ] Implement `soulvault organization fund-swarm` for batch top-ups across known swarm agent wallets.
-- [ ] Add local organization profile storage (likely under `~/.soulvault/organizations/`).
-- [ ] Capture and persist these fields in the organization profile:
-  - [ ] organization name / local slug
-  - [ ] ENS root name
-  - [ ] ETH/ENS RPC config
-  - [ ] visibility posture / publication policy
-  - [ ] owner wallet / treasury defaults
+- [ ] Introduce explicit admin-signer configuration/wiring for organization-level commands.
+- [x] Add local organization profile storage (likely under `~/.soulvault/organizations/`).
+- [x] Capture and persist these fields in the organization profile:
+  - [x] organization name / local slug
+  - [x] ENS root name
+  - [x] ETH/ENS RPC config
+  - [x] visibility posture / publication policy
+  - [x] owner wallet / treasury defaults
   - [ ] future org-level metadata pointers
-- [ ] Support a profile-only organization create flow before ENS write operations are fully wired.
+- [x] Support a profile-only organization create flow before ENS write operations are fully wired.
 - [ ] Add optional ENS registration / binding workflow for organization create on Sepolia first.
-- [ ] Test plan: Rusty creates the SoulVault organization ENS root for development.
+- [x] Test plan: Rusty creates the SoulVault organization ENS root for development.
 
 ## G) Swarm epoch / rekey model across organizations
 - [ ] Explicitly model `K_epoch` as swarm-scoped, not organization-scoped, in the implementation.
+- [ ] Introduce explicit admin-signer configuration/wiring for privileged swarm commands (`join approve`, `member remove`, `epoch rotate`, `keygrant`).
 - [ ] Ensure local key storage is indexed by swarm + epoch, not only by epoch number.
 - [ ] Add CLI/operator messaging that membership changes in one swarm do not force rekey in sibling swarms.
 - [ ] Define future policy hooks if an organization ever wants coordinated multi-swarm checkpointing without shared symmetric keys.
 
 ## F) Swarm create / local swarm profile scaffolding
-- [ ] Implement `soulvault swarm create` in the real TypeScript CLI.
-- [ ] Require or accept `--organization <ens-name|local-org-name>` so swarms can anchor under an organization namespace.
-- [ ] Add local swarm profile storage (likely under `~/.soulvault/swarms/`).
-- [ ] Capture and persist these fields in the swarm profile:
-  - [ ] parent organization reference
-  - [ ] swarm name
-  - [ ] 0G chain id / RPC
-  - [ ] owner address
-  - [ ] deployed contract address (when known)
-  - [ ] optional ENS name
-  - [ ] visibility posture (`public` / `private` / `semi-private`)
-- [ ] Allow `swarm create` to work in profile-only mode before contract deployment is wired.
-- [ ] If the parent organization has an ENS root, derive or validate the swarm ENS name beneath it (example: `ops.soulvault.eth`).
-- [ ] Add follow-on `swarm use`, `swarm list`, and `swarm status` state integration against the saved profiles.
+- [x] Implement `soulvault swarm create` in the real TypeScript CLI.
+- [x] Require or accept `--organization <ens-name|local-org-name>` so swarms can anchor under an organization namespace.
+- [x] Add local swarm profile storage (likely under `~/.soulvault/swarms/`).
+- [x] Capture and persist these fields in the swarm profile:
+  - [x] parent organization reference
+  - [x] swarm name
+  - [x] 0G chain id / RPC
+  - [x] owner address
+  - [x] deployed contract address (when known)
+  - [x] optional ENS name
+  - [x] visibility posture (`public` / `private` / `semi-private`)
+- [x] Allow `swarm create` to work in profile-only mode before contract deployment is wired.
+- [x] If the parent organization has an ENS root, derive or validate the swarm ENS name beneath it (example: `ops.soulvault.eth`).
+- [x] Add follow-on `swarm use`, `swarm list`, and `swarm status` state integration against the saved profiles.
 - [ ] Define deploy/configure flow for later contract deployment support.
 - [ ] Ensure the swarm profile model cleanly separates:
   - [ ] SoulVault swarm RPC/chain config (0G)

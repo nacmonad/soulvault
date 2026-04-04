@@ -66,8 +66,9 @@ Recommended hierarchy:
 `.env` should hold **defaults**, not the canonical definition of organizations or swarms.
 
 Good `.env` content:
-- default signer mode
-- default local private key / mnemonic for the current operator or agent runtime
+- default signer settings for distinct signer roles
+- default local private key / mnemonic for the current agent runtime
+- optional admin signer defaults (including Ledger-oriented settings later)
 - default 0G RPC / chain ID
 - default ETH/ENS RPC / chain ID
 - ENS contract addresses
@@ -83,6 +84,17 @@ Bad `.env` content:
 ### Design rule
 `.env` is bootstrap configuration.
 `~/.soulvault/` is the canonical local state store.
+
+### Signer roles
+SoulVault should distinguish between at least two signer roles:
+- **agent signer** — autonomous runtime signer used for agent-driven operations
+- **admin signer** — human-controlled owner/treasury signer used for privileged organization/swarm administration
+
+Recommended command inference model:
+- `organization register-ens`, `organization fund-agent`, `organization fund-swarm`, `join approve`, `member remove`, `epoch rotate`, `keygrant` => use **admin signer** by default
+- `agent register`, `backup push`, `storage publish`, agent-side join request => use **agent signer** by default
+
+Ledger is a signer backend for the admin signer role, not an onchain role.
 
 ---
 
@@ -194,6 +206,10 @@ Used for:
 - file mapping publication
 - backup coordination
 
+Signer guidance:
+- agent-driven swarm actions generally use the **agent signer**
+- privileged swarm administration generally uses the **admin signer**
+
 Default target:
 - 0G Galileo testnet
 - chain ID `16602`
@@ -205,6 +221,10 @@ Used for:
 - organization root naming
 - swarm subdomain metadata
 - future public agent subname management
+
+Signer guidance:
+- read-only ENS lookups can use provider-only access
+- ENS writes should use the **admin signer** by default
 
 Default target for dev/test:
 - Sepolia
@@ -236,6 +256,7 @@ These should:
 - ENS root registration or binding
 - ENS org metadata updates
 - org-level funding actions
+- default admin-signer-led organization actions
 
 ### Swarm commands own:
 - create/list/use/status
@@ -249,6 +270,7 @@ These should:
 - ERC-8004 public registration/update/show
 - public agentURI rendering
 - agent runtime metadata
+- default agent-signer-led runtime/public identity actions
 
 ### Helper commands remain useful for:
 - backup execution

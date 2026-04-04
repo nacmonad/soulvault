@@ -181,6 +181,13 @@ The CLI is converging on an **entity-first** model.
 - `soulvault agent show`
 - `soulvault agent render-agenturi`
 
+### Signer model
+SoulVault should infer signer role by command family:
+- **admin signer** for privileged organization/swarm administration (`organization register-ens`, funding actions, `join approve`, `epoch rotate`, etc.)
+- **agent signer** for autonomous runtime and public-agent actions (`agent register`, `backup push`, `storage publish`, agent-side join request)
+
+A Ledger is best treated as a backend for the admin signer role, not as a special onchain role.
+
 ### Helper operations
 - `soulvault backup request`
 - `soulvault backup push`

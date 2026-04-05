@@ -1,88 +1,94 @@
 # Story 04 — Owner requests backup, agent watches and responds
 
-This story demonstrates the event-driven backup loop for SoulVault.
+This story demonstrates the event-driven backup coordination loop.
 
 Goal:
 - have the owner/admin trigger a backup request onchain
 - run an agent-side watcher in another terminal
 - let the watcher detect `BackupRequested`
-- run the backup flow
-- upload the encrypted artifact to 0G
-- publish the resulting member file mapping back to the swarm contract
+- run the backup flow (archive → encrypt → upload → file mapping)
+- verify the result onchain and in 0G
 
 This story is meant to be run with **two terminals**.
 
----
-
-## Terminal 1 — Owner/admin requests backup
-Use the swarm owner/admin context to request a backup for the active swarm.
-
-Intended command shape:
-```bash
-soulvault backup request --swarm ops --reason "manual test checkpoint"
-```
-
-Expected behavior:
-- sends `requestBackup(...)` to the live swarm contract
-- emits `BackupRequested`
+Prerequisite: **Story 00** (org, swarm, membership) and **Story 03** (at least one epoch rotated, so a K_epoch exists for encryption).
 
 ---
 
-## Terminal 2 — Agent watches and responds
-Run the agent-side event watcher.
+## Terminal 2 (start first) — Agent watches and auto-responds
+Start the event watcher with `--respond-backup` so it automatically executes the full backup flow when it sees `BackupRequested`.
 
-Intended command shape:
 ```bash
-soulvault events watch --swarm ops
+soulvault swarm events watch --swarm ops --respond-backup
 ```
 
-or, if a backup-specific watcher surface is added:
-```bash
-soulvault backup watch --swarm ops
-```
+Leave this running. It polls the swarm contract for new events every 5 seconds.
 
-Expected behavior:
-- polls or watches for `BackupRequested`
-- detects that this swarm needs a backup response
-- runs the local backup/archive/encrypt flow
-- uploads the encrypted artifact to 0G
-- calls `updateMemberFileMapping(...)` for the current member
+When it detects `BackupRequested`, it will:
+1. Run the configured harness backup command (archives the workspace)
+2. Encrypt the archive with the current epoch key (AES-256-GCM)
+3. Upload the encrypted artifact to 0G Storage
+4. Call `updateMemberFileMapping(...)` on the swarm contract to publish proof
 
 ---
 
-## Verification steps
-After the watcher responds, inspect the resulting onchain and storage state.
-
-Possible commands:
+## Terminal 1 — Owner/admin triggers the backup request
 ```bash
-soulvault backup show --swarm ops
+soulvault swarm backup-request --swarm ops --reason "manual test checkpoint"
+```
+
+Behavior:
+- calls `requestBackup(epoch, reason, targetRef, deadline)` on the swarm contract
+- emits `BackupRequested` on-chain
+- the watcher in Terminal 2 picks it up on the next poll cycle
+
+On a **Ledger**, expect a signing prompt for the 0G Galileo transaction.
+
+---
+
+## Verification
+
+### Check events
+```bash
+soulvault swarm events list --swarm ops
+```
+
+You should see both:
+- a `BackupRequested` event (from the owner trigger)
+- a `MemberFileMappingUpdated` event (from the agent's response)
+
+### Verify the backup end-to-end
+```bash
 soulvault restore verify-latest
 ```
 
-The important observable outcomes are:
-- a `BackupRequested` event exists
-- the agent uploaded the artifact to 0G
-- the swarm contract has an updated member file mapping
+This downloads the encrypted artifact from 0G, decrypts it with the local epoch key, extracts the archive, and compares SHA256 hashes of key files against the source workspace.
+
+### Manual backup (without the watcher)
+If you prefer to run the backup flow manually instead of using `--respond-backup`:
+
+```bash
+soulvault backup push --workspace /path/to/workspace
+```
+
+This archives, encrypts, uploads to 0G, and records the manifest in `~/.soulvault/last-backup.json`. It does **not** call `updateMemberFileMapping` — that's handled separately by the watcher or would need to be done manually.
 
 ---
 
 ## Important failure mode — insufficient 0G gas/storage fees
-The watcher/backup response path should fail **loudly** if the agent wallet does not have enough 0G funds to publish the backup artifact.
+The backup response path fails **loudly** if the agent wallet does not have enough 0G funds to upload the artifact.
 
-Desired error style:
 ```text
 Backup upload failed: insufficient 0G gas/storage balance for agent wallet 0x...
 Top up the agent wallet and retry the backup response.
 ```
 
-This is important for demos and real operations, because silent failure would make the event-driven flow look healthy when the artifact was never actually published.
+Silent failure would make the event-driven flow look healthy when no artifact was actually published.
 
 ---
 
 ## Notes
-- The swarm contract already supports this pattern through:
-  - `requestBackup(...)`
-  - `BackupRequested`
-  - `updateMemberFileMapping(...)`
-- The missing work is primarily CLI/runtime orchestration, not contract invention.
-- Polling is acceptable for MVP; it does not need fancy subscriptions yet.
+- The swarm contract drives this pattern: `requestBackup(...)` → `BackupRequested` → agent responds → `updateMemberFileMapping(...)`
+- `swarm backup-request` is the **owner/coordinator** trigger (emits the event). `backup push` is the **agent-side** response (archives + encrypts + uploads).
+- Polling via `swarm events watch` is the MVP approach. It does not require WebSocket subscriptions.
+- The `--respond-backup` flag wires the full response pipeline: detect → backup → encrypt → upload → publish mapping.

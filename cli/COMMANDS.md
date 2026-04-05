@@ -104,9 +104,14 @@ Flags:
 - `--ens-name <name>` (optional explicit swarm ENS name; otherwise derived from organization + swarm name when appropriate)
 - `--public` (mark swarm as intended for public discovery)
 - `--private` (default posture when ENS is omitted)
+- `--semi-private` (keep org-level naming/public umbrella, but do not require direct swarm-level ENS publication)
 
 Notes:
 - ENS is optional and is used for naming/discovery only.
+- Visibility posture semantics:
+  - `public` = swarm ENS name may be bound and public-safe metadata may be published
+  - `private` = no swarm ENS binding required; operate from local + contract state only
+  - `semi-private` = organization ENS may exist publicly, but the swarm itself does not need direct ENS publication
 - For SoulVault-on-0G, ENS is expected to be managed through Ethereum-facing ENS infrastructure (Sepolia by default for dev/test).
 - SoulVault contract state remains the source of truth for membership and coordination.
 - The CLI should therefore keep separate RPC config for swarm operations vs ENS operations.

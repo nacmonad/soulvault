@@ -21,6 +21,11 @@ SoulVault operates across two EVM lanes:
 
 The swarm contract on 0G holds the coordination truth. 0G Storage holds encrypted artifacts (backups, key bundles, message envelopes). ENS + ERC-8004 on Sepolia provide public naming and discovery without being the source of truth for membership.
 
+Visibility posture shorthand:
+- `public` = swarm name + public-safe metadata can be published through ENS
+- `private` = no direct ENS publication required for the swarm
+- `semi-private` = organization/root ENS may be public while the swarm itself remains undiscoverable or only locally known
+
 ### Entity model
 
 ```

@@ -159,7 +159,7 @@ All payloads uploaded to ![h:24](media/0G-Logo-Purple_Hero.png) 0G Storage; cont
 
 # Demo Flow
 
-<video src="media/soulvault-short.mp4" autoplay muted loop style="position:absolute;right:40px;top:100px;width:55%;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,.3)"></video>
+<video src="media/soulvault-short.mp4" controls muted style="position:absolute;right:40px;top:100px;width:55%;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,.3)"></video>
 
 1. Create org + deploy swarm
 2. Agent requests join

@@ -12,4 +12,6 @@ cache/
 # Node / local build artifacts
 node_modules/
 dist/
+!slides/dist/
 coverage/
+

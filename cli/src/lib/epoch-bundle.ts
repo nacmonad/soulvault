@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { keccak256 } from 'ethers';
-import { listSwarmMembers, getSwarmContract } from './swarm-contract.js';
+import { listSwarmMembers, getSwarmContract, getSwarmContractReadonly } from './swarm-contract.js';
 import { getAgentProfile } from './agent.js';
 import { uploadJsonTo0G, downloadFrom0G } from './0g.js';
 import fs from 'fs-extra';
@@ -64,7 +64,7 @@ export function wrapEpochKeyForSecp256k1PublicKey(epochKeyHex: string, recipient
 }
 
 export async function generateEpochBundleJson(input: { swarm?: string; newEpoch?: number }) {
-  const { profile, contract } = await getSwarmContract(input.swarm);
+  const { profile, contract } = await getSwarmContractReadonly(input.swarm);
   const roster = await listSwarmMembers({ swarm: input.swarm });
   const currentEpoch = Number(await contract.currentEpoch());
   const membershipVersion = Number(await contract.membershipVersion());
@@ -140,7 +140,7 @@ export async function rotateEpochWithBundle(input: { swarm?: string; newEpoch?: 
 }
 
 export async function getLatestEpochBundle(input: { swarm?: string }) {
-  const { profile, contract } = await getSwarmContract(input.swarm);
+  const { profile, contract } = await getSwarmContractReadonly(input.swarm);
   const logs = await contract.queryFilter(contract.filters.EpochRotated(), 0, 'latest');
   const latest = logs.at(-1);
   if (!latest) {

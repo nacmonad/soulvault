@@ -26,6 +26,7 @@ const { SignerEthBuilder } = requireLedger('@ledgerhq/device-signer-kit-ethereum
 const { nodeHidIdentifier, nodeHidTransportFactory } = requireLedger('@ledgerhq/device-transport-kit-node-hid');
 
 const LEDGER_DISCOVERY_TIMEOUT_MS = 15_000;
+const LEDGER_ACTION_TIMEOUT_MS = 30_000;
 
 type SoftwareSigner = HDNodeWallet | Wallet;
 export type SoulVaultSigner = SoftwareSigner | LedgerEthersSigner;
@@ -343,24 +344,44 @@ async function runLedgerAction<T>(action: {
     }): { unsubscribe(): void };
   };
   cancel: () => void;
-}): Promise<T> {
+}, timeoutMs = LEDGER_ACTION_TIMEOUT_MS): Promise<T> {
   return await new Promise((resolve, reject) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      subscription?.unsubscribe();
+      action.cancel();
+      reject(new Error(
+        `Ledger action timed out after ${timeoutMs}ms. Unlock the device, open the Ethereum app, and retry.`,
+      ));
+    }, timeoutMs);
+
     let subscription: { unsubscribe(): void } | undefined;
     subscription = action.observable.subscribe({
       next: (state) => {
         if (state.status === 'completed') {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeout);
           subscription?.unsubscribe();
           resolve(state.output as T);
           return;
         }
 
         if (state.status === 'error') {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeout);
           subscription?.unsubscribe();
           action.cancel();
           reject(state.error ?? new Error('Ledger device action failed.'));
         }
       },
       error: (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
         subscription?.unsubscribe();
         action.cancel();
         reject(error);

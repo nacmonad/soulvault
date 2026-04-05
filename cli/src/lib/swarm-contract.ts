@@ -1,6 +1,6 @@
 import { Contract } from 'ethers';
 import { getActiveSwarm, getSwarmProfile } from './swarm.js';
-import { createSigner } from './signer.js';
+import { createProvider, createSigner } from './signer.js';
 import { getAgentProfile } from './agent.js';
 
 const SOULVAULT_SWARM_ABI = [
@@ -35,6 +35,13 @@ async function resolveTargetSwarm(swarm?: string) {
     profile,
     contractAddress: profile.contractAddress,
   };
+}
+
+export async function getSwarmContractReadonly(swarm?: string) {
+  const { profile, contractAddress } = await resolveTargetSwarm(swarm);
+  const provider = await createProvider();
+  const contract = new Contract(contractAddress, SOULVAULT_SWARM_ABI, provider);
+  return { profile, contract };
 }
 
 export async function getSwarmContract(swarm?: string) {
@@ -101,7 +108,7 @@ export async function approveJoinSwarm(input: { swarm?: string; requestId: strin
 }
 
 export async function listSwarmMembers(input: { swarm?: string }) {
-  const { profile, contract } = await getSwarmContract(input.swarm);
+  const { profile, contract } = await getSwarmContractReadonly(input.swarm);
   const approvedLogs = await contract.queryFilter(contract.filters.JoinApproved(), 0, 'latest');
   const removedLogs = await contract.queryFilter(contract.filters.MemberRemoved(), 0, 'latest');
 
@@ -145,7 +152,7 @@ export async function requestBackupForSwarm(input: { swarm?: string; epoch?: num
 }
 
 export async function listRecentSwarmEvents(input: { swarm?: string; fromBlock?: number; toBlock?: number | 'latest' }) {
-  const { profile, contract } = await getSwarmContract(input.swarm);
+  const { profile, contract } = await getSwarmContractReadonly(input.swarm);
   const fromBlock = input.fromBlock ?? 0;
   const toBlock = input.toBlock ?? 'latest';
 
@@ -232,7 +239,7 @@ export async function listRecentSwarmEvents(input: { swarm?: string; fromBlock?:
 }
 
 export async function watchSwarmEvents(input: { swarm?: string; pollSeconds?: number; once?: boolean; fromBlock?: number; onEvents?: (batch: Awaited<ReturnType<typeof listRecentSwarmEvents>>) => Promise<void> | void }) {
-  const { profile, contract } = await getSwarmContract(input.swarm);
+  const { profile, contract } = await getSwarmContractReadonly(input.swarm);
   let cursor = input.fromBlock ?? Math.max(0, Number(await contract.runner?.provider?.getBlockNumber?.() ?? 0) - 20);
   const intervalMs = Math.max(2, input.pollSeconds ?? 5) * 1000;
 
@@ -333,7 +340,7 @@ export async function postMessageToSwarm(input: {
 }
 
 export async function listSwarmMessages(input: { swarm?: string; fromBlock?: number; toBlock?: number | 'latest' }) {
-  const { profile, contract } = await getSwarmContract(input.swarm);
+  const { profile, contract } = await getSwarmContractReadonly(input.swarm);
   const fromBlock = input.fromBlock ?? 0;
   const toBlock = input.toBlock ?? 'latest';
 
@@ -363,7 +370,7 @@ export async function listSwarmMessages(input: { swarm?: string; fromBlock?: num
 }
 
 export async function getJoinRequestStatus(input: { swarm?: string; requestId: string }) {
-  const { profile, contract } = await getSwarmContract(input.swarm);
+  const { profile, contract } = await getSwarmContractReadonly(input.swarm);
   const req = await contract.getJoinRequest(input.requestId);
   return {
     swarm: profile.slug,

@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { Command } from 'commander';
 import { keccak256 } from 'ethers';
-import { postMessageToSwarm, listSwarmMessages, getSwarmContract } from '../lib/swarm-contract.js';
+import { postMessageToSwarm, listSwarmMessages, getSwarmContractReadonly } from '../lib/swarm-contract.js';
 import { uploadJsonTo0G, downloadFrom0G } from '../lib/0g.js';
 import { getAgentProfile } from '../lib/agent.js';
 import { readEpochKey } from '../lib/epoch-key-store.js';
@@ -127,7 +127,7 @@ export function registerMessageCommands(program: Command) {
         // Group: encrypted with K_epoch
         const swarmProfile = options.swarm ? await getSwarmProfile(options.swarm) : await getActiveSwarm();
         if (!swarmProfile) throw new Error('No swarm profile found.');
-        const { contract } = await getSwarmContract(options.swarm);
+        const { contract } = await getSwarmContractReadonly(options.swarm);
         const currentEpoch = Number(await contract.currentEpoch());
         const epochKey = await readEpochKey(swarmProfile.slug, currentEpoch);
         if (!epochKey) throw new Error(`No local epoch key for swarm ${swarmProfile.slug} epoch ${currentEpoch}. Run \`soulvault epoch decrypt-bundle-member\` to unwrap it first.`);
@@ -154,7 +154,7 @@ export function registerMessageCommands(program: Command) {
         };
       } else if (mode === 'dm') {
         // DM: encrypted to recipient's secp256k1 pubkey
-        const { contract } = await getSwarmContract(options.swarm);
+        const { contract } = await getSwarmContractReadonly(options.swarm);
         const recipientMember = await contract.getMember(options.to);
         if (!recipientMember.active) throw new Error(`Recipient ${options.to} is not an active swarm member.`);
         const recipientPubkey = recipientMember.pubkey;

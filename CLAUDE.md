@@ -103,6 +103,7 @@ The `stories/` directory contains numbered walkthroughs. Each one is designed to
 |-------|--------|
 | story00 | Bootstrap org + swarm + join/approve |
 | story01 | Browse orgs, swarms, member identities |
+| story02 | Agent profile creation + ERC-8004 on-chain identity |
 | story03 | Epoch rotation + verification |
 | story04 | Event-driven backup coordination |
 | story05 | Messaging protocol (detailed) |

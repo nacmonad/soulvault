@@ -41,7 +41,8 @@ export async function createOrganizationProfile(input: {
   const env = loadEnv();
   const slug = slugify(input.name);
   const now = new Date().toISOString();
-  const signer = await describeSigner().catch(() => null);
+  const signerTimeout = new Promise<null>((r) => setTimeout(() => r(null), 20_000));
+  const signer = await Promise.race([describeSigner(), signerTimeout]).catch(() => null);
   const profile: OrganizationProfile = {
     name: input.name,
     slug,

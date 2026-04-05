@@ -1,5 +1,11 @@
 {
 	"type": "module",
+	"scripts": {
+		"slides:html": "mkdir -p slides/dist && marp slides/DECK.md --html --output slides/dist/deck.html",
+		"slides:pdf": "mkdir -p slides/dist && marp slides/DECK.md --pdf --allow-local-files --output slides/dist/deck.pdf",
+		"slides:pptx": "mkdir -p slides/dist && marp slides/DECK.md --pptx --allow-local-files --output slides/dist/deck.pptx",
+		"slides:all": "npm run slides:html && npm run slides:pdf && npm run slides:pptx"
+	},
 	"dependencies": {
 		"@0gfoundation/0g-ts-sdk": "^1.2.1",
 		"chalk": "^5.6.2",
@@ -12,6 +18,7 @@
 		"zod": "^4.3.6"
 	},
 	"devDependencies": {
+		"@marp-team/marp-cli": "^4.3.1",
 		"@types/fs-extra": "^11.0.4",
 		"@types/node": "^25.5.0",
 		"@types/tar": "^7.0.87",

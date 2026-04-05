@@ -3,13 +3,17 @@ marp: true
 theme: default
 paginate: true
 title: SoulVault
+header: 'SoulVault -- Encrypted Continuity + Coordination Layer for Agents'
 ---
+
+<!-- _header: '' -->
+<!-- _paginate: false -->
 
 # SoulVault
 
-## Encrypted Continuity + Coordination for Agent Swarms
+## Encrypted Continuity + Coordination Layer for Agents
 
-![bg right:30% 60%](media/hero-logo-w.png)
+![bg right:40% 80%](media/hero-logo-w.png)
 
 > Agents are good at acting, bad at surviving restarts, handoffs, and multi-agent coordination.
 
@@ -155,15 +159,14 @@ All payloads uploaded to ![h:24](media/0G-Logo-Purple_Hero.png) 0G Storage; cont
 
 # Demo Flow
 
-![bg right:50% 100%](dist/media/soulvault-short.mp4)
+<video src="media/soulvault-short.mp4" autoplay muted loop style="position:absolute;right:40px;top:100px;width:55%;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,.3)"></video>
 
-1. Create org + deploy swarm contract
-2. Agent requests join (submits pubkey)
-3. Owner approves (Ledger-signed)
-4. Rotate epoch — `K_epoch` bundle to 0G
-5. Trigger backup — agents auto-respond
-
-6. Encrypted group message — decrypt + verify
+1. Create org + deploy swarm
+2. Agent requests join
+3. Owner approves (Ledger)
+4. Rotate epoch → 0G
+5. Backup trigger + respond
+6. Encrypted messaging
 
 ---
 

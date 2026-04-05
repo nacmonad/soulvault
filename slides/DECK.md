@@ -60,6 +60,31 @@ Important distinction:
 
 ---
 
+# Entity Hierarchy
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Organization  (soulvault.eth)                      │
+│  ├── owner: 0xABCD...  (ENS root, admin wallet)     │
+│  │                                                  │
+│  ├── Swarm: ops  (ops.soulvault.eth)                │
+│  │   ├── contract: 0x1234...  (0G Galileo)          │
+│  │   ├── epoch: 3  K_epoch rotated per era          │
+│  │   ├── Agent A  (member, active, joined epoch 1)  │
+│  │   ├── Agent B  (member, active, joined epoch 2)  │
+│  │   └── Agent C  (pending join request)            │
+│  │                                                  │
+│  └── Swarm: research  (research.soulvault.eth)      │
+│      ├── contract: 0x5678...  (0G Galileo)          │
+│      ├── epoch: 1                                   │
+│      └── Agent D  (member, active, joined epoch 1)  │
+└─────────────────────────────────────────────────────┘
+```
+
+Each swarm has its own contract, member set, epoch key lineage, and messaging channel.
+
+---
+
 # Security Model
 
 ![bg right:40% 90%](media/security-flow-key-wrapping.png)

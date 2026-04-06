@@ -3,6 +3,13 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {SoulVaultSwarm} from "../contracts/SoulVaultSwarm.sol";
+import {SoulVaultOrganization} from "../contracts/SoulVaultOrganization.sol";
+
+/// @dev Minimal mock that satisfies the `orgPaused()` call in the swarm's `whenNotPaused` modifier.
+contract MockOrganization {
+    bool public orgPaused;
+    function setOrgPaused(bool v) external { orgPaused = v; }
+}
 
 contract SoulVaultSwarmTest is Test {
     SoulVaultSwarm internal swarm;
@@ -129,6 +136,199 @@ contract SoulVaultSwarmTest is Test {
             keccak256("manifest-bad"),
             1
         );
+    }
+
+    // --- Organization binding ---
+
+    MockOrganization internal mockOrg;
+
+    function _deployMockOrg() internal returns (address) {
+        if (address(mockOrg) == address(0)) {
+            mockOrg = new MockOrganization();
+        }
+        return address(mockOrg);
+    }
+
+    function testSetOrganizationEmitsAndReturnsValue() public {
+        address mo = _deployMockOrg();
+        swarm.setOrganization(mo);
+        assertEq(swarm.organization(), mo);
+    }
+
+    function testSetOrganizationIsReSettable() public {
+        address mo = _deployMockOrg();
+        swarm.setOrganization(mo);
+        MockOrganization mo2 = new MockOrganization();
+        swarm.setOrganization(address(mo2));
+        assertEq(swarm.organization(), address(mo2));
+    }
+
+    function testSetOrganizationRevertsOnZeroAddress() public {
+        vm.expectRevert(SoulVaultSwarm.ZeroAddress.selector);
+        swarm.setOrganization(address(0));
+    }
+
+    function testOnlyOwnerCanSetOrganization() public {
+        address mo = _deployMockOrg();
+        vm.prank(alice);
+        vm.expectRevert(SoulVaultSwarm.NotOwner.selector);
+        swarm.setOrganization(mo);
+    }
+
+    // --- Fund request lifecycle ---
+
+    function _setMockOrg() internal returns (address) {
+        address mo = _deployMockOrg();
+        swarm.setOrganization(mo);
+        return mo;
+    }
+
+    function testRequestFundsHappyPath() public {
+        _approveAliceAndRotateToEpoch1();
+        _setMockOrg();
+
+        vm.prank(alice);
+        uint256 fundId = swarm.requestFunds(1 ether, "ops gas");
+
+        assertEq(fundId, 1);
+        assertEq(swarm.nextFundRequestId(), 2);
+        SoulVaultSwarm.FundRequest memory req = swarm.getFundRequest(fundId);
+        assertEq(req.requester, alice);
+        assertEq(req.amount, 1 ether);
+        assertEq(req.reason, "ops gas");
+        assertEq(req.status, 0 /* PENDING */);
+        assertGt(req.createdAt, 0);
+        assertEq(req.resolvedAt, 0);
+    }
+
+    function testRequestFundsRevertsForNonMember() public {
+        _setMockOrg();
+        vm.prank(bob);
+        vm.expectRevert(SoulVaultSwarm.NotActiveMember.selector);
+        swarm.requestFunds(1 ether, "nope");
+    }
+
+    function testRequestFundsRevertsWhenOrganizationNotSet() public {
+        _approveAliceAndRotateToEpoch1();
+        vm.prank(alice);
+        vm.expectRevert(SoulVaultSwarm.OrganizationNotSet.selector);
+        swarm.requestFunds(1 ether, "nope");
+    }
+
+    function testRequestFundsRevertsOnZeroAmount() public {
+        _approveAliceAndRotateToEpoch1();
+        _setMockOrg();
+        vm.prank(alice);
+        vm.expectRevert(SoulVaultSwarm.ZeroAmount.selector);
+        swarm.requestFunds(0, "nope");
+    }
+
+    function testCancelFundRequestRequesterOnly() public {
+        _approveAliceAndRotateToEpoch1();
+        _setMockOrg();
+
+        vm.prank(alice);
+        uint256 fundId = swarm.requestFunds(1 ether, "ops gas");
+
+        vm.prank(bob);
+        vm.expectRevert(SoulVaultSwarm.NotFundRequester.selector);
+        swarm.cancelFundRequest(fundId);
+
+        vm.prank(alice);
+        swarm.cancelFundRequest(fundId);
+        SoulVaultSwarm.FundRequest memory req = swarm.getFundRequest(fundId);
+        assertEq(req.status, 3 /* CANCELLED */);
+        assertGt(req.resolvedAt, 0);
+    }
+
+    function testMarkFundRequestApprovedOnlyByOrganization() public {
+        _approveAliceAndRotateToEpoch1();
+        address mo = _setMockOrg();
+
+        vm.prank(alice);
+        uint256 fundId = swarm.requestFunds(1 ether, "ops gas");
+
+        vm.expectRevert(SoulVaultSwarm.NotOrganization.selector);
+        swarm.markFundRequestApproved(fundId);
+
+        vm.prank(mo);
+        swarm.markFundRequestApproved(fundId);
+        SoulVaultSwarm.FundRequest memory req = swarm.getFundRequest(fundId);
+        assertEq(req.status, 1 /* APPROVED */);
+        assertGt(req.resolvedAt, 0);
+    }
+
+    function testMarkFundRequestRejectedOnlyByOrganization() public {
+        _approveAliceAndRotateToEpoch1();
+        address mo = _setMockOrg();
+
+        vm.prank(alice);
+        uint256 fundId = swarm.requestFunds(1 ether, "ops gas");
+
+        vm.prank(alice);
+        vm.expectRevert(SoulVaultSwarm.NotOrganization.selector);
+        swarm.markFundRequestRejected(fundId, "no");
+
+        vm.prank(mo);
+        swarm.markFundRequestRejected(fundId, "budget exhausted");
+        SoulVaultSwarm.FundRequest memory req = swarm.getFundRequest(fundId);
+        assertEq(req.status, 2 /* REJECTED */);
+    }
+
+    function testMarkApprovedRevertsIfNotPending() public {
+        _approveAliceAndRotateToEpoch1();
+        address mo = _setMockOrg();
+
+        vm.prank(alice);
+        uint256 fundId = swarm.requestFunds(1 ether, "ops gas");
+
+        vm.prank(alice);
+        swarm.cancelFundRequest(fundId);
+
+        vm.prank(mo);
+        vm.expectRevert(SoulVaultSwarm.InvalidFundRequestState.selector);
+        swarm.markFundRequestApproved(fundId);
+    }
+
+    function testFundRequestIdsAreIndependentOfJoinRequestIds() public {
+        vm.prank(alice);
+        uint256 joinId = swarm.requestJoin(alicePubkey, "pub:alice", "meta:alice");
+        swarm.approveJoin(joinId);
+        assertEq(joinId, 1);
+
+        _setMockOrg();
+
+        vm.prank(alice);
+        uint256 fundId = swarm.requestFunds(1 ether, "ops");
+        assertEq(fundId, 1);
+    }
+
+    function testRequestFundsBlockedWhenPaused() public {
+        _approveAliceAndRotateToEpoch1();
+        _setMockOrg();
+        swarm.pause();
+        vm.prank(alice);
+        vm.expectRevert(SoulVaultSwarm.PausedError.selector);
+        swarm.requestFunds(1 ether, "ops");
+    }
+
+    // --- Org-level pause propagation ---
+
+    function testOrgPauseBlocksSwarmOps() public {
+        SoulVaultOrganization realOrg = new SoulVaultOrganization();
+        SoulVaultSwarm orgSwarm = new SoulVaultSwarm();
+        realOrg.registerSwarm(address(orgSwarm));
+        orgSwarm.setOrganization(address(realOrg));
+
+        vm.prank(alice);
+        uint256 joinId = orgSwarm.requestJoin(alicePubkey, "pub:alice", "meta:alice");
+        orgSwarm.approveJoin(joinId);
+
+        realOrg.pauseOrg();
+
+        vm.prank(alice);
+        vm.expectRevert(SoulVaultSwarm.OrgPausedError.selector);
+        orgSwarm.requestFunds(1 ether, "blocked");
     }
 
     function _approveAliceAndRotateToEpoch1() internal {

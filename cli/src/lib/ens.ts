@@ -75,6 +75,8 @@ export function getSoulVaultEnsTextRecordKeys() {
   return [
     'soulvault.swarmContract',
     'soulvault.chainId',
+    'soulvault.orgContract',
+    'soulvault.orgChainId',
     'soulvault.publicManifestUri',
     'soulvault.publicManifestHash',
     'erc8004.registry',

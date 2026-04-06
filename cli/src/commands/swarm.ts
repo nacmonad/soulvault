@@ -1,6 +1,21 @@
 import { Command } from 'commander';
-import { createSwarmProfile, getActiveSwarm, getSwarmProfile, listSwarmProfiles, useSwarm } from '../lib/swarm.js';
-import { approveJoinSwarm, getJoinRequestStatus, listRecentSwarmEvents, listSwarmMembers, requestBackupForSwarm, requestJoinSwarm, watchSwarmEvents } from '../lib/swarm-contract.js';
+import { parseEther } from 'ethers';
+import { createSwarmProfile, getActiveSwarm, getSwarmProfile, listSwarmProfiles, updateSwarmProfile, useSwarm } from '../lib/swarm.js';
+import {
+  approveJoinSwarm,
+  cancelFundRequestOnSwarm,
+  getFundRequestStatus,
+  getJoinRequestStatus,
+  listFundRequests,
+  listRecentSwarmEvents,
+  listSwarmMembers,
+  readSwarmOrganization,
+  requestBackupForSwarm,
+  requestFundsOnSwarm,
+  requestJoinSwarm,
+  setSwarmOrganization,
+  watchSwarmEvents,
+} from '../lib/swarm-contract.js';
 import { findAgentIdentitiesByWallet } from '../lib/identity.js';
 import { getAgentProfile } from '../lib/agent.js';
 import { respondToBackupRequest } from '../lib/backup-respond.js';
@@ -100,6 +115,110 @@ export function registerSwarmCommands(program: Command) {
       const result = await getJoinRequestStatus({
         swarm: options.swarm,
         requestId: options.requestId,
+      });
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  // --- Organization binding + fund request lifecycle ---
+
+  swarm
+    .command('set-organization')
+    .description('Swarm owner binds the swarm to an organization contract (re-settable)')
+    .requiredOption('--organization <address>', 'Organization contract address')
+    .option('--swarm <nameOrEns>')
+    .action(async (options) => {
+      try {
+        const pendingList = await listFundRequests({ swarm: options.swarm, statusFilter: 'pending' });
+        if (pendingList.requests.length > 0) {
+          console.error(
+            `[warning] ${pendingList.requests.length} pending fund request(s) will be orphaned from the previous organization. ` +
+              `The previously-bound organization will no longer be able to approve them (mutual-consent check will fail). ` +
+              `Requesters can cancel and refile, or the new organization can approve them.`,
+          );
+        }
+      } catch {
+        // best-effort
+      }
+      const result = await setSwarmOrganization({ swarm: options.swarm, organization: options.organization });
+      try {
+        const active = options.swarm ? await getSwarmProfile(options.swarm) : await getActiveSwarm();
+        if (active) {
+          await updateSwarmProfile(active.slug, { organizationAddress: options.organization });
+        }
+      } catch {
+        // profile refresh is best-effort
+      }
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  swarm
+    .command('organization-status')
+    .description('Read the currently-bound organization address from the swarm contract')
+    .option('--swarm <nameOrEns>')
+    .action(async (options) => {
+      const result = await readSwarmOrganization({ swarm: options.swarm });
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  swarm
+    .command('fund-request')
+    .description('Active member submits a fund request to the swarm (requires organization bound)')
+    .requiredOption('--amount <ether>', 'Requested amount in ether (whole units)')
+    .requiredOption('--reason <text>')
+    .option('--swarm <nameOrEns>')
+    .action(async (options) => {
+      const amountWei = parseEther(options.amount);
+      const result = await requestFundsOnSwarm({
+        swarm: options.swarm,
+        amountWei,
+        reason: options.reason,
+      });
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  swarm
+    .command('cancel-fund-request')
+    .description('Requester cancels their own pending fund request')
+    .requiredOption('--request-id <id>')
+    .option('--swarm <nameOrEns>')
+    .action(async (options) => {
+      const result = await cancelFundRequestOnSwarm({
+        swarm: options.swarm,
+        requestId: options.requestId,
+      });
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  swarm
+    .command('fund-status')
+    .description('Read the current state of a fund request by id')
+    .requiredOption('--request-id <id>')
+    .option('--swarm <nameOrEns>')
+    .action(async (options) => {
+      const result = await getFundRequestStatus({
+        swarm: options.swarm,
+        requestId: options.requestId,
+      });
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  const fundRequests = swarm
+    .command('fund-requests')
+    .description('Inspect fund requests on the swarm (requester perspective)');
+
+  fundRequests
+    .command('list')
+    .option('--swarm <nameOrEns>')
+    .option('--status <pending|approved|rejected|cancelled>')
+    .option('--from-block <n>')
+    .option('--to-block <n>')
+    .action(async (options) => {
+      const status = options.status as 'pending' | 'approved' | 'rejected' | 'cancelled' | undefined;
+      const result = await listFundRequests({
+        swarm: options.swarm,
+        fromBlock: options.fromBlock ? Number(options.fromBlock) : undefined,
+        toBlock: options.toBlock ? Number(options.toBlock) : undefined,
+        statusFilter: status,
       });
       console.log(JSON.stringify(result, null, 2));
     });

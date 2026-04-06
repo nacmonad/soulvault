@@ -2,10 +2,12 @@
 pragma solidity ^0.8.24;
 
 import {ISoulVaultSwarm} from "./ISoulVaultSwarm.sol";
+import {ISoulVaultOrganization} from "./ISoulVaultOrganization.sol";
 
 contract SoulVaultSwarm is ISoulVaultSwarm {
     error NotOwner();
     error PausedError();
+    error OrgPausedError();
     error AlreadyActiveMember();
     error NotActiveMember();
     error InvalidPubkey();
@@ -18,6 +20,13 @@ contract SoulVaultSwarm is ISoulVaultSwarm {
     error InvalidRange();
     error InvalidSequence();
     error UnauthorizedPublisher();
+    error NotOrganization();
+    error OrganizationNotSet();
+    error InvalidFundRequest();
+    error InvalidFundRequestState();
+    error NotFundRequester();
+    error ZeroAmount();
+    error ZeroAddress();
 
     uint8 private constant STATUS_PENDING = 0;
     uint8 private constant STATUS_APPROVED = 1;
@@ -30,7 +39,10 @@ contract SoulVaultSwarm is ISoulVaultSwarm {
     uint64 public override membershipVersion;
     uint256 public override memberCount;
 
+    address public override organization;
+
     uint256 private _nextRequestId = 1;
+    uint256 private _nextFundRequestId = 1;
 
     struct ManifestPointer {
         string manifestRef;
@@ -39,6 +51,7 @@ contract SoulVaultSwarm is ISoulVaultSwarm {
 
     mapping(address => Member) private _members;
     mapping(uint256 => JoinRequest) private _joinRequests;
+    mapping(uint256 => FundRequest) private _fundRequests;
     mapping(address => MemberFileMapping) private _memberFileMappings;
     mapping(address => ManifestPointer) private _agentManifests;
     mapping(address => uint64) private _lastSenderSeq;
@@ -50,6 +63,7 @@ contract SoulVaultSwarm is ISoulVaultSwarm {
 
     modifier whenNotPaused() {
         if (paused) revert PausedError();
+        if (organization != address(0) && ISoulVaultOrganization(organization).orgPaused()) revert OrgPausedError();
         _;
     }
 
@@ -67,6 +81,14 @@ contract SoulVaultSwarm is ISoulVaultSwarm {
 
     function getJoinRequest(uint256 requestId) external view override returns (JoinRequest memory) {
         return _joinRequests[requestId];
+    }
+
+    function getFundRequest(uint256 requestId) external view override returns (FundRequest memory) {
+        return _fundRequests[requestId];
+    }
+
+    function nextFundRequestId() external view override returns (uint256) {
+        return _nextFundRequestId;
     }
 
     function getMemberFileMapping(address member) external view override returns (MemberFileMapping memory) {
@@ -142,6 +164,68 @@ contract SoulVaultSwarm is ISoulVaultSwarm {
         memberCount -= 1;
 
         emit MemberRemoved(member, msg.sender, currentEpoch);
+    }
+
+    // --- Organization binding ---
+
+    function setOrganization(address newOrganization) external override onlyOwner {
+        if (newOrganization == address(0)) revert ZeroAddress();
+        address old = organization;
+        organization = newOrganization;
+        emit OrganizationSet(old, newOrganization, msg.sender);
+    }
+
+    // --- Fund request lifecycle ---
+
+    function requestFunds(uint256 amount, string calldata reason)
+        external
+        override
+        whenNotPaused
+        returns (uint256 requestId)
+    {
+        if (!_members[msg.sender].active) revert NotActiveMember();
+        if (organization == address(0)) revert OrganizationNotSet();
+        if (amount == 0) revert ZeroAmount();
+
+        requestId = _nextFundRequestId++;
+        _fundRequests[requestId] = FundRequest({
+            requester: msg.sender,
+            amount: amount,
+            reason: reason,
+            status: STATUS_PENDING,
+            createdAt: uint64(block.timestamp),
+            resolvedAt: 0
+        });
+
+        emit FundRequested(requestId, msg.sender, amount, reason);
+    }
+
+    function cancelFundRequest(uint256 requestId) external override whenNotPaused {
+        FundRequest storage req = _requirePendingFundRequest(requestId);
+        if (req.requester != msg.sender) revert NotFundRequester();
+        req.status = STATUS_CANCELLED;
+        req.resolvedAt = uint64(block.timestamp);
+        emit FundRequestCancelled(requestId, msg.sender);
+    }
+
+    function markFundRequestApproved(uint256 requestId) external override whenNotPaused {
+        if (msg.sender != organization) revert NotOrganization();
+        FundRequest storage req = _requirePendingFundRequest(requestId);
+        req.status = STATUS_APPROVED;
+        req.resolvedAt = uint64(block.timestamp);
+        emit FundRequestApproved(requestId, req.requester, msg.sender, req.amount);
+    }
+
+    function markFundRequestRejected(uint256 requestId, string calldata reason)
+        external
+        override
+        whenNotPaused
+    {
+        if (msg.sender != organization) revert NotOrganization();
+        FundRequest storage req = _requirePendingFundRequest(requestId);
+        req.status = STATUS_REJECTED;
+        req.resolvedAt = uint64(block.timestamp);
+        emit FundRequestRejected(requestId, req.requester, msg.sender, reason);
     }
 
     function rotateEpoch(
@@ -263,5 +347,11 @@ contract SoulVaultSwarm is ISoulVaultSwarm {
         req = _joinRequests[requestId];
         if (req.requester == address(0)) revert InvalidRequest();
         if (req.status != STATUS_PENDING) revert InvalidRequestState();
+    }
+
+    function _requirePendingFundRequest(uint256 requestId) internal view returns (FundRequest storage req) {
+        req = _fundRequests[requestId];
+        if (req.requester == address(0)) revert InvalidFundRequest();
+        if (req.status != STATUS_PENDING) revert InvalidFundRequestState();
     }
 }

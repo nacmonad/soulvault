@@ -16,16 +16,57 @@ const SOULVAULT_SWARM_ABI = [
   'function requestBackup(uint64 epoch, string reason, string targetRef, uint64 deadline)',
   'function updateMemberFileMapping(address member, string storageLocator, bytes32 merkleRoot, bytes32 publishTxHash, bytes32 manifestHash, uint64 epoch)',
   'function getJoinRequest(uint256 requestId) view returns ((address requester, bytes pubkey, string pubkeyRef, string metadataRef, uint8 status))',
+  // --- Organization + fund request ---
+  'function organization() view returns (address)',
+  'function nextFundRequestId() view returns (uint256)',
+  'function setOrganization(address newOrganization)',
+  'function requestFunds(uint256 amount, string reason) returns (uint256 requestId)',
+  'function cancelFundRequest(uint256 requestId)',
+  'function markFundRequestApproved(uint256 requestId)',
+  'function markFundRequestRejected(uint256 requestId, string reason)',
+  'function getFundRequest(uint256 requestId) view returns ((address requester, uint256 amount, string reason, uint8 status, uint64 createdAt, uint64 resolvedAt))',
   'event JoinRequested(uint256 indexed requestId, address indexed requester, bytes pubkey, string pubkeyRef, string metadataRef)',
   'event JoinApproved(uint256 indexed requestId, address indexed requester, address indexed approver, uint64 epoch)',
   'event MemberRemoved(address indexed member, address indexed by, uint64 epoch)',
   'event EpochRotated(uint64 indexed oldEpoch, uint64 indexed newEpoch, string keyBundleRef, bytes32 keyBundleHash, uint64 membershipVersion)',
   'event BackupRequested(address indexed requestedBy, uint64 indexed epoch, string reason, string targetRef, uint64 deadline, uint64 timestamp)',
   'event MemberFileMappingUpdated(address indexed member, uint64 indexed epoch, string storageLocator, bytes32 merkleRoot, bytes32 publishTxHash, bytes32 manifestHash, address indexed by)',
+  'event OrganizationSet(address indexed oldOrganization, address indexed newOrganization, address indexed by)',
+  'event FundRequested(uint256 indexed requestId, address indexed requester, uint256 amount, string reason)',
+  'event FundRequestApproved(uint256 indexed requestId, address indexed requester, address indexed organization, uint256 amount)',
+  'event FundRequestRejected(uint256 indexed requestId, address indexed requester, address indexed organization, string reason)',
+  'event FundRequestCancelled(uint256 indexed requestId, address indexed requester)',
   'function postMessage(address to, string topic, uint64 seq, uint64 epoch, string payloadRef, bytes32 payloadHash, uint64 ttl)',
   'function getLastSenderSeq(address sender) view returns (uint64)',
   'event AgentMessagePosted(address indexed from, address indexed to, string topic, uint64 seq, uint64 epoch, string payloadRef, bytes32 payloadHash, uint64 ttl, uint64 timestamp)',
 ] as const;
+
+export const SOULVAULT_ORGANIZATION_ABI = [
+  'function owner() view returns (address)',
+  'function balance() view returns (uint256)',
+  'function deposit() payable',
+  'function approveFundRequest(address swarm, uint256 requestId)',
+  'function rejectFundRequest(address swarm, uint256 requestId, string reason)',
+  'function withdraw(address to, uint256 amount)',
+  'event FundsDeposited(address indexed from, uint256 amount)',
+  'event FundsReleased(address indexed swarm, uint256 indexed requestId, address indexed recipient, uint256 amount)',
+  'event FundRequestRejectedByOrganization(address indexed swarm, uint256 indexed requestId, string reason)',
+  'event OrganizationWithdrawn(address indexed to, uint256 amount)',
+  'function registerSwarm(address swarm)',
+  'function removeSwarm(address swarm)',
+  'function swarms() view returns (address[])',
+  'function isSwarm(address swarm) view returns (bool)',
+  'function swarmCount() view returns (uint256)',
+  'function orgPaused() view returns (bool)',
+  'function pauseOrg()',
+  'function unpauseOrg()',
+  'event SwarmRegistered(address indexed swarm, address indexed by)',
+  'event SwarmRemoved(address indexed swarm, address indexed by)',
+  'event OrgPaused(address indexed by)',
+  'event OrgUnpaused(address indexed by)',
+] as const;
+
+export { SOULVAULT_SWARM_ABI };
 
 async function resolveTargetSwarm(swarm?: string) {
   const profile = swarm ? await getSwarmProfile(swarm) : await getActiveSwarm();
@@ -156,7 +197,20 @@ export async function listRecentSwarmEvents(input: { swarm?: string; fromBlock?:
   const fromBlock = input.fromBlock ?? 0;
   const toBlock = input.toBlock ?? 'latest';
 
-  const [joinRequested, joinApproved, memberRemoved, epochRotated, backupRequested, mappingUpdated, messagesPosted] = await Promise.all([
+  const [
+    joinRequested,
+    joinApproved,
+    memberRemoved,
+    epochRotated,
+    backupRequested,
+    mappingUpdated,
+    messagesPosted,
+    organizationSet,
+    fundRequested,
+    fundApproved,
+    fundRejected,
+    fundCancelled,
+  ] = await Promise.all([
     contract.queryFilter(contract.filters.JoinRequested(), fromBlock, toBlock),
     contract.queryFilter(contract.filters.JoinApproved(), fromBlock, toBlock),
     contract.queryFilter(contract.filters.MemberRemoved(), fromBlock, toBlock),
@@ -164,42 +218,57 @@ export async function listRecentSwarmEvents(input: { swarm?: string; fromBlock?:
     contract.queryFilter(contract.filters.BackupRequested(), fromBlock, toBlock),
     contract.queryFilter(contract.filters.MemberFileMappingUpdated(), fromBlock, toBlock),
     contract.queryFilter(contract.filters.AgentMessagePosted(), fromBlock, toBlock),
+    contract.queryFilter(contract.filters.OrganizationSet(), fromBlock, toBlock),
+    contract.queryFilter(contract.filters.FundRequested(), fromBlock, toBlock),
+    contract.queryFilter(contract.filters.FundRequestApproved(), fromBlock, toBlock),
+    contract.queryFilter(contract.filters.FundRequestRejected(), fromBlock, toBlock),
+    contract.queryFilter(contract.filters.FundRequestCancelled(), fromBlock, toBlock),
   ]);
 
-  const events = [
+  const swarmEvents = [
     ...joinRequested.map((log) => ({
+      source: 'swarm' as const,
       type: 'JoinRequested',
       blockNumber: log.blockNumber,
+      logIndex: (log as any).index ?? 0,
       txHash: log.transactionHash,
       requestId: (log as any).args?.requestId?.toString(),
       requester: String((log as any).args?.requester ?? ''),
     })),
     ...joinApproved.map((log) => ({
+      source: 'swarm' as const,
       type: 'JoinApproved',
       blockNumber: log.blockNumber,
+      logIndex: (log as any).index ?? 0,
       txHash: log.transactionHash,
       requestId: (log as any).args?.requestId?.toString(),
       requester: String((log as any).args?.requester ?? ''),
       epoch: (log as any).args?.epoch?.toString(),
     })),
     ...memberRemoved.map((log) => ({
+      source: 'swarm' as const,
       type: 'MemberRemoved',
       blockNumber: log.blockNumber,
+      logIndex: (log as any).index ?? 0,
       txHash: log.transactionHash,
       member: String((log as any).args?.member ?? ''),
       epoch: (log as any).args?.epoch?.toString(),
     })),
     ...epochRotated.map((log) => ({
+      source: 'swarm' as const,
       type: 'EpochRotated',
       blockNumber: log.blockNumber,
+      logIndex: (log as any).index ?? 0,
       txHash: log.transactionHash,
       oldEpoch: (log as any).args?.oldEpoch?.toString(),
       newEpoch: (log as any).args?.newEpoch?.toString(),
       keyBundleRef: String((log as any).args?.keyBundleRef ?? ''),
     })),
     ...backupRequested.map((log) => ({
+      source: 'swarm' as const,
       type: 'BackupRequested',
       blockNumber: log.blockNumber,
+      logIndex: (log as any).index ?? 0,
       txHash: log.transactionHash,
       requestedBy: String((log as any).args?.requestedBy ?? ''),
       epoch: (log as any).args?.epoch?.toString(),
@@ -208,16 +277,20 @@ export async function listRecentSwarmEvents(input: { swarm?: string; fromBlock?:
       deadline: (log as any).args?.deadline?.toString(),
     })),
     ...mappingUpdated.map((log) => ({
+      source: 'swarm' as const,
       type: 'MemberFileMappingUpdated',
       blockNumber: log.blockNumber,
+      logIndex: (log as any).index ?? 0,
       txHash: log.transactionHash,
       member: String((log as any).args?.member ?? ''),
       epoch: (log as any).args?.epoch?.toString(),
       storageLocator: String((log as any).args?.storageLocator ?? ''),
     })),
     ...messagesPosted.map((log) => ({
+      source: 'swarm' as const,
       type: 'AgentMessagePosted',
       blockNumber: log.blockNumber,
+      logIndex: (log as any).index ?? 0,
       txHash: log.transactionHash,
       from: String((log as any).args?.from ?? ''),
       to: String((log as any).args?.to ?? ''),
@@ -227,11 +300,131 @@ export async function listRecentSwarmEvents(input: { swarm?: string; fromBlock?:
       payloadRef: String((log as any).args?.payloadRef ?? ''),
       ttl: (log as any).args?.ttl?.toString(),
     })),
-  ].sort((a, b) => a.blockNumber - b.blockNumber);
+    ...organizationSet.map((log) => ({
+      source: 'swarm' as const,
+      type: 'OrganizationSet',
+      blockNumber: log.blockNumber,
+      logIndex: (log as any).index ?? 0,
+      txHash: log.transactionHash,
+      oldOrganization: String((log as any).args?.oldOrganization ?? ''),
+      newOrganization: String((log as any).args?.newOrganization ?? ''),
+      by: String((log as any).args?.by ?? ''),
+    })),
+    ...fundRequested.map((log) => ({
+      source: 'swarm' as const,
+      type: 'FundRequested',
+      blockNumber: log.blockNumber,
+      logIndex: (log as any).index ?? 0,
+      txHash: log.transactionHash,
+      requestId: (log as any).args?.requestId?.toString(),
+      requester: String((log as any).args?.requester ?? ''),
+      amountWei: (log as any).args?.amount?.toString(),
+      reason: String((log as any).args?.reason ?? ''),
+    })),
+    ...fundApproved.map((log) => ({
+      source: 'swarm' as const,
+      type: 'FundRequestApproved',
+      blockNumber: log.blockNumber,
+      logIndex: (log as any).index ?? 0,
+      txHash: log.transactionHash,
+      requestId: (log as any).args?.requestId?.toString(),
+      requester: String((log as any).args?.requester ?? ''),
+      organization: String((log as any).args?.organization ?? ''),
+      amountWei: (log as any).args?.amount?.toString(),
+    })),
+    ...fundRejected.map((log) => ({
+      source: 'swarm' as const,
+      type: 'FundRequestRejected',
+      blockNumber: log.blockNumber,
+      logIndex: (log as any).index ?? 0,
+      txHash: log.transactionHash,
+      requestId: (log as any).args?.requestId?.toString(),
+      requester: String((log as any).args?.requester ?? ''),
+      organization: String((log as any).args?.organization ?? ''),
+      reason: String((log as any).args?.reason ?? ''),
+    })),
+    ...fundCancelled.map((log) => ({
+      source: 'swarm' as const,
+      type: 'FundRequestCancelled',
+      blockNumber: log.blockNumber,
+      logIndex: (log as any).index ?? 0,
+      txHash: log.transactionHash,
+      requestId: (log as any).args?.requestId?.toString(),
+      requester: String((log as any).args?.requester ?? ''),
+    })),
+  ];
+
+  // If the swarm is bound to a treasury, pull treasury-side events and merge.
+  // This covers FundsReleased which happens on the treasury (same tx as the swarm's
+  // FundRequestApproved event) and needs (blockNumber, logIndex) ordering to render correctly.
+  const organizationAddress = String(await contract.organization());
+  let organizationEvents: any[] = [];
+  if (organizationAddress !== '0x0000000000000000000000000000000000000000') {
+    const provider = contract.runner?.provider;
+    if (provider) {
+      const orgContract = new Contract(organizationAddress, SOULVAULT_ORGANIZATION_ABI, provider);
+      const [deposited, released, rejectedByOrganization, withdrawn] = await Promise.all([
+        orgContract.queryFilter(orgContract.filters.FundsDeposited(), fromBlock, toBlock),
+        orgContract.queryFilter(orgContract.filters.FundsReleased(), fromBlock, toBlock),
+        orgContract.queryFilter(orgContract.filters.FundRequestRejectedByOrganization(), fromBlock, toBlock),
+        orgContract.queryFilter(orgContract.filters.OrganizationWithdrawn(), fromBlock, toBlock),
+      ]);
+      organizationEvents = [
+        ...deposited.map((log) => ({
+          source: 'organization' as const,
+          type: 'FundsDeposited',
+          blockNumber: log.blockNumber,
+          logIndex: (log as any).index ?? 0,
+          txHash: log.transactionHash,
+          from: String((log as any).args?.from ?? ''),
+          amountWei: (log as any).args?.amount?.toString(),
+        })),
+        ...released.map((log) => ({
+          source: 'organization' as const,
+          type: 'FundsReleased',
+          blockNumber: log.blockNumber,
+          logIndex: (log as any).index ?? 0,
+          txHash: log.transactionHash,
+          swarm: String((log as any).args?.swarm ?? ''),
+          requestId: (log as any).args?.requestId?.toString(),
+          recipient: String((log as any).args?.recipient ?? ''),
+          amountWei: (log as any).args?.amount?.toString(),
+        })),
+        ...rejectedByOrganization.map((log) => ({
+          source: 'organization' as const,
+          type: 'FundRequestRejectedByOrganization',
+          blockNumber: log.blockNumber,
+          logIndex: (log as any).index ?? 0,
+          txHash: log.transactionHash,
+          swarm: String((log as any).args?.swarm ?? ''),
+          requestId: (log as any).args?.requestId?.toString(),
+          reason: String((log as any).args?.reason ?? ''),
+        })),
+        ...withdrawn.map((log) => ({
+          source: 'organization' as const,
+          type: 'OrganizationWithdrawn',
+          blockNumber: log.blockNumber,
+          logIndex: (log as any).index ?? 0,
+          txHash: log.transactionHash,
+          to: String((log as any).args?.to ?? ''),
+          amountWei: (log as any).args?.amount?.toString(),
+        })),
+      ];
+    }
+  }
+
+  // Sort by (blockNumber, logIndex) so events within the same block preserve their on-chain order.
+  // This matters for the FundRequestApproved (swarm) -> FundsReleased (treasury) pair, which
+  // happen in the same tx and need to render in the correct sequence.
+  const events = [...swarmEvents, ...organizationEvents].sort((a, b) => {
+    if (a.blockNumber !== b.blockNumber) return a.blockNumber - b.blockNumber;
+    return (a.logIndex ?? 0) - (b.logIndex ?? 0);
+  });
 
   return {
     swarm: profile.slug,
     contractAddress: profile.contractAddress,
+    organizationAddress: organizationAddress !== '0x0000000000000000000000000000000000000000' ? organizationAddress : undefined,
     fromBlock,
     toBlock,
     events,
@@ -381,5 +574,145 @@ export async function getJoinRequestStatus(input: { swarm?: string; requestId: s
     pubkeyRef: req.pubkeyRef,
     metadataRef: req.metadataRef,
     status: Number(req.status),
+  };
+}
+
+// ---------- Treasury binding + fund request lifecycle ----------
+
+const FUND_STATUS_LABELS = ['pending', 'approved', 'rejected', 'cancelled'] as const;
+
+export function fundStatusLabel(status: number): string {
+  return FUND_STATUS_LABELS[status] ?? `unknown(${status})`;
+}
+
+/** Read the current `organization()` from the swarm contract. Returns the zero address string if unset. */
+export async function readSwarmOrganization(input: { swarm?: string }) {
+  const { profile, contract } = await getSwarmContractReadonly(input.swarm);
+  const organizationAddress = String(await contract.organization());
+  return {
+    swarm: profile.slug,
+    contractAddress: profile.contractAddress,
+    organizationAddress,
+    isSet: organizationAddress !== '0x0000000000000000000000000000000000000000',
+  };
+}
+
+/** Swarm owner binds the swarm to an organization contract. Re-settable. */
+export async function setSwarmOrganization(input: { swarm?: string; organization: string }) {
+  const { profile, contract } = await getSwarmContract(input.swarm);
+  const previous = String(await contract.organization());
+  const tx = await contract.setOrganization(input.organization);
+  const receipt = await tx.wait();
+  return {
+    swarm: profile.slug,
+    contractAddress: profile.contractAddress,
+    txHash: receipt?.hash,
+    oldOrganization: previous,
+    newOrganization: input.organization,
+  };
+}
+
+/** Active member submits a fund request. Returns the parsed request id. */
+export async function requestFundsOnSwarm(input: { swarm?: string; amountWei: bigint; reason: string }) {
+  const { profile, contract } = await getSwarmContract(input.swarm);
+  const tx = await contract.requestFunds(input.amountWei, input.reason);
+  const receipt = await tx.wait();
+
+  let requestId: string | undefined;
+  for (const log of receipt?.logs ?? []) {
+    try {
+      const parsed = contract.interface.parseLog(log);
+      if (parsed?.name === 'FundRequested') {
+        requestId = parsed.args.requestId.toString();
+        break;
+      }
+    } catch {
+      // ignore logs that don't match this interface
+    }
+  }
+
+  return {
+    swarm: profile.slug,
+    contractAddress: profile.contractAddress,
+    txHash: receipt?.hash,
+    requestId,
+    amountWei: input.amountWei.toString(),
+    reason: input.reason,
+  };
+}
+
+/** Requester cancels their own pending fund request. */
+export async function cancelFundRequestOnSwarm(input: { swarm?: string; requestId: string }) {
+  const { profile, contract } = await getSwarmContract(input.swarm);
+  const tx = await contract.cancelFundRequest(input.requestId);
+  const receipt = await tx.wait();
+  return {
+    swarm: profile.slug,
+    contractAddress: profile.contractAddress,
+    txHash: receipt?.hash,
+    requestId: input.requestId,
+  };
+}
+
+/** Read a single fund request by id. */
+export async function getFundRequestStatus(input: { swarm?: string; requestId: string }) {
+  const { profile, contract } = await getSwarmContractReadonly(input.swarm);
+  const req = await contract.getFundRequest(input.requestId);
+  return {
+    swarm: profile.slug,
+    contractAddress: profile.contractAddress,
+    requestId: input.requestId,
+    requester: String(req.requester),
+    amountWei: req.amount.toString(),
+    reason: String(req.reason),
+    status: Number(req.status),
+    statusLabel: fundStatusLabel(Number(req.status)),
+    createdAt: req.createdAt.toString(),
+    resolvedAt: req.resolvedAt.toString(),
+  };
+}
+
+/** List all fund requests by replaying `FundRequested` events and joining with current on-chain status. */
+export async function listFundRequests(input: {
+  swarm?: string;
+  fromBlock?: number;
+  toBlock?: number | 'latest';
+  statusFilter?: 'pending' | 'approved' | 'rejected' | 'cancelled';
+}) {
+  const { profile, contract } = await getSwarmContractReadonly(input.swarm);
+  const fromBlock = input.fromBlock ?? 0;
+  const toBlock = input.toBlock ?? 'latest';
+
+  const logs = await contract.queryFilter(contract.filters.FundRequested(), fromBlock, toBlock);
+  const requests = await Promise.all(
+    logs.map(async (log) => {
+      const args = (log as any).args;
+      const id = args.requestId.toString();
+      const current = await contract.getFundRequest(id);
+      return {
+        requestId: id,
+        requester: String(args.requester),
+        amountWei: args.amount.toString(),
+        reason: String(args.reason),
+        status: Number(current.status),
+        statusLabel: fundStatusLabel(Number(current.status)),
+        createdAt: current.createdAt.toString(),
+        resolvedAt: current.resolvedAt.toString(),
+        blockNumber: log.blockNumber,
+        txHash: log.transactionHash,
+      };
+    }),
+  );
+
+  const filtered = input.statusFilter
+    ? requests.filter((r) => r.statusLabel === input.statusFilter)
+    : requests;
+
+  return {
+    swarm: profile.slug,
+    contractAddress: profile.contractAddress,
+    fromBlock,
+    toBlock,
+    requests: filtered,
   };
 }

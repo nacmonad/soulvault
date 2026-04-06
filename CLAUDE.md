@@ -5,10 +5,11 @@ This file tells AI coding agents how to work in this repository. Read it before 
 ## What is SoulVault?
 
 An event-driven coordination and continuity layer for agent swarms. It combines:
-- A **swarm contract** on 0G Galileo for membership, epochs, encrypted backups, and messaging
+- A **swarm contract** on 0G Galileo for membership, epochs, encrypted backups, messaging, and fund request lifecycle
+- An **organization contract** (`SoulVaultOrganization`) on 0G Galileo (one per organization) that manages the swarm registry, org-level pause, fund custody, and releases funds on approved fund requests
 - **0G Storage** for encrypted offchain artifacts (backups, key bundles, message envelopes)
 - **ERC-8004** on Sepolia for public agent identity
-- **ENS** on Sepolia for organization/swarm naming
+- **ENS** on Sepolia for organization/swarm naming + organization contract discovery
 - A **TypeScript CLI** that ties it all together
 
 ## Quick orientation
@@ -36,7 +37,7 @@ Environment is loaded from `.env` via `cli/src/lib/config.ts` (zod-validated). C
 
 | Lane | Chain | Chain ID | RPC env var | Purpose |
 |------|-------|----------|-------------|---------|
-| Ops | 0G Galileo | `16602` | `SOULVAULT_RPC_URL` | Swarm contract, backups, messages, epochs |
+| Ops | 0G Galileo | `16602` | `SOULVAULT_RPC_URL` | Organization + Swarm contracts, backups, messages, epochs |
 | Identity | Sepolia | `11155111` | `SOULVAULT_ETH_RPC_URL` | ENS names, ERC-8004 agent registry |
 
 Both lanes share a single signer wallet. The CLI routes to the correct chain automatically.
@@ -46,13 +47,13 @@ Both lanes share a single signer wallet. The CLI routes to the correct chain aut
 | Entity | Commands | State file |
 |--------|----------|------------|
 | Status | `status [--json] [--offline]` | (aggregates all state) |
-| Organization | `organization create/list/use/status/register-ens` | `~/.soulvault/organizations/<slug>.json` |
-| Swarm | `swarm create/list/use/status/join-request/approve-join/member-identities` | `~/.soulvault/swarms/<slug>.json` |
+| Organization | `organization create/list/use/status/register-ens/deposit/withdraw/approve-fund/reject-fund/fund-requests` | `~/.soulvault/organizations/<slug>.json` |
+| Swarm | `swarm create/list/use/status/join-request/approve-join/member-identities/set-organization/organization-status/fund-request/cancel-fund-request/fund-status/fund-requests` | `~/.soulvault/swarms/<slug>.json` |
 | Agent | `agent create/status/register/update/show` | `~/.soulvault/agent.json` |
 | Epoch | `epoch rotate/show-bundle/decrypt-bundle-member` | `~/.soulvault/keys/<swarm>/epoch-<n>.json` |
 | Backup | `backup push/request` + `restore pull/verify-latest` | `~/.soulvault/last-backup.json` |
 | Message | `msg post/list/show` | — (stateless, reads from contract events + 0G) |
-| Events | `swarm events list/watch` | — |
+| Events | `swarm events list/watch` (merges swarm + organization events when bound) | — |
 
 ## Code patterns
 
@@ -82,18 +83,27 @@ The swarm contract emits events that drive the protocol. Key events:
 - `MemberFileMappingUpdated` — backup publication proof
 - `AgentMessagePosted` — messaging
 - `HistoricalKeyBundleGranted` — key recovery for new/restored members
+- `OrganizationSet` — swarm bound to an organization
+- `FundRequested` / `FundRequestApproved` / `FundRequestRejected` / `FundRequestCancelled` — fund request lifecycle
+
+The organization contract emits its own events: `FundsDeposited`, `FundsReleased`, `FundRequestRejectedByOrganization`, `OrganizationWithdrawn`, `SwarmRegistered`, `SwarmRemoved`, `OrgPaused`, `OrgUnpaused`. When a swarm has a bound organization, `swarm events watch` / `events list` automatically merge events from both contracts and order them by `(blockNumber, logIndex)` — critical for the same-tx pair `FundRequestApproved` (swarm) → `FundsReleased` (organization) to render in correct order.
 
 Full catalog: `skills/soulvault/references/events.md`
 
 ## Testing
 
 ```bash
-cd cli && pnpm test              # vitest, single run (unit tests)
+cd cli && pnpm test              # vitest, single run (unit tests, fast, no chain needed)
 cd cli && pnpm test:watch        # vitest watch
-cd cli && pnpm test:integration  # Sepolia read-only controller smoke test (needs .env; sets SOULVAULT_INTEGRATION=1)
+cd cli && pnpm test:ens-name     # Sepolia read-only controller smoke test (needs .env; sets SOULVAULT_INTEGRATION=1)
+cd cli && pnpm test:integration  # full-stack integration test — deploys contracts against a local ens-app-v3 node on localhost:8545; config via .env.test
+cd cli && pnpm test:testnet      # gated testnet smoke (SOULVAULT_TESTNET_INTEGRATION=1, real 0G Galileo, funded key required)
+forge test                       # Foundry unit + integration tests for SoulVaultSwarm + SoulVaultOrganization (50+ tests)
 ```
 
-Full `register-ens` still requires a **funded** Sepolia wallet; the integration test above only reads `minCommitmentAge` from the public RPC.
+The full-stack integration harness (`test:integration`) expects a local ens-app-v3 node running on `localhost:8545` (chain id `1337`). Both the ops lane and the identity lane point at this single node during tests. Config lives in `.env.test` (gitignored; copy from `.env.example` and fill in ens-app-v3-specific values).
+
+Full `register-ens` still requires a **funded** Sepolia wallet; the `test:ens-name` script above only reads `minCommitmentAge` from the public RPC.
 
 ## Stories as executable documentation
 
@@ -109,14 +119,16 @@ The `stories/` directory contains numbered walkthroughs. Each one is designed to
 | story05 | Messaging protocol (detailed) |
 | story06 | Messaging quick-start (3 examples) |
 | story07 | Ledger: local profile/sync vs on-chain signing |
+| story08 | Fund request flow (agent requests funds, organization owner approves/rejects) |
 
 ## When editing this repo
 
 1. **Adding a CLI command:** handler in `commands/`, logic in `lib/`, wire in `index.ts`, update `skills/soulvault/references/commands.md`
-2. **Adding a contract event:** update `ISoulVaultSwarm.sol`, `SWARM_CONTRACT_SPEC.md`, ABI in `swarm-contract.ts`, and `skills/soulvault/references/events.md`
+2. **Adding a contract event:** update `ISoulVaultSwarm.sol` (or `ISoulVaultOrganization.sol`), the matching spec doc (`SWARM_CONTRACT_SPEC.md` / `ORGANIZATION_CONTRACT_SPEC.md`), ABI in `swarm-contract.ts` (or `organization-contract.ts`), and `skills/soulvault/references/events.md`
 3. **Adding a story:** create `stories/storyNN.md`, update `stories/README.md`
 4. **Changing crypto:** update `skills/soulvault/references/crypto.md` and this file
 5. **Changing env vars:** update `cli/src/lib/config.ts` (zod schema), `.env.example`, and `skills/soulvault/references/env.md`
+6. **Adding or changing the test harness:** update `cli/test/global-setup.ts`, `cli/test/helpers/`, and `cli/vitest.integration.config.ts` as needed. Keep `pnpm test` fast and dependency-free; integration tests live under `cli/src/lib/__integration__/` and run only via `pnpm test:integration`.
 
 ## Do not
 

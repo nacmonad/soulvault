@@ -16,6 +16,9 @@ export type SwarmProfile = {
   contractAddress?: string;
   ensName?: string;
   visibility: 'public' | 'private' | 'semi-private';
+  /** Hint-only cache of the bound organization address from the swarm contract's `organization()` view.
+   *  Never authoritative — mutating flows re-resolve from the contract. */
+  organizationAddress?: string;
   createdAt: string;
   updatedAt: string;
   deployment?: {
@@ -29,6 +32,14 @@ export type SwarmProfile = {
     contractTextTxHash?: string;
   };
 };
+
+export async function updateSwarmProfile(slug: string, patch: Partial<SwarmProfile>) {
+  const existing = await readJsonIfExists<SwarmProfile>(resolveSwarmPath(slug));
+  if (!existing) throw new Error(`Swarm not found: ${slug}`);
+  const updated: SwarmProfile = { ...existing, ...patch, updatedAt: new Date().toISOString() };
+  await fs.writeJson(resolveSwarmPath(slug), updated, { spaces: 2 });
+  return updated;
+}
 
 function slugify(value: string) {
   return value

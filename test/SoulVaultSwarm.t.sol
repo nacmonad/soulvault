@@ -131,6 +131,168 @@ contract SoulVaultSwarmTest is Test {
         );
     }
 
+    // --- Fund request lifecycle ---
+
+    address internal constant MOCK_TREASURY = address(0xDEADBEEF);
+
+    function testSetTreasuryEmitsAndReturnsValue() public {
+        swarm.setTreasury(MOCK_TREASURY);
+        assertEq(swarm.treasury(), MOCK_TREASURY);
+    }
+
+    function testSetTreasuryIsReSettable() public {
+        swarm.setTreasury(MOCK_TREASURY);
+        address newTreasury = address(0xCAFE);
+        swarm.setTreasury(newTreasury);
+        assertEq(swarm.treasury(), newTreasury);
+    }
+
+    function testSetTreasuryRevertsOnZeroAddress() public {
+        vm.expectRevert(SoulVaultSwarm.ZeroAddress.selector);
+        swarm.setTreasury(address(0));
+    }
+
+    function testOnlyOwnerCanSetTreasury() public {
+        vm.prank(alice);
+        vm.expectRevert(SoulVaultSwarm.NotOwner.selector);
+        swarm.setTreasury(MOCK_TREASURY);
+    }
+
+    function testRequestFundsHappyPath() public {
+        _approveAliceAndRotateToEpoch1();
+        swarm.setTreasury(MOCK_TREASURY);
+
+        vm.prank(alice);
+        uint256 fundId = swarm.requestFunds(1 ether, "ops gas");
+
+        assertEq(fundId, 1);
+        assertEq(swarm.nextFundRequestId(), 2);
+        SoulVaultSwarm.FundRequest memory req = swarm.getFundRequest(fundId);
+        assertEq(req.requester, alice);
+        assertEq(req.amount, 1 ether);
+        assertEq(req.reason, "ops gas");
+        assertEq(req.status, 0 /* PENDING */);
+        assertGt(req.createdAt, 0);
+        assertEq(req.resolvedAt, 0);
+    }
+
+    function testRequestFundsRevertsForNonMember() public {
+        swarm.setTreasury(MOCK_TREASURY);
+        vm.prank(bob);
+        vm.expectRevert(SoulVaultSwarm.NotActiveMember.selector);
+        swarm.requestFunds(1 ether, "nope");
+    }
+
+    function testRequestFundsRevertsWhenTreasuryNotSet() public {
+        _approveAliceAndRotateToEpoch1();
+        vm.prank(alice);
+        vm.expectRevert(SoulVaultSwarm.TreasuryNotSet.selector);
+        swarm.requestFunds(1 ether, "nope");
+    }
+
+    function testRequestFundsRevertsOnZeroAmount() public {
+        _approveAliceAndRotateToEpoch1();
+        swarm.setTreasury(MOCK_TREASURY);
+        vm.prank(alice);
+        vm.expectRevert(SoulVaultSwarm.ZeroAmount.selector);
+        swarm.requestFunds(0, "nope");
+    }
+
+    function testCancelFundRequestRequesterOnly() public {
+        _approveAliceAndRotateToEpoch1();
+        swarm.setTreasury(MOCK_TREASURY);
+
+        vm.prank(alice);
+        uint256 fundId = swarm.requestFunds(1 ether, "ops gas");
+
+        // Non-requester can't cancel
+        vm.prank(bob);
+        vm.expectRevert(SoulVaultSwarm.NotFundRequester.selector);
+        swarm.cancelFundRequest(fundId);
+
+        // Requester can
+        vm.prank(alice);
+        swarm.cancelFundRequest(fundId);
+        SoulVaultSwarm.FundRequest memory req = swarm.getFundRequest(fundId);
+        assertEq(req.status, 3 /* CANCELLED */);
+        assertGt(req.resolvedAt, 0);
+    }
+
+    function testMarkFundRequestApprovedOnlyByTreasury() public {
+        _approveAliceAndRotateToEpoch1();
+        swarm.setTreasury(MOCK_TREASURY);
+
+        vm.prank(alice);
+        uint256 fundId = swarm.requestFunds(1 ether, "ops gas");
+
+        // Non-treasury (including owner) cannot mark approved
+        vm.expectRevert(SoulVaultSwarm.NotTreasury.selector);
+        swarm.markFundRequestApproved(fundId);
+
+        // Treasury can
+        vm.prank(MOCK_TREASURY);
+        swarm.markFundRequestApproved(fundId);
+        SoulVaultSwarm.FundRequest memory req = swarm.getFundRequest(fundId);
+        assertEq(req.status, 1 /* APPROVED */);
+        assertGt(req.resolvedAt, 0);
+    }
+
+    function testMarkFundRequestRejectedOnlyByTreasury() public {
+        _approveAliceAndRotateToEpoch1();
+        swarm.setTreasury(MOCK_TREASURY);
+
+        vm.prank(alice);
+        uint256 fundId = swarm.requestFunds(1 ether, "ops gas");
+
+        vm.prank(alice);
+        vm.expectRevert(SoulVaultSwarm.NotTreasury.selector);
+        swarm.markFundRequestRejected(fundId, "no");
+
+        vm.prank(MOCK_TREASURY);
+        swarm.markFundRequestRejected(fundId, "budget exhausted");
+        SoulVaultSwarm.FundRequest memory req = swarm.getFundRequest(fundId);
+        assertEq(req.status, 2 /* REJECTED */);
+    }
+
+    function testMarkApprovedRevertsIfNotPending() public {
+        _approveAliceAndRotateToEpoch1();
+        swarm.setTreasury(MOCK_TREASURY);
+
+        vm.prank(alice);
+        uint256 fundId = swarm.requestFunds(1 ether, "ops gas");
+
+        vm.prank(alice);
+        swarm.cancelFundRequest(fundId);
+
+        vm.prank(MOCK_TREASURY);
+        vm.expectRevert(SoulVaultSwarm.InvalidFundRequestState.selector);
+        swarm.markFundRequestApproved(fundId);
+    }
+
+    function testFundRequestIdsAreIndependentOfJoinRequestIds() public {
+        // Alice joins (join request id 1)
+        vm.prank(alice);
+        uint256 joinId = swarm.requestJoin(alicePubkey, "pub:alice", "meta:alice");
+        swarm.approveJoin(joinId);
+        assertEq(joinId, 1);
+
+        swarm.setTreasury(MOCK_TREASURY);
+
+        // Fund request id is also 1 — independent namespace.
+        vm.prank(alice);
+        uint256 fundId = swarm.requestFunds(1 ether, "ops");
+        assertEq(fundId, 1);
+    }
+
+    function testRequestFundsBlockedWhenPaused() public {
+        _approveAliceAndRotateToEpoch1();
+        swarm.setTreasury(MOCK_TREASURY);
+        swarm.pause();
+        vm.prank(alice);
+        vm.expectRevert(SoulVaultSwarm.PausedError.selector);
+        swarm.requestFunds(1 ether, "ops");
+    }
+
     function _approveAliceAndRotateToEpoch1() internal {
         vm.prank(alice);
         uint256 requestId = swarm.requestJoin(alicePubkey, "pub:alice", "meta:alice");

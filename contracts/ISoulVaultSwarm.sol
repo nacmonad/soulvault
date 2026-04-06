@@ -30,16 +30,28 @@ interface ISoulVaultSwarm {
         uint64 updatedAt;
     }
 
+    struct FundRequest {
+        address requester;
+        uint256 amount;      // native token wei
+        string reason;
+        uint8 status;        // 0=pending, 1=approved, 2=rejected, 3=cancelled
+        uint64 createdAt;
+        uint64 resolvedAt;   // 0 until approve/reject/cancel
+    }
+
     // --- Views ---
     function owner() external view returns (address);
     function paused() external view returns (bool);
     function currentEpoch() external view returns (uint64);
     function membershipVersion() external view returns (uint64);
     function memberCount() external view returns (uint256);
+    function treasury() external view returns (address);
+    function nextFundRequestId() external view returns (uint256);
 
     function getMember(address member) external view returns (Member memory);
     function isActiveMember(address member) external view returns (bool);
     function getJoinRequest(uint256 requestId) external view returns (JoinRequest memory);
+    function getFundRequest(uint256 requestId) external view returns (FundRequest memory);
     function getMemberFileMapping(address member) external view returns (MemberFileMapping memory);
     function getAgentManifest(address member) external view returns (string memory manifestRef, bytes32 manifestHash);
     function getLastSenderSeq(address sender) external view returns (uint64);
@@ -53,6 +65,19 @@ interface ISoulVaultSwarm {
     function rejectJoin(uint256 requestId, string calldata reason) external;
     function cancelJoin(uint256 requestId) external;
     function removeMember(address member) external;
+
+    // --- Treasury binding ---
+    function setTreasury(address newTreasury) external;
+
+    // --- Fund request lifecycle ---
+    /// @notice Active member submits a fund request. Treasury must be set.
+    /// @dev Emits FundRequested. Request state lives on the swarm; payout happens on the treasury.
+    function requestFunds(uint256 amount, string calldata reason) external returns (uint256 requestId);
+    function cancelFundRequest(uint256 requestId) external;
+    /// @dev Only callable by the bound treasury contract.
+    function markFundRequestApproved(uint256 requestId) external;
+    /// @dev Only callable by the bound treasury contract.
+    function markFundRequestRejected(uint256 requestId, string calldata reason) external;
 
     // --- Epoch management ---
     function rotateEpoch(
@@ -181,4 +206,30 @@ interface ISoulVaultSwarm {
     event RekeyRequested(string trigger, uint64 membershipVersion);
     event Paused(address indexed by);
     event Unpaused(address indexed by);
+
+    // --- Treasury / fund request events ---
+    event TreasurySet(address indexed oldTreasury, address indexed newTreasury, address indexed by);
+
+    event FundRequested(
+        uint256 indexed requestId,
+        address indexed requester,
+        uint256 amount,
+        string reason
+    );
+
+    event FundRequestApproved(
+        uint256 indexed requestId,
+        address indexed requester,
+        address indexed treasury,
+        uint256 amount
+    );
+
+    event FundRequestRejected(
+        uint256 indexed requestId,
+        address indexed requester,
+        address indexed treasury,
+        string reason
+    );
+
+    event FundRequestCancelled(uint256 indexed requestId, address indexed requester);
 }

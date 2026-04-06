@@ -2,6 +2,7 @@
 import { Command } from 'commander';
 import { registerOrganizationCommands } from './commands/organization.js';
 import { registerSwarmCommands } from './commands/swarm.js';
+import { registerTreasuryCommands } from './commands/treasury.js';
 import { registerAgentCommands } from './commands/agent.js';
 import { registerIdentityCommands } from './commands/identity.js';
 import { registerBackupCommands } from './commands/backup.js';
@@ -45,6 +46,7 @@ Examples:
 
 registerOrganizationCommands(program);
 registerSwarmCommands(program);
+registerTreasuryCommands(program);
 registerAgentCommands(program);
 registerIdentityCommands(program);
 registerBackupCommands(program);

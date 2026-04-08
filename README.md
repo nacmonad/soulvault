@@ -231,12 +231,12 @@ The integration harness deploys contracts against a local [ens-app-v3](https://g
 # 1. Start the ens-app-v3 local node (in a separate terminal)
 #    Follow ens-app-v3 setup instructions — the node must be running before tests start.
 
-# 2. Configure .env.test (copy from .env.example, fill in ens-app-v3-specific values)
-cp .env.example cli/.env.test
-# Edit cli/.env.test:
-#   - Point both RPC URLs at localhost:8545
-#   - Set ENS contract addresses from the ens-app-v3 deployment
-#   - Set a funded private key from the local node
+# 2. Configure .env.test at the repo root (gitignored; tracked template below)
+cp .env.test.example .env.test
+# Edit .env.test:
+#   - Point RPC URLs at your local node (default example: localhost:8545, chain 1337)
+#   - Set ENS contract addresses from the ens-app-v3 / local deployment
+#   - Use a funded key for that chain (the example uses Anvil account #0)
 
 # 3. Run integration tests
 cd cli && pnpm test:integration

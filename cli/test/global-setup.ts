@@ -33,7 +33,8 @@ export default async function globalSetup() {
   if (!fs.existsSync(envTestPath)) {
     throw new Error(
       `.env.test not found at ${envTestPath}.\n` +
-        `Copy .env.example to .env.test and fill in the local ens-app-v3 values before running integration tests.`,
+        `Copy .env.test.example to .env.test at the repo root and adjust ENS contract addresses for your local node:\n` +
+        `  cp .env.test.example .env.test`,
     );
   }
   dotenv.config({ path: envTestPath, override: true });

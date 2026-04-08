@@ -102,7 +102,7 @@ cd cli && pnpm test:testnet      # gated testnet smoke (SOULVAULT_TESTNET_INTEGR
 forge test                       # Foundry unit + integration tests for SoulVaultSwarm + SoulVaultTreasury (50+ tests)
 ```
 
-The full-stack integration harness (`test:integration`) expects a local ens-app-v3 node running on `localhost:8545` (chain id `1337`). Both the ops lane and the identity lane point at this single node during tests. Config lives in `.env.test` (gitignored; copy from `.env.example` and fill in ens-app-v3-specific values).
+The full-stack integration harness (`test:integration`) expects a local ens-app-v3 node running on `localhost:8545` (chain id `1337`). Both the ops lane and the identity lane point at this single node during tests. Config lives in `.env.test` at the **repo root** (gitignored). Copy from `.env.test.example` and adjust ENS addresses for your local node.
 
 Full `register-ens` still requires a **funded** Sepolia wallet; the `test:ens-name` script above only reads `minCommitmentAge` from the public RPC.
 

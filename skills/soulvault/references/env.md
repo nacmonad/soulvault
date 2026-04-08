@@ -78,3 +78,13 @@ All variables are loaded from `.env` in the project root via `dotenv`.
 | `SOULVAULT_DEFAULT_BACKUP_COMMAND` | Backup command for automated response | `openclaw backup create ...` |
 | `SOULVAULT_WORKSPACE` | Workspace directory for backup responder | `process.cwd()` |
 | `SOULVAULT_TEST_K_EPOCH` | Test/dev epoch key override | `0x...0001` |
+
+---
+
+## Integration tests (`pnpm test:integration`)
+
+Vitest `globalSetup` loads **`.env.test` from the repo root** (not `cli/`) with `override: true`, so it does not use `.env` for that run. The file is gitignored.
+
+- **Tracked template:** `.env.test.example` — copy to `.env.test` and edit (`cp .env.test.example .env.test`).
+- **Node:** Expects a local RPC with ENS deployed (typically ens-app-v3 on `http://127.0.0.1:8545`, chain id `1337`). Vanilla Anvil without ENS is insufficient.
+- **Signer:** The example uses Anvil’s public dev private key; replace if your node funds a different account.

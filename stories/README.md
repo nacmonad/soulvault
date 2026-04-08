@@ -17,3 +17,4 @@ Current stories:
 - `story05.md` — swarm messaging protocol (public, group, DM) with envelope formats and verification
 - `story06.md` — messaging quick-start: three copy-paste examples (public broadcast, group coordination, encrypted DM)
 - `story07.md` — Ledger signer: local `organization create` / `sync` vs on-chain signing; `SOULVAULT_LEDGER_CONFIRM_ADDRESS`
+- `story08.md` — fund request flow: treasury deploy, swarm binding, agent requests funds, treasury owner approves/rejects, mutual-consent + failure modes

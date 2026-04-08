@@ -81,7 +81,7 @@ Attach a root `.eth` name to an **existing** local profile when `create` was run
 ```
 
 ### `soulvault organization register-ens`
-Register the organization's ENS root name on Sepolia. Two-step commit+register flow. Fails loudly if name is already taken.
+Register the organization's ENS root name on Sepolia. Two-step commit+register flow (with the mandatory `minCommitmentAge` wait in the middle). The registration struct passes the public resolver address, so the name is born with a resolver wired up. After successful registration, the command **also writes the organization metadata text records** on the ENS name following the draft ENSIP on organizational metadata: `class = soulvault.organization`, `name = <org.name>`. This metadata write is best-effort — if it fails, the registration itself is still durable and the user can re-run `register-ens` or use a future `organization set-metadata` command to retry. Fails loudly if the name is already taken.
 
 ```
 --organization <nameOrEns> Target organization (defaults to active)
@@ -92,11 +92,18 @@ Register the organization's ENS root name on Sepolia. Two-step commit+register f
 ## Swarm
 
 ### `soulvault swarm create`
-Create a swarm profile. Deploys the SoulVault contract on 0G Galileo unless `--contract` is provided. If the parent organization has an ENS name, auto-derives and binds the swarm ENS subdomain.
+Create a swarm profile and deploy the `SoulVaultSwarm` contract on 0G Galileo. The contract's constructor takes `address initialTreasury`, which the CLI resolves using the following precedence:
+
+1. `--treasury <addr>` explicit override (pass `0x0000000000000000000000000000000000000000` to deploy org-affiliated but treasury-less)
+2. `--organization <x>`: auto-discover via ENSIP-11 `addr(orgNode, coinType)` on the org's ENS name, where `coinType = 0x80000000 | chainId`. Fails loudly if no treasury is published on that coinType.
+3. Neither: **stealth mode** — deploys with `address(0)` as the treasury, does NOT touch ENS at all, does NOT mutate any parent `soulvault.swarms` list. The swarm exists only in local state and on-chain. Useful for swarms that deliberately skip discovery and fund their agents off-band.
+
+When `--organization` is set and the parent has an ENS name, the command also binds an ENS subdomain (`<label>.<orgEnsName>`) and appends the swarm's label to the org's CBOR `soulvault.swarms` text record (read-modify-write — not atomic against concurrent writers).
 
 ```
 --name <name>              [REQUIRED] Swarm name
---organization <nameOrEns> Parent organization
+--organization <nameOrEns> Parent organization (omit for stealth mode)
+--treasury <address>       Explicit treasury override (including 0x0 to opt out)
 --chain-id <id>            Chain ID (defaults to env SOULVAULT_CHAIN_ID)
 --rpc <url>                RPC URL (defaults to env SOULVAULT_RPC_URL)
 --owner <address>          Owner address
@@ -105,6 +112,16 @@ Create a swarm profile. Deploys the SoulVault contract on 0G Galileo unless `--c
 --public                   Mark as publicly discoverable
 --private                  Mark as private
 --semi-private             Mark as semi-private
+```
+
+### `soulvault swarm remove`
+Remove a swarm from local state. Archives the profile to `~/.soulvault/swarms/.archived/<slug>.json` (preserves recoverability — the contract address, chain, and org linkage all stay on disk for a future `swarm reattach`), strips the swarm label from the parent org's ENS `soulvault.swarms` CBOR list, and leaves the on-chain contract deployed. The command refuses to run without `--yes` since both the local archive and the ENS list mutation are destructive to discovery.
+
+```
+--swarm <nameOrEns>        [REQUIRED] Swarm to remove
+--yes                      [REQUIRED] Skip confirmation prompt
+--reason <text>            Record a reason in the archive entry
+--ens-cleanup              Also clear the swarm subdomain resolver records (not yet implemented)
 ```
 
 ### `soulvault swarm list`
@@ -260,14 +277,16 @@ List all fund requests on the swarm by querying `FundRequested` events and joini
 ## Treasury
 
 ### `soulvault treasury create`
-Deploy a fresh `SoulVaultTreasury` contract on 0G Galileo (one per organization) and bind its address to the org's ENS name via text records (`soulvault.treasuryContract`, `soulvault.treasuryChainId`). Requires an existing organization profile; fails loudly if the org has no registered ENS name for the ENS binding step. Saves the treasury profile to `~/.soulvault/treasuries/<orgSlug>.json`.
+Deploy a fresh `SoulVaultTreasury` contract on 0G Galileo (one per organization per chain) and publish its address on the org's ENS name via an **ENSIP-11 multichain `addr` record** keyed by the chain's coinType (`0x80000000 | chainId`). For 0G Galileo, the coinType is `2147500186`. Requires an existing organization profile; the ENS binding step is best-effort and skipped if the org has no registered ENS name (the profile is saved with `ensBinding.status = 'planned'` for a later fix-up). Saves the treasury profile to `~/.soulvault/treasuries/<orgSlug>.json`.
 
 ```
 --organization <nameOrEns> Parent organization (defaults to active)
 --force                    Overwrite an existing treasury profile for this org
 ```
 
-Treasury is org-scoped: exactly one per organization. Re-running `treasury create` for an org that already has a treasury requires `--force` and will orphan the previous treasury's address in the ENS text records (the contract itself is untouched).
+Treasury is org-scoped: exactly one per organization per chain. An org that operates on multiple chains deploys multiple treasuries, each under its own ENSIP-11 coinType slot on the same ENS name — setting one doesn't clobber the others. Re-running `treasury create` for an org that already has a treasury requires `--force` and will overwrite the coinType slot (the previous contract itself is untouched).
+
+The legacy single-valued `soulvault.treasuryContract` / `soulvault.treasuryChainId` text records used in earlier prototypes have been removed in favor of ENSIP-11.
 
 ### `soulvault treasury list`
 List all local treasury profiles across all organizations.

@@ -24,7 +24,15 @@
    - `membershipVersion` counter for rekey concurrency control
    - Backup file mapping updates (per-member merkle root + storage locator + tx hash refs)
    - Historical key grant references
+   - Treasury binding (constructor `initialTreasury` or post-deploy `setTreasury`)
+   - Fund request lifecycle (file, cancel, approve, reject — approve/reject callbacks from treasury)
    - Optional quorum policy for approvals (post-MVP)
+
+2b. **Treasury Contract (one per org per chain)**
+   - Holds native value, releases funds on approved fund requests
+   - Verifies mutual consent with the requesting swarm (`swarm.treasury() == address(this)`)
+   - Immutable `chainId()` view for cross-chain mis-wiring detection
+   - Discoverable via ENSIP-11 multichain `addr` on the org's ENS name
 
 3. **Encrypted Storage (0G Storage)**
    - Encrypted backup bundles (shared + per-agent)
@@ -140,6 +148,9 @@ SoulVault listens for:
 - `BackupRequested` — members: trigger local backup flow and publish updated file mappings
 - `AgentManifestUpdated` — informational: agent environment metadata updated
 - `RekeyRequested` — post-MVP Chainlink signal: owner acts on rekey prompt
+- `TreasurySet` — swarm bound to a treasury (at constructor or via `setTreasury`)
+- `FundRequested` / `FundRequestApproved` / `FundRequestRejected` / `FundRequestCancelled` — fund request lifecycle on the swarm
+- `FundsDeposited` / `FundsReleased` / `FundRequestRejectedByTreasury` / `TreasuryWithdrawn` — treasury-side events
 
 Additionally, the CLI MAY sync selected public metadata into an ERC-8004 identity record per agent:
 - create/update per-agent ERC-8004 identity

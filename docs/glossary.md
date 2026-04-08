@@ -89,6 +89,18 @@ The ERC-8004 registration URI for an agent. In SoulVault MVP it is a base64-enco
 ## Harness
 A SoulVault convention describing the agent runtime/framework, such as `openclaw`, `hermes`, or another execution stack. This is not a core ERC-8004 field, but can be published in custom registration metadata and used to select the correct backup command.
 
+## Treasury (SoulVaultTreasury)
+An org-scoped payable contract on 0G Galileo that holds native value and releases funds on approved fund requests. One per organization per chain. Discoverable via ENSIP-11 multichain `addr` record on the org's ENS name (`coinType = 0x80000000 | chainId`). The treasury verifies mutual consent (`swarm.treasury() == address(this)`) before any release.
+
+## Fund Request
+An on-chain request filed by an active swarm member for native value from the org's treasury. The swarm contract enforces membership; the treasury enforces funds custody. Lifecycle: Pending → Approved / Rejected / Cancelled.
+
+## ENSIP-11 / Multichain Address
+An ENS standard for storing addresses on multiple chains under a single ENS name. Treasury discovery uses `addr(node, coinType)` where `coinType = 0x80000000 | chainId`. An org with treasuries on multiple chains gets one slot per chain.
+
+## coinType
+The ENSIP-11 key used to index multichain addresses. For EVM chains: `0x80000000 | chainId` (unsigned). For 0G Galileo (chain 16602): `coinType = 2147500186`.
+
 ## Self-Hosted Mode
 User runs their own infrastructure components (e.g., relay/control-plane, optional local storage/indexing services).
 

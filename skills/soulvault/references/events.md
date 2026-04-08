@@ -4,7 +4,7 @@ Events are emitted by **two contracts** on 0G Galileo:
 - `SoulVaultSwarm` — per-swarm lifecycle events (membership, epochs, messaging, backups, fund requests)
 - `SoulVaultTreasury` — org-scoped treasury events (deposits, payouts, rejections, withdrawals)
 
-Use `soulvault swarm events list` or `soulvault swarm events watch` to query / poll. When a swarm is bound to a treasury (via `setTreasury`), the CLI automatically merges events from both contracts into a single stream, sorted by `(blockNumber, logIndex)` so that same-tx event pairs (notably `FundRequestApproved` on the swarm → `FundsReleased` on the treasury) render in their on-chain order. Each entry carries a `source: 'swarm' | 'treasury'` discriminator.
+Use `soulvault swarm events list` or `soulvault swarm events watch` to query / poll. When a swarm is bound to a treasury (via the constructor's `initialTreasury` parameter or a post-deploy `setTreasury` call), the CLI automatically merges events from both contracts into a single stream, sorted by `(blockNumber, logIndex)` so that same-tx event pairs (notably `FundRequestApproved` on the swarm → `FundsReleased` on the treasury) render in their on-chain order. Each entry carries a `source: 'swarm' | 'treasury'` discriminator.
 
 ---
 
@@ -24,7 +24,7 @@ Use `soulvault swarm events list` or `soulvault swarm events watch` to query / p
 | `BackupRequested` | `requestBackup` | requestedBy, epoch, reason, targetRef, deadline, timestamp |
 | `HistoricalKeyBundleGranted` | `grantHistoricalKeys` | member, bundleRef, bundleHash, fromEpoch, toEpoch |
 | `RekeyRequested` | `requestRekey` | requestedBy, trigger |
-| `TreasurySet` | `setTreasury` | oldTreasury, newTreasury, by |
+| `TreasurySet` | `constructor` (when `initialTreasury != address(0)`) or `setTreasury` | oldTreasury, newTreasury, by |
 | `FundRequested` | `requestFunds` | requestId, requester, amount, reason |
 | `FundRequestApproved` | `markFundRequestApproved` (called by treasury) | requestId, requester, treasury, amount |
 | `FundRequestRejected` | `markFundRequestRejected` (called by treasury) | requestId, requester, treasury, reason |
@@ -144,12 +144,14 @@ Informational. A member has updated their public agent manifest pointer. Can be 
 
 ### `TreasurySet`
 
+Emitted both at deploy time (when the swarm constructor receives a non-zero `initialTreasury`) and on any subsequent `setTreasury` call. The CLI passes the org's ENSIP-11-discovered treasury address through at deploy time, so most swarms emit this event in their creation transaction.
+
 **Treasury owner should:**
 - Confirm the swarm they expect has bound to their treasury address
 - Sanity-check the `by` field matches the expected swarm owner
 
 **Swarm members should:**
-- Update any local cache of the swarm's `treasuryAddress` (the CLI does this automatically in `swarm set-treasury`)
+- Update any local cache of the swarm's `treasuryAddress` (the CLI does this automatically in `swarm create` and `swarm set-treasury`)
 - Note: a rebind while fund requests are pending orphans those requests from the old treasury
 
 ---

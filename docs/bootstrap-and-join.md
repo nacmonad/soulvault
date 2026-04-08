@@ -1,11 +1,12 @@
 # Bootstrap + Join Flow
 
 ## First-Time Swarm Setup (Human / Owner)
-1. Owner deploys swarm contract.
-2. Owner configures join policy = owner approval required.
-3. Owner starts `soulvault events watch --swarm <name>` to monitor for incoming join requests.
-4. Owner ensures 0G Storage publication is configured.
-5. Optional but recommended: configure ERC-8004 identity registry integration for per-agent public identity (Model 1).
+1. Owner creates organization profile and registers the org ENS name on Sepolia.
+2. Owner deploys the org treasury (`treasury create`) — published via ENSIP-11 on the org ENS name.
+3. Owner deploys swarm contract (`swarm create --organization <org>`) — auto-discovers the treasury via ENSIP-11, binds it at deploy time.
+4. Owner starts `soulvault events watch --swarm <name>` to monitor for incoming join requests.
+5. Owner ensures 0G Storage publication is configured.
+6. Optional but recommended: configure ERC-8004 identity registry integration for per-agent public identity (Model 1).
 
 ---
 

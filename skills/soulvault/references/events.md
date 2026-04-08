@@ -1,12 +1,14 @@
 # SoulVault Event Reference
 
-All events are emitted by the `SoulVaultSwarm` contract on 0G Galileo.
+Events are emitted by **two contracts** on 0G Galileo:
+- `SoulVaultSwarm` — per-swarm lifecycle events (membership, epochs, messaging, backups, fund requests)
+- `SoulVaultTreasury` — org-scoped treasury events (deposits, payouts, rejections, withdrawals)
 
-Use `soulvault swarm events list` to query historical events or `soulvault swarm events watch` for live polling.
+Use `soulvault swarm events list` or `soulvault swarm events watch` to query / poll. When a swarm is bound to a treasury (via `setTreasury`), the CLI automatically merges events from both contracts into a single stream, sorted by `(blockNumber, logIndex)` so that same-tx event pairs (notably `FundRequestApproved` on the swarm → `FundsReleased` on the treasury) render in their on-chain order. Each entry carries a `source: 'swarm' | 'treasury'` discriminator.
 
 ---
 
-## Event Catalog
+## Swarm Event Catalog
 
 | Event | Emitted By | Key Fields |
 |-------|-----------|------------|
@@ -22,8 +24,22 @@ Use `soulvault swarm events list` to query historical events or `soulvault swarm
 | `BackupRequested` | `requestBackup` | requestedBy, epoch, reason, targetRef, deadline, timestamp |
 | `HistoricalKeyBundleGranted` | `grantHistoricalKeys` | member, bundleRef, bundleHash, fromEpoch, toEpoch |
 | `RekeyRequested` | `requestRekey` | requestedBy, trigger |
+| `TreasurySet` | `setTreasury` | oldTreasury, newTreasury, by |
+| `FundRequested` | `requestFunds` | requestId, requester, amount, reason |
+| `FundRequestApproved` | `markFundRequestApproved` (called by treasury) | requestId, requester, treasury, amount |
+| `FundRequestRejected` | `markFundRequestRejected` (called by treasury) | requestId, requester, treasury, reason |
+| `FundRequestCancelled` | `cancelFundRequest` | requestId, requester |
 | `Paused` | `pause` | — |
 | `Unpaused` | `unpause` | — |
+
+## Treasury Event Catalog
+
+| Event | Emitted By | Key Fields |
+|-------|-----------|------------|
+| `FundsDeposited` | `receive()` / `deposit()` | from, amount |
+| `FundsReleased` | `approveFundRequest` | swarm, requestId, recipient, amount |
+| `FundRequestRejectedByTreasury` | `rejectFundRequest` | swarm, requestId, reason |
+| `TreasuryWithdrawn` | `withdraw` | to, amount |
 
 ---
 
@@ -123,6 +139,90 @@ The preferred coordinated backup trigger. Agent watchers should:
 ### `AgentManifestUpdated`
 
 Informational. A member has updated their public agent manifest pointer. Can be used for discovery/monitoring.
+
+---
+
+### `TreasurySet`
+
+**Treasury owner should:**
+- Confirm the swarm they expect has bound to their treasury address
+- Sanity-check the `by` field matches the expected swarm owner
+
+**Swarm members should:**
+- Update any local cache of the swarm's `treasuryAddress` (the CLI does this automatically in `swarm set-treasury`)
+- Note: a rebind while fund requests are pending orphans those requests from the old treasury
+
+---
+
+### `FundRequested`
+
+**Treasury owner should:**
+1. Evaluate the request — check the `requester` is a legitimate member (confirmed by the swarm-side membership gate at filing time)
+2. Check treasury balance is sufficient via `soulvault treasury status`
+3. Decide on approval based on reason, current budget, and any off-chain policy
+4. Call `soulvault treasury approve-fund --swarm <slug> --request-id <id>` to release funds, OR `soulvault treasury reject-fund --swarm <slug> --request-id <id> --reason <text>` to refuse
+
+**Requesting agent should:**
+- Monitor for `FundRequestApproved` (payout imminent) or `FundRequestRejected` (no funds)
+- If urgency changes, can cancel own request via `soulvault swarm cancel-fund-request --request-id <id>`
+
+**Automated mode:** none. Auto-approving money flows is intentionally NOT supported — approval stays manual per the v1 scope.
+
+---
+
+### `FundRequestApproved`
+
+Fires when the treasury has marked the swarm-side request APPROVED. Paired with `FundsReleased` (treasury event) in the same transaction — when the CLI event watcher merges swarm + treasury events, the two appear consecutively.
+
+**Requesting agent should:**
+- Expect the native-value transfer to settle in the same block
+- Record receipt in local accounting / last-known-funding metadata (not currently auto-tracked by the CLI)
+
+---
+
+### `FundRequestRejected`
+
+**Requesting agent should:**
+- Read the `reason` field for context
+- Decide whether to refile (different amount / reason) or drop the request
+
+---
+
+### `FundRequestCancelled`
+
+Informational. The requester withdrew their own pending request. Treasury owner can ignore this request id.
+
+---
+
+### `FundsDeposited` (treasury)
+
+**Treasury owner should:**
+- Verify the deposit source (`from` field) matches an expected funder
+- Update treasury balance tracking
+
+**Off-chain funders:** no action needed beyond the deposit itself.
+
+---
+
+### `FundsReleased` (treasury)
+
+Paired with `FundRequestApproved` in the same tx. The authoritative record of the actual value transfer (the swarm-side event only records the status flip — the transfer happens on the treasury).
+
+**Monitoring agents should:**
+- Track `recipient`, `amount`, and `requestId` for audit trails
+- Correlate with the same-tx `FundRequestApproved` on the swarm contract
+
+---
+
+### `FundRequestRejectedByTreasury`
+
+Treasury-side mirror of the swarm's `FundRequestRejected`. Emitted for off-chain consumers that only watch the treasury contract. The two events are redundant but each is useful depending on which contract the consumer is watching.
+
+---
+
+### `TreasuryWithdrawn`
+
+Treasury owner drained value from the treasury. Informational for off-chain monitoring. Agents expecting fund requests to be approvable soon should check treasury balance.
 
 ---
 

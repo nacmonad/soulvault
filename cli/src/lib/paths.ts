@@ -33,6 +33,14 @@ export function resolveSwarmsDir(): string {
   return path.join(resolveCliStateDir(), 'swarms');
 }
 
+export function resolveTreasuriesDir(): string {
+  return path.join(resolveCliStateDir(), 'treasuries');
+}
+
+export function resolveTreasuryPath(orgSlug: string): string {
+  return path.join(resolveTreasuriesDir(), `${orgSlug}.json`);
+}
+
 export function resolveOrganizationPath(nameOrSlug: string): string {
   return path.join(resolveOrganizationsDir(), `${nameOrSlug}.json`);
 }

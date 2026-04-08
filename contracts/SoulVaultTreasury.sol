@@ -23,6 +23,8 @@ contract SoulVaultTreasury is ISoulVaultTreasury {
     uint8 private constant STATUS_PENDING = 0;
 
     address public immutable override owner;
+    /// @inheritdoc ISoulVaultTreasury
+    uint256 public immutable override chainId;
 
     uint256 private _locked = 1;
 
@@ -40,6 +42,7 @@ contract SoulVaultTreasury is ISoulVaultTreasury {
 
     constructor() {
         owner = msg.sender;
+        chainId = block.chainid;
     }
 
     // --- Deposits ---

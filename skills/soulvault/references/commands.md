@@ -176,7 +176,7 @@ Query historical swarm contract events in a block range.
 ```
 
 ### `soulvault swarm events watch`
-Poll for live swarm events. Supports automated backup response via `--respond-backup`.
+Poll for live swarm events. Supports automated backup response via `--respond-backup`. When the swarm has a bound treasury, the watcher **automatically merges treasury events** (`FundsDeposited`, `FundsReleased`, `FundRequestRejectedByTreasury`, `TreasuryWithdrawn`) into the same stream as swarm events, sorted by `(blockNumber, logIndex)`. Each entry has a `source: 'swarm' | 'treasury'` discriminator.
 
 ```
 --swarm <nameOrEns>        Target swarm (defaults to active)
@@ -193,6 +193,149 @@ When `--respond-backup` is active, the watcher will:
 4. Upload to 0G Storage
 5. Publish `updateMemberFileMapping` onchain
 6. Fail loudly on insufficient 0G gas/storage balance
+
+No equivalent auto-approve flag exists for fund requests — approval stays manual per v1 scope.
+
+### `soulvault swarm set-treasury`
+Swarm owner binds the swarm to a `SoulVaultTreasury` contract. Re-settable. Emits `TreasurySet(old, new, by)` on chain. Warns the operator if there are any pending fund requests at rebind time (they will be orphaned from the previous treasury because the mutual-consent check will fail).
+
+```
+--treasury <address>       [REQUIRED] Treasury contract address
+--swarm <nameOrEns>        Target swarm (defaults to active)
+```
+
+After binding, refreshes the local swarm profile's cached `treasuryAddress` field.
+
+### `soulvault swarm treasury-status`
+Read the currently-bound treasury address from the swarm contract.
+
+```
+--swarm <nameOrEns>        Target swarm (defaults to active)
+```
+
+Returns `{ swarm, contractAddress, treasuryAddress, isSet }`. `isSet` is `false` when the treasury is the zero address (unbound).
+
+### `soulvault swarm fund-request`
+Active swarm member submits a fund request. Requires: caller is an active member, treasury is bound, amount > 0, swarm not paused. Parses `FundRequested` from the receipt and prints the resulting `requestId`.
+
+```
+--amount <ether>           [REQUIRED] Requested amount in ether (whole units — parsed via parseEther)
+--reason <text>            [REQUIRED] Free-form reason string (stored on-chain)
+--swarm <nameOrEns>        Target swarm (defaults to active)
+```
+
+### `soulvault swarm cancel-fund-request`
+Requester cancels their own pending fund request. Must be called by the same wallet that filed the request; the swarm contract enforces this.
+
+```
+--request-id <id>          [REQUIRED] Fund request ID
+--swarm <nameOrEns>        Target swarm (defaults to active)
+```
+
+### `soulvault swarm fund-status`
+Read the current state of a fund request by id.
+
+```
+--request-id <id>          [REQUIRED] Fund request ID
+--swarm <nameOrEns>        Target swarm (defaults to active)
+```
+
+Returns `{ requester, amountWei, reason, status, statusLabel, createdAt, resolvedAt }`. `statusLabel` is one of `pending | approved | rejected | cancelled`.
+
+### `soulvault swarm fund-requests list`
+List all fund requests on the swarm by querying `FundRequested` events and joining with current on-chain status. Supports client-side status filtering.
+
+```
+--swarm <nameOrEns>        Target swarm (defaults to active)
+--status <label>           Filter by pending | approved | rejected | cancelled
+--from-block <n>           Start block (default: 0)
+--to-block <n>             End block (default: latest)
+```
+
+### `soulvault swarm pause` / `unpause`
+**NOT IMPLEMENTED IN CLI** (follow-up branch). The contract has `pause()` / `unpause()` with `onlyOwner` access control, and the `whenNotPaused` modifier guards all fund request operations. These commands are on the roadmap — see `contracts/IMPLEMENTATION_NOTES.md`. For now, use `cast send <swarm> "pause()"` or the raw ethers API if you need to exercise pause behavior manually.
+
+---
+
+## Treasury
+
+### `soulvault treasury create`
+Deploy a fresh `SoulVaultTreasury` contract on 0G Galileo (one per organization) and bind its address to the org's ENS name via text records (`soulvault.treasuryContract`, `soulvault.treasuryChainId`). Requires an existing organization profile; fails loudly if the org has no registered ENS name for the ENS binding step. Saves the treasury profile to `~/.soulvault/treasuries/<orgSlug>.json`.
+
+```
+--organization <nameOrEns> Parent organization (defaults to active)
+--force                    Overwrite an existing treasury profile for this org
+```
+
+Treasury is org-scoped: exactly one per organization. Re-running `treasury create` for an org that already has a treasury requires `--force` and will orphan the previous treasury's address in the ENS text records (the contract itself is untouched).
+
+### `soulvault treasury list`
+List all local treasury profiles across all organizations.
+
+### `soulvault treasury status`
+Show the treasury contract address, current balance, and owner.
+
+```
+--organization <nameOrEns> Target organization (defaults to active)
+```
+
+Returns `{ organization, contractAddress, owner, balanceWei, balanceEther }`. Balance reads directly from `address(treasury).balance` on chain.
+
+### `soulvault treasury deposit`
+Send native value from the signer wallet into the treasury. Any wallet can deposit (not just the owner), so funders and approvers can be separated.
+
+```
+--amount <ether>           [REQUIRED] Amount in ether (whole units)
+--organization <nameOrEns> Target organization (defaults to active)
+```
+
+Calls `treasury.deposit()` with `msg.value`. Emits `FundsDeposited(from, amount)`.
+
+### `soulvault treasury withdraw`
+Treasury owner withdraws native value to an arbitrary address. Owner-only (contract enforces `NotOwner` revert).
+
+```
+--to <address>             [REQUIRED] Recipient address
+--amount <ether>           [REQUIRED] Amount in ether (whole units)
+--organization <nameOrEns> Target organization (defaults to active)
+```
+
+### `soulvault treasury approve-fund`
+Treasury owner approves a pending fund request on the given swarm and releases funds to the requester **in the same transaction**. Performs four on-chain actions atomically:
+1. Mutual consent check (`ISoulVaultSwarm(swarm).treasury() == address(this)`)
+2. Read request, verify `status == PENDING` and `balance >= amount`
+3. Call `swarm.markFundRequestApproved(requestId)` (swarm-side status flip)
+4. Native-value transfer from treasury to the original requester
+
+Prints the parsed `FundsReleased` event (recipient, amountWei, txHash) on success.
+
+```
+--swarm <nameOrAddress>    [REQUIRED] Swarm slug (local profile) OR raw contract address
+--request-id <id>          [REQUIRED] Fund request ID
+--organization <nameOrEns> Target organization (defaults to active)
+```
+
+**Warning:** when `--swarm` is a raw address rather than a known profile slug, the CLI prints a warning — the treasury will release funds in the same tx if the call succeeds, so unverified swarm addresses should be rare and deliberate.
+
+### `soulvault treasury reject-fund`
+Treasury owner rejects a pending fund request. No funds move. Still performs the mutual consent check.
+
+```
+--swarm <nameOrAddress>    [REQUIRED]
+--request-id <id>          [REQUIRED]
+--reason <text>            [REQUIRED] Reason stored in both swarm and treasury events
+--organization <nameOrEns> Target organization (defaults to active)
+```
+
+### `soulvault treasury fund-requests list`
+Inspect fund requests across a swarm from the treasury owner's perspective. Identical output to `soulvault swarm fund-requests list` — the two commands exist because requesters and approvers naturally reach for different command groups.
+
+```
+--swarm <nameOrEns>        [REQUIRED]
+--status <label>           Filter by pending | approved | rejected | cancelled
+--from-block <n>
+--to-block <n>
+```
 
 ---
 

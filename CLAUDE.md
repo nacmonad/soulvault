@@ -47,8 +47,8 @@ Both lanes share a single signer wallet. The CLI routes to the correct chain aut
 | Entity | Commands | State file |
 |--------|----------|------------|
 | Status | `status [--json] [--offline]` | (aggregates all state) |
-| Organization | `organization create/list/use/status/register-ens` | `~/.soulvault/organizations/<slug>.json` |
-| Swarm | `swarm create/list/use/status/join-request/approve-join/member-identities/set-treasury/treasury-status/fund-request/cancel-fund-request/fund-status/fund-requests` | `~/.soulvault/swarms/<slug>.json` |
+| Organization | `organization create/list/use/status/register-ens/set-ens-name` (register-ens also publishes draft-ENSIP `class`/`name` metadata records on the org's ENS name) | `~/.soulvault/organizations/<slug>.json` |
+| Swarm | `swarm create/remove/list/use/status/join-request/approve-join/member-identities/set-treasury/treasury-status/fund-request/cancel-fund-request/fund-status/fund-requests` (create auto-discovers the org's treasury via ENSIP-11 `addr(orgNode, coinType)` unless `--treasury` override or stealth mode) | `~/.soulvault/swarms/<slug>.json` (archived swarms at `~/.soulvault/swarms/.archived/<slug>.json`) |
 | Treasury | `treasury create/list/status/deposit/withdraw/approve-fund/reject-fund/fund-requests` | `~/.soulvault/treasuries/<orgSlug>.json` |
 | Agent | `agent create/status/register/update/show` | `~/.soulvault/agent.json` |
 | Epoch | `epoch rotate/show-bundle/decrypt-bundle-member` | `~/.soulvault/keys/<swarm>/epoch-<n>.json` |
@@ -84,7 +84,7 @@ The swarm contract emits events that drive the protocol. Key events:
 - `MemberFileMappingUpdated` — backup publication proof
 - `AgentMessagePosted` — messaging
 - `HistoricalKeyBundleGranted` — key recovery for new/restored members
-- `TreasurySet` — swarm bound to a treasury
+- `TreasurySet` — swarm bound to a treasury (also emitted from the `SoulVaultSwarm` constructor when `initialTreasury != address(0)`; the CLI passes the org's ENSIP-11-discovered treasury address through at deploy time)
 - `FundRequested` / `FundRequestApproved` / `FundRequestRejected` / `FundRequestCancelled` — fund request lifecycle
 
 The treasury contract emits its own events: `FundsDeposited`, `FundsReleased`, `FundRequestRejectedByTreasury`, `TreasuryWithdrawn`. When a swarm has a bound treasury, `swarm events watch` / `events list` automatically merge events from both contracts and order them by `(blockNumber, logIndex)` — critical for the same-tx pair `FundRequestApproved` (swarm) → `FundsReleased` (treasury) to render in correct order.

@@ -18,18 +18,30 @@ async function loadArtifact(): Promise<Artifact> {
   return fs.readJson(ARTIFACT_PATH) as Promise<Artifact>;
 }
 
-export async function deploySoulVaultSwarmContract() {
+/**
+ * Deploy a fresh SoulVaultSwarm contract on the ops lane.
+ *
+ * `initialTreasury` is passed verbatim to the constructor. `ethers.ZeroAddress` (or
+ * `'0x0000000000000000000000000000000000000000'`) is a fully supported value meaning
+ * "stealth swarm / deferred treasury binding" — the swarm will exist with no treasury
+ * bound and can be wired up later via `setTreasury`. Non-zero values take the same
+ * sanity check as the post-construction path: the treasury must live on the same
+ * chain as the swarm, which should be validated by the caller before reaching this
+ * function.
+ */
+export async function deploySoulVaultSwarmContract(input: { initialTreasury: string }) {
   const signer = await createSigner();
   const artifact = await loadArtifact();
   const bytecode = typeof artifact.bytecode === 'string' ? artifact.bytecode : artifact.bytecode.object;
   const factory = new ContractFactory(artifact.abi, bytecode, signer);
-  const contract = await factory.deploy();
+  const contract = await factory.deploy(input.initialTreasury);
   await contract.waitForDeployment();
   const deploymentTx = contract.deploymentTransaction();
   return {
     address: await contract.getAddress(),
     ownerAddress: signer.address,
     txHash: deploymentTx?.hash,
+    initialTreasury: input.initialTreasury,
   };
 }
 

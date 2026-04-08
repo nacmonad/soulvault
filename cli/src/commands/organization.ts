@@ -7,7 +7,11 @@ import {
   setOrganizationEnsName,
   useOrganization,
 } from '../lib/organization.js';
-import { registerOrganizationEns } from '../lib/ens-name.js';
+import {
+  EnsNameInvalidError,
+  EnsNameUnavailableError,
+  registerOrganizationEns,
+} from '../lib/ens-name.js';
 
 export function registerOrganizationCommands(program: Command) {
   const organization = program.command('organization').description('Organization profiles, ENS root context, and owner actions')
@@ -86,7 +90,25 @@ export function registerOrganizationCommands(program: Command) {
       if (!target) {
         throw new Error('No organization selected. Pass --organization or set an active organization first.');
       }
-      const result = await registerOrganizationEns(target);
-      console.log(JSON.stringify(result, null, 2));
+      try {
+        const result = await registerOrganizationEns(target);
+        console.log(JSON.stringify(result, null, 2));
+      } catch (err) {
+        // Catch the structured pre-flight errors and print an actionable recovery
+        // prompt instead of a raw stack trace. Other errors (controller revert,
+        // signer failure, etc.) fall through to commander's default handler.
+        if (err instanceof EnsNameUnavailableError || err instanceof EnsNameInvalidError) {
+          console.error(`\n✗ ${err.message}\n`);
+          console.error('Next steps:');
+          console.error(`  1. Pick a different ENS name (must end in .eth and be unowned).`);
+          console.error(
+            `  2. soulvault organization set-ens-name --organization ${err.organizationSlug} --ens-name <newName.eth>`,
+          );
+          console.error(`  3. soulvault organization register-ens --organization ${err.organizationSlug}`);
+          process.exitCode = 1;
+          return;
+        }
+        throw err;
+      }
     });
 }

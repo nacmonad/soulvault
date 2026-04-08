@@ -4,7 +4,12 @@ import { ContractFactory } from 'ethers';
 import { namehash } from 'viem/ens';
 import { loadEnv } from './config.js';
 import { createSigner } from './signer.js';
-import { createEnsSigner, getPublicResolver, readEnsNodeOwner } from './ens.js';
+import {
+  createEnsSigner,
+  coinTypeForChain,
+  readEnsNodeOwner,
+  setAddrMultichain,
+} from './ens.js';
 import { resolveRepoRoot } from './paths.js';
 
 const TREASURY_ARTIFACT_PATH = path.join(
@@ -46,22 +51,24 @@ export async function deploySoulVaultTreasuryContract() {
 }
 
 /**
- * Write the treasury discovery text records on the org's existing ENS name.
+ * Publish the treasury's address on the org's ENS name via ENSIP-11 multichain `addr`.
  *
- * Unlike swarms, the treasury does NOT get a dedicated subdomain — it's org-scoped
- * (exactly one per org), so we attach it directly as two text records on the org's
- * root ENS name:
- *   - `soulvault.treasuryContract` → the treasury contract address
- *   - `soulvault.treasuryChainId`  → the chainId where the treasury is deployed (0G = 16602)
+ * One org may hold treasuries on multiple chains (0G Galileo, Base, etc.) — each is
+ * discovered by calling `addr(node, coinType)` on the org's ENS name where `coinType`
+ * is derived from the target chainId per ENSIP-11 (`0x80000000 | chainId`). This is the
+ * canonical multi-chain discovery mechanism; the legacy `soulvault.treasuryContract` /
+ * `soulvault.treasuryChainId` text records were single-valued and couldn't represent a
+ * multi-chain org, so they've been removed.
  *
- * This mirrors the cross-chain discovery pattern swarms already use.
+ * An org with treasuries on N chains will call this N times, once per chain, each
+ * writing a distinct coinType slot. Setting one slot does not clobber the others.
  */
-export async function bindTreasuryEnsTextRecords(input: {
+export async function bindTreasuryEnsAddr(input: {
   organizationEnsName: string;
   contractAddress: string;
 }) {
   const env = loadEnv();
-  // Verify the org ENS name actually exists and is owned before we try to write text records.
+  // Verify the org ENS name actually exists and is owned before we try to write the record.
   const owner = await readEnsNodeOwner(input.organizationEnsName);
   if (!owner.owner || owner.owner === '0x0000000000000000000000000000000000000000') {
     throw new Error(
@@ -70,27 +77,19 @@ export async function bindTreasuryEnsTextRecords(input: {
     );
   }
 
-  const resolver = await getPublicResolver(true);
   const orgNode = namehash(input.organizationEnsName);
-
-  const setContractTx = await resolver.setText(
-    orgNode,
-    'soulvault.treasuryContract',
+  const coinType = coinTypeForChain(env.SOULVAULT_CHAIN_ID);
+  const result = await setAddrMultichain(
+    input.organizationEnsName,
+    env.SOULVAULT_CHAIN_ID,
     input.contractAddress,
   );
-  const setContractReceipt = await setContractTx.wait();
-
-  const setChainIdTx = await resolver.setText(
-    orgNode,
-    'soulvault.treasuryChainId',
-    String(env.SOULVAULT_CHAIN_ID),
-  );
-  const setChainIdReceipt = await setChainIdTx.wait();
 
   return {
     node: orgNode,
-    contractTextTxHash: setContractReceipt?.hash,
-    chainIdTextTxHash: setChainIdReceipt?.hash,
+    coinType,
+    chainId: env.SOULVAULT_CHAIN_ID,
+    addrTxHash: result.txHash,
   };
 }
 

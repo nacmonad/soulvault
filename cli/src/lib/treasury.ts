@@ -27,8 +27,11 @@ export type TreasuryProfile = {
   };
   ensBinding?: {
     status: 'planned' | 'bound';
-    chainIdTextTxHash?: string;
-    contractTextTxHash?: string;
+    // ENSIP-11 coinType used when writing the treasury's `addr` record on the org ENS
+    // name (`0x80000000 | chainId`, unsigned). Populated on successful bind.
+    coinType?: number;
+    // Hash of the resolver `setAddr(node, coinType, addr)` tx.
+    addrTxHash?: string;
   };
 };
 

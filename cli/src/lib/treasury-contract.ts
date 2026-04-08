@@ -27,13 +27,18 @@ export async function getTreasuryContract(orgNameOrSlug?: string) {
 /** Read treasury status (owner + balance + recent event counts). */
 export async function getTreasuryStatus(input: { organization?: string }) {
   const { profile, contract } = await getTreasuryContractReadonly(input.organization);
-  const [owner, balance] = await Promise.all([contract.owner(), contract.balance()]);
+  const [owner, balance, chainId] = await Promise.all([
+    contract.owner(),
+    contract.balance(),
+    contract.chainId(),
+  ]);
   return {
     organization: profile.organization,
     contractAddress: profile.contractAddress,
     owner: String(owner),
     balanceWei: balance.toString(),
     balanceEther: formatEther(balance),
+    chainId: chainId.toString(),
   };
 }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { JsonRpcProvider, Wallet, type Contract } from 'ethers';
+import { JsonRpcProvider, Wallet, ZeroAddress, type Contract } from 'ethers';
 import { loadForgeArtifact, deployContract } from '../../../test/helpers/forge-artifacts.js';
 
 /**
@@ -32,7 +32,10 @@ describe('integration harness smoke', () => {
     const swarmArtifact = loadForgeArtifact('SoulVaultSwarm');
     const treasuryArtifact = loadForgeArtifact('SoulVaultTreasury');
 
-    swarm = await deployContract(deployer, swarmArtifact);
+    // SoulVaultSwarm's constructor now takes `address initialTreasury`. Pass
+    // ZeroAddress here since the smoke test exercises the post-construction
+    // `setTreasury` path anyway.
+    swarm = await deployContract(deployer, swarmArtifact, [ZeroAddress]);
     treasury = await deployContract(deployer, treasuryArtifact);
   });
 

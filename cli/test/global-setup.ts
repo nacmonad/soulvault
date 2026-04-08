@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import dotenv from 'dotenv';
+import { Contract, JsonRpcProvider, ZeroAddress } from 'ethers';
+import { namehash } from 'viem/ens';
 import { resolveRepoRoot } from '../src/lib/paths.js';
 import { probeChain } from './helpers/ens-probe.js';
 
@@ -72,6 +74,39 @@ export default async function globalSetup() {
       rpcUrl: ensRpcUrl,
       label: 'Identity-lane node (SOULVAULT_ENS_RPC_URL)',
     });
+  }
+
+  // 5. Confirm the ENS registry is actually deployed and owns `.eth` at the configured
+  //    address. Without this, a misconfigured ens-app-v3 fork (or the wrong registry
+  //    address in .env.test) would let the test suite start and then fail opaquely on
+  //    the first setText / setAddr call. Catching it here gives a clear error pointing
+  //    at the right knob.
+  const registryAddress = process.env.SOULVAULT_ENS_REGISTRY_ADDRESS;
+  if (registryAddress) {
+    // eslint-disable-next-line no-console
+    console.log(`[global-setup] Verifying ENS registry at ${registryAddress} owns .eth...`);
+    const ensProvider = new JsonRpcProvider(ensRpcUrl);
+    const registry = new Contract(
+      registryAddress,
+      ['function owner(bytes32) view returns (address)'],
+      ensProvider,
+    );
+    const ethNode = namehash('eth');
+    try {
+      const ethOwner = await registry.owner(ethNode);
+      if (!ethOwner || String(ethOwner) === ZeroAddress) {
+        throw new Error(
+          `ENS registry at ${registryAddress} on ${ensRpcUrl} reports zero owner for .eth. ` +
+            `Is this really an ens-app-v3 fork with ENS deployed? Check SOULVAULT_ENS_REGISTRY_ADDRESS in .env.test.`,
+        );
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Failed to query ENS registry at ${registryAddress} on ${ensRpcUrl}: ${message}. ` +
+          `Make sure ens-app-v3 is running and SOULVAULT_ENS_REGISTRY_ADDRESS points at a deployed ENS registry.`,
+      );
+    }
   }
 
   // eslint-disable-next-line no-console

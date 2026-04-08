@@ -16,7 +16,8 @@ contract SoulVaultSwarmTest is Test {
     bytes internal bobPubkey = hex"040506";
 
     function setUp() public {
-        swarm = new SoulVaultSwarm();
+        // No treasury needed for swarm-only membership/epoch/message tests.
+        swarm = new SoulVaultSwarm(address(0));
     }
 
     function testRequestJoinAndApproveActivatesMember() public {

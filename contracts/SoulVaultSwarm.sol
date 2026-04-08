@@ -64,8 +64,17 @@ contract SoulVaultSwarm is ISoulVaultSwarm {
         _;
     }
 
-    constructor() {
+    /// @notice Deploy a SoulVaultSwarm.
+    /// @param initialTreasury Address of a `SoulVaultTreasury` on the same chain, or `address(0)`
+    ///        for a stealth swarm that never funds agents through the treasury flow. `address(0)`
+    ///        is a fully supported value; the deployer (or the swarm owner later) may bind a
+    ///        treasury after the fact via `setTreasury`.
+    constructor(address initialTreasury) {
         owner = msg.sender;
+        if (initialTreasury != address(0)) {
+            treasury = initialTreasury;
+            emit TreasurySet(address(0), initialTreasury, msg.sender);
+        }
     }
 
     function getMember(address member) external view override returns (Member memory) {

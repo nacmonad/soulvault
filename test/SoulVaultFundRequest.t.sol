@@ -22,11 +22,11 @@ contract SoulVaultFundRequestTest is Test {
     bytes internal bobPubkey = hex"040506";
 
     function setUp() public {
-        swarm = new SoulVaultSwarm();
+        // Deploy the treasury first so the swarm can be born already bound to it
+        // via the new constructor parameter. The existing `setTreasury` path is still
+        // exercised by the multi-swarm sharing test below.
         treasury = new SoulVaultTreasury();
-
-        // Wire the swarm to the treasury (owner = this test contract).
-        swarm.setTreasury(address(treasury));
+        swarm = new SoulVaultSwarm(address(treasury));
 
         // Bootstrap alice as an active member so she can requestFunds.
         vm.prank(alice);
@@ -158,8 +158,10 @@ contract SoulVaultFundRequestTest is Test {
     // --- Multi-swarm sharing one treasury ---
 
     function testMultipleSwarmsOneTreasury() public {
-        // Deploy a second swarm and bind it to the same treasury.
-        SoulVaultSwarm swarm2 = new SoulVaultSwarm();
+        // Deploy a second swarm. Use the legacy post-construction setTreasury path on
+        // purpose here so we still exercise it (the first swarm in setUp() now uses the
+        // constructor path).
+        SoulVaultSwarm swarm2 = new SoulVaultSwarm(address(0));
         swarm2.setTreasury(address(treasury));
 
         // Bootstrap bob as a member of swarm2.

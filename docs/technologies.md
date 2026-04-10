@@ -1,5 +1,7 @@
 # SoulVault Technologies (Finalized v0)
 
+For a **standards-first** map (EIP-8004, ENSIP-5, ERC-20 roadmap, signing quirks), see [`ethereum-standards-research.md`](ethereum-standards-research.md).
+
 ## 1) Product Components
 - **CLI + TUI control plane** (operator + agent workflows)
 - **EVM smart contracts** (swarm governance, joins, epochs, membershipVersion, pointers, events)

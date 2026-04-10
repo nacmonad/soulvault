@@ -193,6 +193,7 @@ slides/             Deck outline and presentation notes
 
 ## Key specs
 
+- [`docs/ethereum-standards-research.md`](docs/ethereum-standards-research.md) — Ethereum / ENS / ERC-8004 standards SoulVault touches (research map)
 - [`contracts/ISoulVaultSwarm.sol`](contracts/ISoulVaultSwarm.sol) — swarm contract interface
 - [`contracts/IERC8004AgentRegistryAdapter.sol`](contracts/IERC8004AgentRegistryAdapter.sol) — identity adapter
 - [`contracts/SWARM_CONTRACT_SPEC.md`](contracts/SWARM_CONTRACT_SPEC.md) — contract specification

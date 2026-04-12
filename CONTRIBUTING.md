@@ -30,6 +30,8 @@ alias soulvault="pnpm exec tsx cli/src/index.ts"
 ```bash
 pnpm test              # vitest unit tests
 pnpm test -- --run     # single run (no watch)
+cd cli && pnpm test:integration   # local chain + `.env.test` (private-key owner)
+cd cli && pnpm test:ledger        # Ledger owner — copy `.env.ledger.test.example` → `.env.ledger.test`
 ```
 
 ## Repository layout

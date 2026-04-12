@@ -17,7 +17,10 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['src/**/__integration__/**/*.test.ts'],
-    exclude: ['src/**/__integration__/**/*.testnet.test.ts'],
+    exclude: [
+      'src/**/__integration__/**/*.testnet.test.ts',
+      'src/**/__integration__/**/*.ledger.integration.test.ts',
+    ],
     testTimeout: 180_000,
     poolOptions: {
       threads: {

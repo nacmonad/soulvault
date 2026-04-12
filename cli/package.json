@@ -15,7 +15,8 @@
     "test:watch": "vitest",
     "test:ens-name": "SOULVAULT_INTEGRATION=1 vitest run src/lib/ens-name.integration.test.ts",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "test:testnet": "SOULVAULT_TESTNET_INTEGRATION=1 vitest run --config vitest.integration.config.ts src/lib/__integration__/fund-request-flow.testnet.test.ts"
+    "test:testnet": "SOULVAULT_TESTNET_INTEGRATION=1 vitest run --config vitest.integration.config.ts src/lib/__integration__/fund-request-flow.testnet.test.ts",
+    "test:ledger": "vitest run --config vitest.ledger.integration.config.ts"
   },
   "dependencies": {
     "@0gfoundation/0g-ts-sdk": "^1.2.1",

@@ -69,7 +69,7 @@ Keep a single swarm epoch key (`K_epoch`) for all members and all bundle types. 
 ### Privacy model (explicit design decision)
 All per-agent bundles are encrypted under the shared `K_epoch`. This means **any approved swarm member can decrypt any other member's state**. This is intentional — it enables the coordination layer where agents can read each other's memory and configuration when needed for collaborative tasks.
 
-Post-MVP option: introduce per-agent derived keys (`K_agent = HKDF(K_epoch, "agent", agentAddress)`) to allow private agent state alongside shared swarm state. For MVP, the shared model is simpler and more useful for coordination.
+Post-MVP / proposal: optional **per-agent private memory** under **`K_agent`** (random key + optional recovery wrap to cold/guardian keys), contrasted with shared **`K_epoch`** — trust models and use cases: **`docs/K_agent_protocol_proposal_v0.md`**. A derived key such as `HKDF(K_epoch, "agent", agentAddress)` would **not** give privacy from swarm members who hold `K_epoch`; use **`K_agent` independent of `K_epoch`** for peer-opaque memories. For MVP, the shared `K_epoch` model is simpler and more useful for coordination.
 
 ---
 

@@ -2,8 +2,10 @@
 pragma solidity ^0.8.24;
 
 import {ISoulVaultSwarm} from "./ISoulVaultSwarm.sol";
+import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
-contract SoulVaultSwarm is ISoulVaultSwarm {
+contract SoulVaultSwarm is ISoulVaultSwarm, EIP712 {
     error NotOwner();
     error PausedError();
     error AlreadyActiveMember();
@@ -25,6 +27,9 @@ contract SoulVaultSwarm is ISoulVaultSwarm {
     error NotFundRequester();
     error ZeroAmount();
     error ZeroAddress();
+    error SigExpired();
+    error BadNonce(uint64 expected, uint64 provided);
+    error BadSigner(address recovered);
 
     uint8 private constant STATUS_PENDING = 0;
     uint8 private constant STATUS_APPROVED = 1;
@@ -54,6 +59,23 @@ contract SoulVaultSwarm is ISoulVaultSwarm {
     mapping(address => ManifestPointer) private _agentManifests;
     mapping(address => uint64) private _lastSenderSeq;
 
+    /// @notice Monotonic nonce consumed by every accepted owner `*WithSig` call.
+    uint64 public ownerNonce;
+
+    // --- EIP-712 typehashes (must match cli/src/lib/typed-data.ts) ---
+    bytes32 private constant APPROVE_JOIN_TYPEHASH =
+        keccak256("ApproveJoin(address swarm,uint256 requestId,address requester,uint64 nonce,uint64 deadline)");
+    bytes32 private constant REJECT_JOIN_TYPEHASH =
+        keccak256("RejectJoin(address swarm,uint256 requestId,address requester,bytes32 reasonHash,uint64 nonce,uint64 deadline)");
+    bytes32 private constant REMOVE_MEMBER_TYPEHASH =
+        keccak256("RemoveMember(address swarm,address member,uint64 nonce,uint64 deadline)");
+    bytes32 private constant SET_TREASURY_TYPEHASH =
+        keccak256("SetTreasury(address swarm,address treasury,uint64 nonce,uint64 deadline)");
+    bytes32 private constant ROTATE_EPOCH_TYPEHASH =
+        keccak256("RotateEpoch(address swarm,uint64 fromEpoch,uint64 toEpoch,bytes32 bundleManifestHash,uint64 nonce,uint64 deadline)");
+    bytes32 private constant BACKUP_REQUEST_TYPEHASH =
+        keccak256("BackupRequest(address swarm,uint64 epoch,bytes32 trigger,uint64 nonce,uint64 deadline)");
+
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
         _;
@@ -64,8 +86,22 @@ contract SoulVaultSwarm is ISoulVaultSwarm {
         _;
     }
 
-    constructor() {
+    constructor() EIP712("SoulVaultSwarm", "1") {
         owner = msg.sender;
+    }
+
+    /// @notice Expose EIP-712 domain separator for client sanity checks.
+    function DOMAIN_SEPARATOR() external view returns (bytes32) {
+        return _domainSeparatorV4();
+    }
+
+    /// @dev Verify EIP-712 signature from owner. Checks nonce + deadline + consumes nonce.
+    function _checkOwnerSig(bytes32 structHash, uint64 nonce, uint64 deadline, bytes calldata sig) internal {
+        if (block.timestamp > deadline) revert SigExpired();
+        if (nonce != ownerNonce) revert BadNonce(ownerNonce, nonce);
+        address recovered = ECDSA.recover(_hashTypedDataV4(structHash), sig);
+        if (recovered != owner) revert BadSigner(recovered);
+        unchecked { ownerNonce = nonce + 1; }
     }
 
     function getMember(address member) external view override returns (Member memory) {
@@ -123,6 +159,10 @@ contract SoulVaultSwarm is ISoulVaultSwarm {
     }
 
     function approveJoin(uint256 requestId) external override onlyOwner whenNotPaused {
+        _approveJoin(requestId, msg.sender);
+    }
+
+    function _approveJoin(uint256 requestId, address approver) internal {
         JoinRequest storage req = _requirePendingRequest(requestId);
 
         Member storage member = _members[req.requester];
@@ -136,13 +176,17 @@ contract SoulVaultSwarm is ISoulVaultSwarm {
         membershipVersion += 1;
         memberCount += 1;
 
-        emit JoinApproved(requestId, req.requester, msg.sender, currentEpoch);
+        emit JoinApproved(requestId, req.requester, approver, currentEpoch);
     }
 
     function rejectJoin(uint256 requestId, string calldata reason) external override onlyOwner whenNotPaused {
+        _rejectJoin(requestId, reason, msg.sender);
+    }
+
+    function _rejectJoin(uint256 requestId, string calldata reason, address rejector) internal {
         JoinRequest storage req = _requirePendingRequest(requestId);
         req.status = STATUS_REJECTED;
-        emit JoinRejected(requestId, req.requester, msg.sender, reason);
+        emit JoinRejected(requestId, req.requester, rejector, reason);
     }
 
     function cancelJoin(uint256 requestId) external override whenNotPaused {
@@ -153,6 +197,10 @@ contract SoulVaultSwarm is ISoulVaultSwarm {
     }
 
     function removeMember(address member) external override onlyOwner whenNotPaused {
+        _removeMember(member, msg.sender);
+    }
+
+    function _removeMember(address member, address remover) internal {
         Member storage m = _members[member];
         if (!m.active) revert NotActiveMember();
 
@@ -160,16 +208,20 @@ contract SoulVaultSwarm is ISoulVaultSwarm {
         membershipVersion += 1;
         memberCount -= 1;
 
-        emit MemberRemoved(member, msg.sender, currentEpoch);
+        emit MemberRemoved(member, remover, currentEpoch);
     }
 
     // --- Treasury binding ---
 
     function setTreasury(address newTreasury) external override onlyOwner {
+        _setTreasury(newTreasury, msg.sender);
+    }
+
+    function _setTreasury(address newTreasury, address setter) internal {
         if (newTreasury == address(0)) revert ZeroAddress();
         address old = treasury;
         treasury = newTreasury;
-        emit TreasurySet(old, newTreasury, msg.sender);
+        emit TreasurySet(old, newTreasury, setter);
     }
 
     // --- Fund request lifecycle ---
@@ -231,6 +283,15 @@ contract SoulVaultSwarm is ISoulVaultSwarm {
         bytes32 keyBundleHash,
         uint64 expectedMembershipVersion
     ) external override onlyOwner whenNotPaused {
+        _rotateEpoch(newEpoch, keyBundleRef, keyBundleHash, expectedMembershipVersion);
+    }
+
+    function _rotateEpoch(
+        uint64 newEpoch,
+        string calldata keyBundleRef,
+        bytes32 keyBundleHash,
+        uint64 expectedMembershipVersion
+    ) internal {
         if (expectedMembershipVersion != membershipVersion) revert MembershipChanged();
         if (newEpoch <= currentEpoch) revert InvalidEpoch();
         if (bytes(keyBundleRef).length == 0) revert EmptyReference();
@@ -314,8 +375,18 @@ contract SoulVaultSwarm is ISoulVaultSwarm {
         string calldata targetRef,
         uint64 deadline
     ) external override onlyOwner whenNotPaused {
+        _requestBackup(epoch, reason, targetRef, deadline, msg.sender);
+    }
+
+    function _requestBackup(
+        uint64 epoch,
+        string calldata reason,
+        string calldata targetRef,
+        uint64 deadline,
+        address caller
+    ) internal {
         if (epoch != currentEpoch) revert InvalidEpoch();
-        emit BackupRequested(msg.sender, epoch, reason, targetRef, deadline, uint64(block.timestamp));
+        emit BackupRequested(caller, epoch, reason, targetRef, deadline, uint64(block.timestamp));
     }
 
     function updateAgentManifest(string calldata manifestRef, bytes32 manifestHash) external override whenNotPaused {
@@ -350,5 +421,111 @@ contract SoulVaultSwarm is ISoulVaultSwarm {
         req = _fundRequests[requestId];
         if (req.requester == address(0)) revert InvalidFundRequest();
         if (req.status != STATUS_PENDING) revert InvalidFundRequestState();
+    }
+
+    // ─── Signed-intent path (owner signs EIP-712, any EOA submits) ─────────
+
+    function approveJoinWithSig(
+        uint256 requestId,
+        address requester,
+        uint64 nonce,
+        uint64 deadline,
+        bytes calldata sig
+    ) external whenNotPaused {
+        _checkOwnerSig(
+            keccak256(abi.encode(APPROVE_JOIN_TYPEHASH, address(this), requestId, requester, nonce, deadline)),
+            nonce, deadline, sig
+        );
+        // Bind signed requester to actual request to prevent stale-signature exploits.
+        JoinRequest storage req = _joinRequests[requestId];
+        if (req.requester != requester) revert InvalidRequest();
+        _approveJoin(requestId, owner);
+    }
+
+    function rejectJoinWithSig(
+        uint256 requestId,
+        address requester,
+        bytes32 reasonHash,
+        string calldata reason,
+        uint64 nonce,
+        uint64 deadline,
+        bytes calldata sig
+    ) external whenNotPaused {
+        if (keccak256(bytes(reason)) != reasonHash) revert InvalidRequest();
+        _checkOwnerSig(
+            keccak256(abi.encode(REJECT_JOIN_TYPEHASH, address(this), requestId, requester, reasonHash, nonce, deadline)),
+            nonce, deadline, sig
+        );
+        JoinRequest storage req = _joinRequests[requestId];
+        if (req.requester != requester) revert InvalidRequest();
+        _rejectJoin(requestId, reason, owner);
+    }
+
+    function removeMemberWithSig(
+        address member,
+        uint64 nonce,
+        uint64 deadline,
+        bytes calldata sig
+    ) external whenNotPaused {
+        _checkOwnerSig(
+            keccak256(abi.encode(REMOVE_MEMBER_TYPEHASH, address(this), member, nonce, deadline)),
+            nonce, deadline, sig
+        );
+        _removeMember(member, owner);
+    }
+
+    function setTreasuryWithSig(
+        address newTreasury,
+        uint64 nonce,
+        uint64 deadline,
+        bytes calldata sig
+    ) external {
+        _checkOwnerSig(
+            keccak256(abi.encode(SET_TREASURY_TYPEHASH, address(this), newTreasury, nonce, deadline)),
+            nonce, deadline, sig
+        );
+        _setTreasury(newTreasury, owner);
+    }
+
+    function rotateEpochWithSig(
+        uint64 newEpoch,
+        string calldata keyBundleRef,
+        bytes32 keyBundleHash,
+        uint64 expectedMembershipVersion,
+        uint64 fromEpoch,
+        bytes32 bundleManifestHash,
+        uint64 nonce,
+        uint64 deadline,
+        bytes calldata sig
+    ) external whenNotPaused {
+        // Signed intent identifies the rotation by (fromEpoch, toEpoch, bundleManifestHash).
+        // Contract enforces fromEpoch == currentEpoch and bundleManifestHash == keyBundleHash
+        // so the sig binds both the numeric transition and the opaque bundle content.
+        if (fromEpoch != currentEpoch) revert InvalidEpoch();
+        if (bundleManifestHash != keyBundleHash) revert InvalidRequest();
+        _checkOwnerSig(
+            keccak256(abi.encode(
+                ROTATE_EPOCH_TYPEHASH, address(this), fromEpoch, newEpoch, bundleManifestHash, nonce, deadline
+            )),
+            nonce, deadline, sig
+        );
+        _rotateEpoch(newEpoch, keyBundleRef, keyBundleHash, expectedMembershipVersion);
+    }
+
+    function requestBackupWithSig(
+        uint64 epoch,
+        bytes32 trigger,
+        string calldata reason,
+        string calldata targetRef,
+        uint64 deadline,
+        uint64 nonce,
+        uint64 sigDeadline,
+        bytes calldata sig
+    ) external whenNotPaused {
+        _checkOwnerSig(
+            keccak256(abi.encode(BACKUP_REQUEST_TYPEHASH, address(this), epoch, trigger, nonce, sigDeadline)),
+            nonce, sigDeadline, sig
+        );
+        _requestBackup(epoch, reason, targetRef, deadline, owner);
     }
 }

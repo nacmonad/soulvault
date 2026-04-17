@@ -52,7 +52,8 @@ export async function deployContract<T extends Contract = Contract>(
     provider && 'getTransactionCount' in provider
       ? await provider.getTransactionCount(fromAddr, 'latest')
       : undefined;
-  const contract = await factory.deploy(...args, nonce !== undefined ? { nonce } : {});
+  const deployArgs = nonce !== undefined ? [...args, { nonce }] : args;
+  const contract = await factory.deploy(...deployArgs);
   await contract.waitForDeployment();
   return contract as unknown as T;
 }

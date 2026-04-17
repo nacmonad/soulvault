@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
-import { Contract, JsonRpcProvider, Wallet, parseEther } from 'ethers';
+import { Contract, JsonRpcProvider, Wallet, ZeroAddress, parseEther } from 'ethers';
 import { loadForgeArtifact, deployContract } from '../../../test/helpers/forge-artifacts.js';
 import {
   setupFundedEnv,
@@ -36,7 +36,7 @@ describe('story00 — bootstrap [hardware]', () => {
     chainId = Number((await provider.getNetwork()).chainId);
     alice = Wallet.createRandom().connect(provider);
     await sendWithFreshNonce(funder, { to: alice.address, value: parseEther('10') });
-    swarm = (await deployContract(funder, loadForgeArtifact('SoulVaultSwarm'), [])) as unknown as Contract;
+    swarm = (await deployContract(funder, loadForgeArtifact('SoulVaultSwarm'), [ZeroAddress])) as unknown as Contract;
   }, 300_000);
 
   afterEach(async () => { await resetDeviceToHome(); });

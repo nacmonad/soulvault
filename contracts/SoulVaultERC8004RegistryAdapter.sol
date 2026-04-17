@@ -19,25 +19,25 @@ contract SoulVaultERC8004RegistryAdapter is IERC8004AgentRegistryAdapter {
     event AgentURIUpdated(uint256 indexed agentId, address indexed agentWallet, string agentURI);
     event AgentMetadataSet(uint256 indexed agentId, string key, string value);
 
-    function registerAgent(address agentWallet, string calldata agentURI) external returns (uint256 agentId) {
-        if (agentWallet == address(0)) revert InvalidAgentWallet();
-        if (msg.sender != agentWallet) revert Unauthorized();
+    function registerAgent(address walletAddr, string calldata agentUriValue) external returns (uint256 agentId) {
+        if (walletAddr == address(0)) revert InvalidAgentWallet();
+        if (msg.sender != walletAddr) revert Unauthorized();
 
         agentId = _nextAgentId++;
-        _agentWallets[agentId] = agentWallet;
-        _agentUris[agentId] = agentURI;
-        _walletAgentIds[agentWallet].push(agentId);
+        _agentWallets[agentId] = walletAddr;
+        _agentUris[agentId] = agentUriValue;
+        _walletAgentIds[walletAddr].push(agentId);
 
-        emit AgentRegistered(agentId, agentWallet, agentURI);
+        emit AgentRegistered(agentId, walletAddr, agentUriValue);
     }
 
-    function updateAgentURI(uint256 agentId, string calldata agentURI) external {
+    function updateAgentURI(uint256 agentId, string calldata agentUriValue) external {
         address wallet = _agentWallets[agentId];
         if (wallet == address(0)) revert AgentNotFound();
         if (msg.sender != wallet) revert Unauthorized();
 
-        _agentUris[agentId] = agentURI;
-        emit AgentURIUpdated(agentId, wallet, agentURI);
+        _agentUris[agentId] = agentUriValue;
+        emit AgentURIUpdated(agentId, wallet, agentUriValue);
     }
 
     function setMetadata(uint256 agentId, string calldata key, string calldata value) external {

@@ -86,8 +86,17 @@ contract SoulVaultSwarm is ISoulVaultSwarm, EIP712 {
         _;
     }
 
-    constructor() EIP712("SoulVaultSwarm", "1") {
+    /// @notice Deploy a SoulVaultSwarm.
+    /// @param initialTreasury Address of a `SoulVaultTreasury` on the same chain, or `address(0)`
+    ///        for a stealth swarm that never funds agents through the treasury flow. `address(0)`
+    ///        is a fully supported value; the deployer (or the swarm owner later) may bind a
+    ///        treasury after the fact via `setTreasury`.
+    constructor(address initialTreasury) EIP712("SoulVaultSwarm", "1") {
         owner = msg.sender;
+        if (initialTreasury != address(0)) {
+            treasury = initialTreasury;
+            emit TreasurySet(address(0), initialTreasury, msg.sender);
+        }
     }
 
     /// @notice Expose EIP-712 domain separator for client sanity checks.

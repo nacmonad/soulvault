@@ -44,6 +44,7 @@ const SOULVAULT_SWARM_ABI = [
 export const SOULVAULT_TREASURY_ABI = [
   'function owner() view returns (address)',
   'function balance() view returns (uint256)',
+  'function chainId() view returns (uint256)',
   'function deposit() payable',
   'function approveFundRequest(address swarm, uint256 requestId)',
   'function rejectFundRequest(address swarm, uint256 requestId, string reason)',
@@ -585,9 +586,51 @@ export async function readSwarmTreasury(input: { swarm?: string }) {
   };
 }
 
-/** Swarm owner binds the swarm to a treasury contract. Re-settable. */
+/** Swarm owner binds the swarm to a treasury contract. Re-settable.
+ *
+ * Before calling setTreasury on-chain, the treasury candidate is probed over the swarm's
+ * provider to ensure (a) there is code at that address on the swarm's chain and (b) its
+ * baked-in `chainId()` matches the swarm's chain. This catches the most common mis-wiring
+ * mistake: pasting a treasury address from a different chain. Fund request approval and
+ * release must happen atomically in one transaction, which is only possible when swarm
+ * and treasury live on the same chain — so the invariant is enforced here, at bind time,
+ * where the failure mode is a clear error instead of a silent mis-configuration that
+ * only surfaces when someone tries to approve a request.
+ */
 export async function setSwarmTreasury(input: { swarm?: string; treasury: string }) {
   const { profile, contract } = await getSwarmContract(input.swarm);
+  const provider = await createProvider();
+  const swarmChainId = (await provider.getNetwork()).chainId;
+
+  // Probe the treasury. If there's no code at the address on this chain, or the address
+  // doesn't implement chainId() (i.e. it's not a SoulVaultTreasury), surface a clear error.
+  const treasuryProbe = new Contract(input.treasury, SOULVAULT_TREASURY_ABI, provider);
+  let treasuryChainId: bigint;
+  try {
+    treasuryChainId = await treasuryProbe.chainId();
+  } catch (err) {
+    const code = await provider.getCode(input.treasury);
+    if (code === '0x') {
+      throw new Error(
+        `No contract deployed at ${input.treasury} on chain ${swarmChainId}. ` +
+          `The treasury must exist on the same chain as the swarm.`
+      );
+    }
+    throw new Error(
+      `Treasury probe at ${input.treasury} failed: ${(err as Error).message}. ` +
+        `Is this address a SoulVaultTreasury deployment?`
+    );
+  }
+
+  if (treasuryChainId !== swarmChainId) {
+    throw new Error(
+      `Chain mismatch: swarm ${profile.slug} is on chain ${swarmChainId} but treasury ` +
+        `${input.treasury} reports chainId ${treasuryChainId}. Fund request approval requires ` +
+        `swarm and treasury to live on the same chain. Deploy a treasury on chain ${swarmChainId} ` +
+        `for this swarm, or bind the swarm to a treasury that matches.`
+    );
+  }
+
   const previous = String(await contract.treasury());
   const tx = await contract.setTreasury(input.treasury);
   const receipt = await tx.wait();
@@ -597,6 +640,7 @@ export async function setSwarmTreasury(input: { swarm?: string; treasury: string
     txHash: receipt?.hash,
     oldTreasury: previous,
     newTreasury: input.treasury,
+    chainId: swarmChainId.toString(),
   };
 }
 

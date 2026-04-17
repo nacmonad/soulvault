@@ -34,7 +34,7 @@ contract WithSigTest is Test {
         relayer = vm.addr(RELAYER_PK);
         attacker = vm.addr(ATTACKER_PK);
         vm.prank(owner);
-        swarm = new SoulVaultSwarm();
+        swarm = new SoulVaultSwarm(address(0));
         vm.prank(owner);
         treasury = new SoulVaultTreasury();
         vm.deal(address(treasury), 100 ether);

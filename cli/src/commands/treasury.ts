@@ -15,7 +15,7 @@ import {
   writeTreasuryProfile,
 } from '../lib/treasury.js';
 import {
-  bindTreasuryEnsTextRecords,
+  bindTreasuryEnsAddr,
   deploySoulVaultTreasuryContract,
 } from '../lib/treasury-deploy.js';
 import { listFundRequests } from '../lib/swarm-contract.js';
@@ -40,7 +40,10 @@ export function registerTreasuryCommands(program: Command) {
 
   treasury
     .command('create')
-    .description('Deploy a SoulVaultTreasury contract and bind it to the org\'s ENS text records.')
+    .description(
+      'Deploy a SoulVaultTreasury contract and publish its address on the org\'s ENS name ' +
+        'via ENSIP-11 multichain addr (per-chain coinType = 0x80000000 | chainId).',
+    )
     .option('--organization <nameOrEns>')
     .option('--force', 'Overwrite an existing treasury profile for the organization', false)
     .action(async (options) => {
@@ -55,19 +58,20 @@ export function registerTreasuryCommands(program: Command) {
 
       const deployment = await deploySoulVaultTreasuryContract();
 
-      // Bind ENS text records if the org has a registered ENS name. Otherwise save a
-      // "planned" binding the user can fix up later with a re-register.
+      // Publish the treasury's address on the org's ENS name via ENSIP-11 multichain
+      // addr, keyed by the coinType for this chain. If the org has no registered ENS
+      // name yet, save a "planned" binding so the user can bind later once they register.
       let ensBinding;
       if (organization.ensName) {
         try {
-          const bound = await bindTreasuryEnsTextRecords({
+          const bound = await bindTreasuryEnsAddr({
             organizationEnsName: organization.ensName,
             contractAddress: deployment.address,
           });
           ensBinding = {
             status: 'bound' as const,
-            chainIdTextTxHash: bound.chainIdTextTxHash,
-            contractTextTxHash: bound.contractTextTxHash,
+            coinType: bound.coinType,
+            addrTxHash: bound.addrTxHash,
           };
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);

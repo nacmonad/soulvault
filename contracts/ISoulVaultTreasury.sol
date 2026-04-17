@@ -10,6 +10,10 @@ interface ISoulVaultTreasury {
     // --- Views ---
     function owner() external view returns (address);
     function balance() external view returns (uint256);
+    /// @notice The EVM chain this treasury was deployed on. Baked in at construction so clients
+    ///         can detect mis-wiring (e.g. a swarm on chain X trying to bind a treasury whose
+    ///         contract address only exists / has code on chain Y).
+    function chainId() external view returns (uint256);
 
     // --- Deposits ---
     function deposit() external payable;

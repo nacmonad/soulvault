@@ -4,8 +4,9 @@ This story walks through the first end-to-end bootstrap flow for SoulVault.
 
 Goal:
 - create a local organization profile
-- register the organization ENS root on Sepolia
-- create a swarm under that organization
+- register the organization ENS root on Sepolia (+ org metadata records)
+- deploy the organization's treasury on 0G Galileo and publish it via ENSIP-11 on ENS
+- create a swarm under that organization (auto-discovers treasury, binds at deploy time)
 - deploy the swarm contract on 0G Galileo
 - derive and bind the swarm ENS subdomain
 - have the agent request to join the swarm
@@ -34,9 +35,9 @@ soulvault organization register-ens --organization soulvault.eth
 
 Use the same `--organization` value as your profile’s slug or `ensName` (here: root `soulvault.eth` from step 1).
 
-This command is the **first** step that actually hits **Sepolia** on-chain. Step 1 only wrote local JSON; it did **not** register ENS.
+This command is the **first** step that actually hits **Sepolia** on-chain. Step 1 only wrote local JSON; it did **not** register ENS. After successful registration the command also writes organizational metadata text records on the ENS name (`class = soulvault.organization`, `name = <org name>`) per the draft ENSIP on organizational metadata.
 
-### What you should see on-chain (two transactions)
+### What you should see on-chain (two+ transactions)
 
 The ETH Registrar Controller uses **commit–reveal**:
 
@@ -56,20 +57,36 @@ If the command **throws** before any prompt or tx (e.g. name unavailable, wrong 
 
 ---
 
-## 3) Create the swarm under the organization
+## 3) Deploy the organization treasury
+```bash
+soulvault treasury create --organization soulvault.eth
+```
+
+Behavior:
+- deploys a `SoulVaultTreasury` contract on 0G Galileo
+- publishes the treasury address on the org's ENS name via ENSIP-11 multichain `addr` (`coinType = 0x80000000 | 16602 = 2147500186`)
+- saves the treasury profile to `~/.soulvault/treasuries/soulvault.json`
+
+This step must happen **before** `swarm create` so the swarm can auto-discover the treasury at deploy time.
+
+---
+
+## 4) Create the swarm under the organization
 ```bash
 soulvault swarm create --organization soulvault.eth --name ops
 ```
 
 Behavior:
-- deploys the SoulVault swarm contract on 0G Galileo
+- auto-discovers the org's treasury via ENSIP-11 `addr(orgNode, coinType)` on the org ENS name
+- deploys the SoulVault swarm contract on 0G Galileo with the treasury baked into the constructor
 - stores the local swarm profile under `~/.soulvault/swarms/`
 - derives the ENS swarm subdomain as `ops.soulvault.eth`
 - binds ENS records on Sepolia that point to the live 0G swarm contract
+- appends `ops` to the org's CBOR `soulvault.swarms` list on the org ENS name
 
 ---
 
-## 4) Select the swarm as the active context
+## 5) Select the swarm as the active context
 ```bash
 soulvault swarm use ops
 ```
@@ -78,7 +95,7 @@ This makes subsequent swarm commands simpler by defaulting to the `ops` swarm pr
 
 ---
 
-## 5) Agent submits a join request
+## 6) Agent submits a join request
 ```bash
 soulvault swarm join-request --swarm ops
 ```
@@ -90,7 +107,7 @@ Behavior:
 
 ---
 
-## 6) Check the join request status
+## 7) Check the join request status
 ```bash
 soulvault swarm join-status --swarm ops --request-id 1
 ```
@@ -100,7 +117,7 @@ Expected initial result:
 
 ---
 
-## 7) Admin approves the join request
+## 8) Admin approves the join request
 ```bash
 soulvault swarm approve-join --swarm ops --request-id 1
 ```
@@ -112,7 +129,7 @@ Behavior:
 
 ---
 
-## 8) Check join status again
+## 9) Check join status again
 ```bash
 soulvault swarm join-status --swarm ops --request-id 1
 ```

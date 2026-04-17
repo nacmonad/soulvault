@@ -40,6 +40,8 @@ contract SoulVaultTreasury is ISoulVaultTreasury, EIP712 {
     );
 
     address public immutable override owner;
+    /// @inheritdoc ISoulVaultTreasury
+    uint256 public immutable override chainId;
 
     /// @notice Monotonic nonce, incremented by each accepted `*WithSig` call.
     uint64 public ownerNonce;
@@ -60,6 +62,7 @@ contract SoulVaultTreasury is ISoulVaultTreasury, EIP712 {
 
     constructor() EIP712("SoulVaultTreasury", "1") {
         owner = msg.sender;
+        chainId = block.chainid;
     }
 
     // --- Deposits ---

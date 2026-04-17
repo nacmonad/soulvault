@@ -5,32 +5,34 @@ description: Operate SoulVault swarms and agent identities. Use when working wit
 
 # SoulVault
 
-SoulVault is an event-driven coordination and continuity layer for agent swarms. It combines an onchain swarm contract (0G Galileo) for membership, epochs, and coordination events with encrypted 0G Storage for backups/keys, ERC-8004 for optional public agent identity, and ENS for optional naming/discovery.
+SoulVault is an event-driven coordination and continuity layer for agent swarms. It combines an onchain swarm contract (0G Galileo) for membership, epochs, and coordination events, a treasury contract (0G Galileo, one per org per chain) for fund request lifecycle and native-value payouts, encrypted 0G Storage for backups/keys, ERC-8004 for optional public agent identity, and ENS for optional naming/discovery (including ENSIP-11 multichain treasury discovery).
 
 ## Architecture — Two EVM Lanes
 
 | Lane | Chain | Purpose |
 |------|-------|---------|
-| SoulVault (ops) | 0G Galileo (chain ID `16602`) | Swarm contract, joins, epochs, backups, file mappings, messages |
+| SoulVault (ops) | 0G Galileo (chain ID `16602`) | Swarm contract, treasury contract, joins, epochs, backups, file mappings, messages, fund requests |
 | ETH/ENS (identity) | Sepolia (chain ID `11155111`) | ENS naming, ERC-8004 agent identity registration |
 
 ## Entity Hierarchy
 
 ```
-Organization (public namespace, optional ENS root)
-└── Swarm (one SoulVault contract on 0G, independent K_epoch lineage)
+Organization (public namespace, optional ENS root, optional treasury per chain)
+├── Treasury (one SoulVaultTreasury per chain, discovered via ENSIP-11 addr on org ENS name)
+└── Swarm (one SoulVaultSwarm on 0G, independent K_epoch lineage, born bound to treasury via constructor)
     └── Agent (local wallet, may join multiple swarms, optional ERC-8004 identity)
 ```
 
 ## Core Workflow
 
-1. **Bootstrap** — Create organization → register ENS → deploy swarm contract → bind ENS subdomain
+1. **Bootstrap** — Create organization → register ENS → deploy treasury (published via ENSIP-11) → deploy swarm contract (auto-discovers treasury) → bind ENS subdomain
 2. **Join** — Agent submits join request with pubkey → owner approves → member activated
 3. **Epoch Rotate** — Owner generates K_epoch, wraps per member pubkey, uploads bundle to 0G, calls `rotateEpoch` on contract
 4. **Backup** — Owner emits `BackupRequested` → agent watcher detects event → runs backup/encrypt/upload → publishes file mapping onchain
 5. **Restore** — Fetch encrypted backup from 0G → unwrap K_epoch from bundle �� decrypt locally → verify hashes
 6. **Message** — Post messages via `msg post` (public/group/dm) → upload envelope to 0G → call `postMessage` onchain with 0G hash as `payloadRef`
-7. **Identity** — Optionally register ERC-8004 agent identity on Sepolia with services and swarm metadata
+7. **Fund Request** — Active member files `swarm fund-request` → treasury owner reviews → `treasury approve-fund` releases native value atomically
+8. **Identity** — Optionally register ERC-8004 agent identity on Sepolia with services and swarm metadata
 
 ## Quick Status
 
@@ -79,7 +81,11 @@ See `references/workflows.md` for end-to-end executable stories.
   organizations/
     <slug>.json            — org profiles
   swarms/
-    <slug>.json            — swarm profiles (contract address, chain ID, ENS, etc.)
+    <slug>.json            — swarm profiles (contract address, chain ID, ENS, treasury, etc.)
+    .archived/
+      <slug>.json          — archived swarm profiles (from `swarm remove`)
+  treasuries/
+    <orgSlug>.json         — treasury profiles (contract address, ENS binding, etc.)
   keys/
     <swarm-slug>/
       epoch-<n>.json       — stored epoch keys (keyHex, fingerprint, source, createdAt)

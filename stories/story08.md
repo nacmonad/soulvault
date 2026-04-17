@@ -26,7 +26,7 @@ The fund-request flow splits across two contracts:
 | request record + lifecycle | `SoulVaultSwarm` | filed by member, marked by treasury callback |
 | funds custody + payout | `SoulVaultTreasury` | owned by org admin, releases value on approval |
 
-The treasury is **org-scoped** (one per organization), deployed on 0G Galileo, discovered via ENS text records `soulvault.treasuryContract` + `soulvault.treasuryChainId` on the org's root ENS name on Sepolia. A swarm opts in to a treasury via `swarm set-treasury`; the treasury verifies mutual consent (`swarm.treasury() == address(this)`) before releasing any funds.
+The treasury is **org-scoped** (one per organization per chain), deployed on 0G Galileo, discovered via an **ENSIP-11 multichain `addr` record** on the org's root ENS name on Sepolia (`coinType = 0x80000000 | chainId`). A swarm is typically born already bound to the treasury (the `swarm create` command auto-discovers the treasury via ENSIP-11 and passes it to the constructor), though it can also be bound post-deploy via `swarm set-treasury`. The treasury verifies mutual consent (`swarm.treasury() == address(this)`) before releasing any funds.
 
 ---
 
@@ -41,10 +41,10 @@ soulvault treasury create --organization <orgNameOrEns>
 
 Behavior:
 - deploys a fresh `SoulVaultTreasury` on the ops chain (0G Galileo)
-- if the org has a registered ENS name, writes `soulvault.treasuryContract` and `soulvault.treasuryChainId` as text records on it
+- if the org has a registered ENS name, publishes the treasury address via ENSIP-11 multichain `addr` on it (`coinType = 0x80000000 | chainId`)
 - saves the treasury profile to `~/.soulvault/treasuries/<orgSlug>.json`
 
-On a **Ledger**, expect two or three signing prompts: one for the treasury deployment (0G Galileo tx), then one or two for the ENS text record writes (Sepolia txs).
+On a **Ledger**, expect two signing prompts: one for the treasury deployment (0G Galileo tx), then one for the ENS addr write (Sepolia tx).
 
 ### Fund the treasury
 ```bash
@@ -53,26 +53,23 @@ soulvault treasury deposit --amount 5 --organization <orgNameOrEns>
 
 Sends 5 native tokens from your signer wallet into the treasury. Any wallet can deposit (not just the owner), so in a team setup the funder and the approver can be different people.
 
-### Bind the swarm to the treasury
-Run as the swarm owner (same wallet as the treasury owner in a single-operator setup, different wallet in a multi-team org).
+### Verify swarm → treasury binding
 
-```bash
-soulvault swarm set-treasury --swarm ops --treasury <treasuryContractAddress>
-```
+If the swarm was created **after** the treasury (the recommended bootstrap order: `treasury create` → `swarm create --organization <org>`), the swarm's constructor auto-discovered the treasury via ENSIP-11 and bound it at deploy time. No separate `set-treasury` step is needed.
 
-Behavior:
-- calls `setTreasury(address)` on the swarm contract
-- refreshes the local swarm profile's cached `treasuryAddress`
-- emits `TreasurySet(oldTreasury, newTreasury, by)` on chain
-
-If there are any pending fund requests at the time of re-binding, the CLI prints a warning — those requests will be orphaned from the previous treasury.
-
-Verify the binding:
 ```bash
 soulvault swarm treasury-status --swarm ops
 ```
 
-Expected output includes `"isSet": true` and the treasury address.
+Expected output includes `"isSet": true`, the treasury address, and the `chainId`.
+
+If you need to **rebind** a swarm to a different treasury (migration, rotation), use:
+
+```bash
+soulvault swarm set-treasury --swarm ops --treasury <newTreasuryAddress>
+```
+
+The CLI probes the treasury's `chainId()` before calling the contract and rejects cross-chain mis-wiring. If there are any pending fund requests at the time of re-binding, the CLI prints a warning — those requests will be orphaned from the previous treasury.
 
 ---
 
@@ -252,11 +249,11 @@ If a swarm owner changes the treasury via `setTreasury` while fund requests are 
 
 ## Future features flagged during this build
 
-The following items are documented in `contracts/IMPLEMENTATION_NOTES.md` as follow-ups. They are **not** implemented in this branch but are on the roadmap:
+The following items are documented in `contracts/IMPLEMENTATION_NOTES.md` as follow-ups:
 
-1. **`soulvault swarm pause` / `unpause` CLI commands.** The contract already has pause/unpause (and Foundry tests cover them), but the CLI ABI and command surface don't expose them yet. A dedicated `feat/cli-swarm-pause` branch adds the two ABI fragments + two commands.
+1. **`soulvault swarm pause` / `unpause` CLI commands.** The contract already has pause/unpause (and Foundry tests cover them), but the CLI ABI and command surface don't expose them yet.
 2. **Organization-level pause.** No atomic way to halt an entire org's swarms + treasury with a single signature today, because the Organization entity is not a smart contract. Multiple design options (on-chain Organization contract, treasury-propagated pause, off-chain scripted). Deferred as a design question.
-3. **Constructor-time treasury binding.** `SoulVaultSwarm.constructor()` currently takes no arguments; treasury is always bound post-deploy. A non-breaking follow-up can add an optional `constructor(address initialTreasury)` for single-tx deploys when the treasury address is known in advance (e.g. via CREATE2).
+3. ~~**Constructor-time treasury binding.**~~ ✅ **Done.** `SoulVaultSwarm.constructor(address initialTreasury)` now binds at deploy time. The CLI auto-discovers the treasury via ENSIP-11.
 4. **ERC-20 fund requests.** Native-only today; a new `FundRequestV2` struct + new counter would add token support.
 5. **Per-swarm spending caps / rate limits** on the treasury.
 6. **ABI regeneration from forge artifacts** instead of hand-maintained fragments in `swarm-contract.ts` / `treasury-contract.ts`.

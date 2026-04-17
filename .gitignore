@@ -5,6 +5,7 @@
 .env.*
 !.env.example
 !.env.ledger.test.example
+!.env.speculos.test.example
 
 # Foundry outputs
 out/
@@ -15,4 +16,7 @@ node_modules/
 dist/
 !slides/dist/
 coverage/
+
+# Speculos — Ledger app ELFs are proprietary; operator drops them locally
+cli/test/speculos/apps/*.elf
 

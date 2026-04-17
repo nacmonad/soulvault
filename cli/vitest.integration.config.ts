@@ -20,6 +20,7 @@ export default defineConfig({
     exclude: [
       'src/**/__integration__/**/*.testnet.test.ts',
       'src/**/__integration__/**/*.ledger.integration.test.ts',
+      'src/**/__integration__/**/*.speculos.integration.test.ts',
     ],
     testTimeout: 180_000,
     poolOptions: {

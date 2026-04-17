@@ -26,6 +26,37 @@ interface ISoulVaultTreasury {
     // --- Withdrawals (owner-only) ---
     function withdraw(address payable to, uint256 amount) external;
 
+    // --- Signed-intent path (owner signs EIP-712, any EOA submits) ---
+    /// @notice Monotonic nonce consumed by every accepted `*WithSig` call.
+    function ownerNonce() external view returns (uint64);
+
+    function approveFundRequestWithSig(
+        address swarm,
+        uint256 requestId,
+        uint256 amount,
+        address recipient,
+        uint64 nonce,
+        uint64 deadline,
+        bytes calldata sig
+    ) external;
+
+    function rejectFundRequestWithSig(
+        address swarm,
+        uint256 requestId,
+        string calldata reason,
+        uint64 nonce,
+        uint64 deadline,
+        bytes calldata sig
+    ) external;
+
+    function withdrawWithSig(
+        address payable to,
+        uint256 amount,
+        uint64 nonce,
+        uint64 deadline,
+        bytes calldata sig
+    ) external;
+
     // --- Events ---
     event FundsDeposited(address indexed from, uint256 amount);
     event FundsReleased(address indexed swarm, uint256 indexed requestId, address indexed recipient, uint256 amount);

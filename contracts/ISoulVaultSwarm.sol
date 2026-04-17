@@ -133,6 +133,64 @@ interface ISoulVaultSwarm {
     function unpause() external;
     function requestRekey(string calldata trigger) external;
 
+    // --- Signed-intent path (owner signs EIP-712, any EOA submits) ---
+    function ownerNonce() external view returns (uint64);
+
+    function approveJoinWithSig(
+        uint256 requestId,
+        address requester,
+        uint64 nonce,
+        uint64 deadline,
+        bytes calldata sig
+    ) external;
+
+    function rejectJoinWithSig(
+        uint256 requestId,
+        address requester,
+        bytes32 reasonHash,
+        string calldata reason,
+        uint64 nonce,
+        uint64 deadline,
+        bytes calldata sig
+    ) external;
+
+    function removeMemberWithSig(
+        address member,
+        uint64 nonce,
+        uint64 deadline,
+        bytes calldata sig
+    ) external;
+
+    function setTreasuryWithSig(
+        address newTreasury,
+        uint64 nonce,
+        uint64 deadline,
+        bytes calldata sig
+    ) external;
+
+    function rotateEpochWithSig(
+        uint64 newEpoch,
+        string calldata keyBundleRef,
+        bytes32 keyBundleHash,
+        uint64 expectedMembershipVersion,
+        uint64 fromEpoch,
+        bytes32 bundleManifestHash,
+        uint64 nonce,
+        uint64 deadline,
+        bytes calldata sig
+    ) external;
+
+    function requestBackupWithSig(
+        uint64 epoch,
+        bytes32 trigger,
+        string calldata reason,
+        string calldata targetRef,
+        uint64 deadline,
+        uint64 nonce,
+        uint64 sigDeadline,
+        bytes calldata sig
+    ) external;
+
     // --- Events ---
     event JoinRequested(
         uint256 indexed requestId,

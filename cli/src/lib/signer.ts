@@ -14,6 +14,13 @@ import type { ClearSignContextType, ContextModule } from '@ledgerhq/context-modu
 import type { DeviceManagementKit, DeviceSessionId, DiscoveredDevice } from '@ledgerhq/device-management-kit';
 import type { Signature as LedgerSignature, SignerEth } from '@ledgerhq/device-signer-kit-ethereum';
 import { loadEnv } from './config.js';
+import {
+  ClearSignError,
+  apduToClearSignCode,
+  type ClearSignMode,
+  type SignTransactionOptions,
+  type SignTypedDataOptions,
+} from './clear-sign-modes.js';
 
 /**
  * Ledger DMK / signer packages ship a broken ESM entry on Node (directory `export * from "./src"`).
@@ -25,11 +32,55 @@ const { DeviceManagementKitBuilder } = requireLedger('@ledgerhq/device-managemen
 const { SignerEthBuilder } = requireLedger('@ledgerhq/device-signer-kit-ethereum');
 const { nodeHidIdentifier, nodeHidTransportFactory } = requireLedger('@ledgerhq/device-transport-kit-node-hid');
 
+/** Speculos transport kit — only loaded when SOULVAULT_SPECULOS_API_URL is set. */
+function loadSpeculosTransport(): { speculosTransportFactory: Function; speculosIdentifier: unknown } | undefined {
+  try {
+    return requireLedger('@ledgerhq/device-transport-kit-speculos');
+  } catch {
+    return undefined;
+  }
+}
+
 const LEDGER_DISCOVERY_TIMEOUT_MS = 15_000;
 const LEDGER_ACTION_TIMEOUT_MS = 30_000;
 
 type SoftwareSigner = HDNodeWallet | Wallet;
 export type SoulVaultSigner = SoftwareSigner | LedgerEthersSigner;
+export { ClearSignError } from './clear-sign-modes.js';
+export type {
+  ClearSignMode,
+  ClearSignErrorCode,
+  SignTransactionOptions,
+  SignTypedDataOptions,
+} from './clear-sign-modes.js';
+
+/** Public helper so commands can opt-in to strict mode without touching internals. */
+export async function signTransactionWithMode(
+  signer: SoulVaultSigner,
+  tx: TransactionRequest,
+  opts?: SignTransactionOptions,
+): Promise<string> {
+  if (signer instanceof LedgerEthersSigner) {
+    return signer.signTransactionWithOptions(tx, opts);
+  }
+  return signer.signTransaction(tx);
+}
+
+/** Public helper for typed-data signing with per-call clear-sign strictness. */
+export async function signTypedDataWithMode(
+  signer: SoulVaultSigner,
+  domain: Record<string, unknown>,
+  types: Record<string, Array<{ name: string; type: string }>>,
+  value: Record<string, unknown>,
+  opts?: SignTypedDataOptions,
+): Promise<string> {
+  if (signer instanceof LedgerEthersSigner) {
+    return signer.signTypedDataWithOptions(domain, types, value, opts);
+  }
+  // Software signers ignore clear-sign mode — there is no device.
+  return (signer as unknown as { signTypedData: (d: typeof domain, t: typeof types, v: typeof value) => Promise<string> })
+    .signTypedData(domain, types, value);
+}
 
 type LedgerClient = {
   dmk: DeviceManagementKit;
@@ -46,6 +97,21 @@ type LedgerAddressResponse = {
 };
 
 let ledgerClientPromise: Promise<LedgerClient> | undefined;
+
+/**
+ * AsyncLocalStorage-style per-call override for clear-sign mode. We thread the
+ * override through the context-module wrapper without changing the ethers
+ * AbstractSigner public surface. Set immediately before each ledger action.
+ */
+let pendingClearSignMode: ClearSignMode | undefined;
+
+function withClearSignMode<T>(mode: ClearSignMode | undefined, fn: () => Promise<T>): Promise<T> {
+  const prev = pendingClearSignMode;
+  pendingClearSignMode = mode;
+  return fn().finally(() => {
+    pendingClearSignMode = prev;
+  });
+}
 
 class LedgerEthersSigner extends AbstractSigner {
   readonly address: string;
@@ -68,6 +134,14 @@ class LedgerEthersSigner extends AbstractSigner {
 
   override async getAddress() {
     return this.address;
+  }
+
+  /**
+   * Sign a transaction with optional per-call clear-sign mode override.
+   * When `opts.clearSign` is provided, it wins over `SOULVAULT_LEDGER_CLEAR_SIGN_MODE`.
+   */
+  async signTransactionWithOptions(tx: TransactionRequest, opts?: SignTransactionOptions) {
+    return withClearSignMode(opts?.clearSign, () => this.signTransaction(tx));
   }
 
   override async signTransaction(tx: TransactionRequest) {
@@ -99,23 +173,73 @@ class LedgerEthersSigner extends AbstractSigner {
       });
     }
 
-    const signature = await runLedgerAction<LedgerSignature>(
-      this.ledgerClient.signerEth.signTransaction(this.derivationPath, getBytes(transaction.unsignedSerialized))
-    );
-    transaction.signature = EthersSignature.from(signature);
-    return transaction.serialized;
+    try {
+      const signature = await runLedgerAction<LedgerSignature>(
+        this.ledgerClient.signerEth.signTransaction(this.derivationPath, getBytes(transaction.unsignedSerialized)),
+      );
+      transaction.signature = EthersSignature.from(signature);
+      return transaction.serialized;
+    } catch (err) {
+      throw toClearSignError(err, 'signTransaction');
+    }
   }
 
   override async signMessage(message: string | Uint8Array) {
-    const signature = await runLedgerAction<LedgerSignature>(
-      this.ledgerClient.signerEth.signMessage(this.derivationPath, message)
-    );
-    return EthersSignature.from(signature).serialized;
+    try {
+      const signature = await runLedgerAction<LedgerSignature>(
+        this.ledgerClient.signerEth.signMessage(this.derivationPath, message),
+      );
+      return EthersSignature.from(signature).serialized;
+    } catch (err) {
+      throw toClearSignError(err, 'signMessage');
+    }
   }
 
-  override async signTypedData(): Promise<string> {
-    throw new Error('Ledger typed-data signing is not wired in SoulVault yet.');
+  /**
+   * EIP-712 typed-data signing. Delegates to the Ledger Ethereum app's
+   * signEIP712Message path via the device-signer-kit. On Speculos + real
+   * hardware the app displays field-by-field when a matching typed-data
+   * filter descriptor is available; otherwise it falls back to blind prompt.
+   */
+  /**
+   * EIP-712 typed-data signing. Delegates to the Ledger Ethereum app's typed-data
+   * APDU path via `@ledgerhq/device-signer-kit-ethereum`. Prefer
+   * `signTypedDataWithMode` for callers that need to set clear-sign strictness.
+   */
+  override async signTypedData(
+    domain: Record<string, unknown>,
+    types: Record<string, Array<{ name: string; type: string }>>,
+    value: Record<string, unknown>,
+  ): Promise<string> {
+    try {
+      const kit = this.ledgerClient.signerEth as unknown as {
+        signTypedData: (path: string, data: unknown) => Parameters<typeof runLedgerAction>[0];
+      };
+      const payload = { domain, types, primaryType: inferPrimaryType(types), message: value };
+      const signature = await runLedgerAction<LedgerSignature>(
+        kit.signTypedData(this.derivationPath, payload) as Parameters<typeof runLedgerAction>[0],
+      );
+      return EthersSignature.from(signature).serialized;
+    } catch (err) {
+      throw toClearSignError(err, 'signTypedData');
+    }
   }
+
+  async signTypedDataWithOptions(
+    domain: Record<string, unknown>,
+    types: Record<string, Array<{ name: string; type: string }>>,
+    value: Record<string, unknown>,
+    opts?: SignTypedDataOptions,
+  ): Promise<string> {
+    return withClearSignMode(opts?.clearSign, () => this.signTypedData(domain, types, value));
+  }
+}
+
+function inferPrimaryType(types: Record<string, Array<{ name: string; type: string }>>): string {
+  // Prefer any non-EIP712Domain type; callers typically pass exactly one besides the domain.
+  const keys = Object.keys(types).filter((k) => k !== 'EIP712Domain');
+  if (keys.length === 0) throw new Error('signTypedData: no primary type in `types`');
+  return keys[0]!;
 }
 
 export async function createProvider() {
@@ -208,17 +332,53 @@ function isTransactionSubsetInput(input: unknown): boolean {
 }
 
 /**
- * Default `@ledgerhq/context-module` tries to push clear-sign CAL payloads for many contract calls.
- * Unsupported selectors (e.g. ENS commit) make the device report "cannot be clear-signed" / 6a80
- * before blind signing runs. Returning no contexts skips those APDUs so signing uses the generic path.
+ * Mode-aware context-module wrapper (see docs/clear-signing-spec.md §2).
+ *
+ *   - blind-only           → return empty context for tx input, skipping CAL
+ *   - clear-sign-preferred → try inner; on fetch failure, fall back to empty (blind)
+ *   - strict-clear-sign    → try inner; on empty/failure throw ClearSignError('UNSUPPORTED_SELECTOR')
+ *
+ * Resolution order per call: pendingClearSignMode (set by withClearSignMode)
+ * → env SOULVAULT_LEDGER_CLEAR_SIGN_MODE → default 'clear-sign-preferred'.
  */
-function wrapContextModuleSkipTxClearSign(inner: ContextModule): ContextModule {
+function wrapContextModuleClearSignAware(inner: ContextModule): ContextModule {
+  const envMode = (): ClearSignMode => {
+    try {
+      return loadEnv().SOULVAULT_LEDGER_CLEAR_SIGN_MODE;
+    } catch {
+      return 'clear-sign-preferred';
+    }
+  };
+  const resolveMode = (): ClearSignMode => pendingClearSignMode ?? envMode();
   return {
     async getContexts(input: unknown, expectedTypes?: ClearSignContextType[]) {
-      if (isTransactionSubsetInput(input)) {
+      if (!isTransactionSubsetInput(input)) {
+        return inner.getContexts(input, expectedTypes);
+      }
+      const mode = resolveMode();
+      if (mode === 'blind-only') return [];
+      try {
+        const ctxs = await inner.getContexts(input, expectedTypes);
+        const hasAny = Array.isArray(ctxs) && (ctxs as unknown[]).length > 0;
+        if (!hasAny && mode === 'strict-clear-sign') {
+          throw new ClearSignError(
+            'UNSUPPORTED_SELECTOR',
+            `Strict clear-sign requested but no CAL context available for this selector (to=${(input as { to?: string }).to}). Switch to 'clear-sign-preferred' or add a CAL descriptor.`,
+          );
+        }
+        return ctxs;
+      } catch (err) {
+        if (err instanceof ClearSignError) throw err;
+        if (mode === 'strict-clear-sign') {
+          throw new ClearSignError(
+            'CLEAR_SIGN_CONTEXT_FETCH_FAILED',
+            `Failed to fetch CAL context in strict mode: ${err instanceof Error ? err.message : String(err)}`,
+            { cause: err },
+          );
+        }
+        // preferred → silent fallback to blind
         return [];
       }
-      return inner.getContexts(input, expectedTypes);
     },
     getFieldContext(field, expectedType) {
       return inner.getFieldContext(field, expectedType);
@@ -237,8 +397,24 @@ function buildLedgerSignerEth(dmk: DeviceManagementKit, sessionId: DeviceSession
     originToken: undefined,
     loggerFactory: (tag: string) => dmk.getLoggerFactory()(['ContextModule', tag]),
   }).build();
-  const contextModule = wrapContextModuleSkipTxClearSign(innerModule);
+  const contextModule = wrapContextModuleClearSignAware(innerModule);
   return new SignerEthBuilder({ dmk, sessionId }).withContextModule(contextModule).build();
+}
+
+/** Convert low-level errors into ClearSignError where we can identify them. */
+function toClearSignError(err: unknown, op: string): Error {
+  if (err instanceof ClearSignError) return err;
+  const apdu = extractLedgerApduCode(err);
+  const code = apduToClearSignCode(apdu);
+  if (code) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return new ClearSignError(code, `${op} failed (APDU ${apdu}): ${msg}`, { apduCode: apdu, cause: err });
+  }
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/timed out/i.test(msg)) {
+    return new ClearSignError('TIMEOUT', `${op} timeout: ${msg}`, { cause: err });
+  }
+  return wrapLedgerCommunicationError(err);
 }
 
 async function getLedgerClient() {
@@ -255,9 +431,25 @@ async function getLedgerClient() {
 async function initializeLedgerClient(): Promise<LedgerClient> {
   const env = loadEnv();
   const derivationPath = normalizeLedgerDerivationPath(env.SOULVAULT_LEDGER_DERIVATION_PATH);
-  const dmk = new DeviceManagementKitBuilder()
-    .addTransport(nodeHidTransportFactory)
-    .build();
+  const speculosUrl = process.env.SOULVAULT_SPECULOS_API_URL;
+  const useSpeculos = !!speculosUrl;
+  const builder = new DeviceManagementKitBuilder();
+  let transportIdentifier: unknown = nodeHidIdentifier;
+  if (useSpeculos) {
+    const mod = loadSpeculosTransport();
+    if (!mod) {
+      throw new Error(
+        'SOULVAULT_SPECULOS_API_URL is set but @ledgerhq/device-transport-kit-speculos is not installed. Run `pnpm add -D @ledgerhq/device-transport-kit-speculos`.',
+      );
+    }
+    builder.addTransport(mod.speculosTransportFactory(speculosUrl));
+    transportIdentifier = mod.speculosIdentifier;
+    // eslint-disable-next-line no-console
+    console.log(`[soulvault] Using Speculos transport at ${speculosUrl}`);
+  } else {
+    builder.addTransport(nodeHidTransportFactory);
+  }
+  const dmk = builder.build();
 
   if (!dmk.isEnvironmentSupported()) {
     throw new Error('Ledger Node HID transport is not supported in this environment.');
@@ -265,7 +457,7 @@ async function initializeLedgerClient(): Promise<LedgerClient> {
 
   let sessionId: DeviceSessionId | undefined;
   try {
-    const device = await discoverLedgerDevice(dmk);
+    const device = await discoverLedgerDevice(dmk, transportIdentifier);
     const connectedSessionId = await dmk.connect({
       device,
       sessionRefresherOptions: { isRefresherDisabled: true },
@@ -305,9 +497,9 @@ async function initializeLedgerClient(): Promise<LedgerClient> {
   }
 }
 
-async function discoverLedgerDevice(dmk: DeviceManagementKit): Promise<DiscoveredDevice> {
+async function discoverLedgerDevice(dmk: DeviceManagementKit, transportId: unknown = nodeHidIdentifier): Promise<DiscoveredDevice> {
   return await new Promise((resolve, reject) => {
-    const discovery = dmk.startDiscovering({ transport: nodeHidIdentifier });
+    const discovery = dmk.startDiscovering({ transport: transportId as typeof nodeHidIdentifier });
     const timeout = setTimeout(() => {
       cleanup();
       reject(new Error(`No Ledger device discovered within ${LEDGER_DISCOVERY_TIMEOUT_MS}ms. Unlock the device, open the Ethereum app, and retry.`));

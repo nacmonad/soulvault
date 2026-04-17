@@ -546,8 +546,19 @@ Cross-chain messaging is only needed if a swarm spans multiple chains. Out of MV
 - `BackupRequested(requestedBy, epoch, reason, targetRef, deadline, timestamp)`
 - `AgentManifestUpdated(agent, manifestRef, manifestHash, timestamp)`
 - `HistoricalKeyBundleGranted(member, bundleRef, bundleHash, fromEpoch, toEpoch)`
+- `TreasurySet(oldTreasury, newTreasury, by)` *(emitted by constructor or setTreasury)*
+- `FundRequested(requestId, requester, amount, reason)`
+- `FundRequestApproved(requestId, requester, treasury, amount)`
+- `FundRequestRejected(requestId, requester, treasury, reason)`
+- `FundRequestCancelled(requestId, requester)`
 - `RekeyRequested(trigger, membershipVersion)` *(post-MVP Chainlink signal)*
 - `Paused(by)` / `Unpaused(by)`
+
+### Treasury Contract Events
+- `FundsDeposited(from, amount)`
+- `FundsReleased(swarm, requestId, recipient, amount)`
+- `FundRequestRejectedByTreasury(swarm, requestId, reason)`
+- `TreasuryWithdrawn(to, amount)`
 
 ---
 
@@ -584,6 +595,18 @@ The `harness` field is a SoulVault convention, not an ERC-8004-required standard
 
 ---
 
+## 15.2) Fund Request Protocol
+
+The fund request flow spans two contracts:
+- **SoulVaultSwarm** — files requests (`requestFunds`), enforces membership at request time, tracks request lifecycle
+- **SoulVaultTreasury** — holds native value, verifies mutual consent, releases funds on approval
+
+Treasury discovery uses ENSIP-11 multichain `addr` on the org's ENS name (`coinType = 0x80000000 | chainId`). The `SoulVaultSwarm` constructor accepts an `initialTreasury` address — the CLI resolves this via ENSIP-11 auto-discovery at `swarm create` time. The treasury's immutable `chainId()` view enables cross-chain mis-wiring detection at bind time.
+
+Lifecycle: `requestFunds` (member) → pending → `approveFundRequest` / `rejectFundRequest` (treasury owner) or `cancelFundRequest` (requester). Approval transfers value atomically in a single transaction. The treasury and swarm fire paired events for each action (see event schema in section 14).
+
+---
+
 ## 16) MVP Boundaries
 
 Must-have:
@@ -604,7 +627,8 @@ Can defer:
 - Chainlink automation triggers (`RekeyRequested`)
 - HKDF-derived purpose keys
 - Quorum voting
-- Treasury automation
+- ERC-20 fund requests (native-only in v1)
+- Per-swarm spending caps / rate limits on the treasury
 - Cross-chain (CCIP)
 - Advanced tunnel/WireGuard orchestration
 - Per-agent private derived keys

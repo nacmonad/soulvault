@@ -12,25 +12,29 @@ Create the foundational infrastructure for a swarm.
 # 1. Create organization profile
 soulvault organization create --name soulvault --ens-name soulvault.eth --public
 
-# 2. Register ENS root on Sepolia (two-step commit+register)
+# 2. Register ENS root on Sepolia (two-step commit+register, also writes org metadata records)
 soulvault organization register-ens --organization soulvault.eth
 
-# 3. Deploy swarm contract on 0G Galileo + bind ENS subdomain
+# 3. Deploy org treasury on 0G Galileo + publish via ENSIP-11 addr on the org ENS name
+soulvault treasury create --organization soulvault.eth
+
+# 4. Deploy swarm contract on 0G Galileo + bind ENS subdomain
+#    (auto-discovers the org's treasury via ENSIP-11 and passes it to the constructor)
 soulvault swarm create --organization soulvault.eth --name ops
 
-# 4. Set active swarm context
+# 5. Set active swarm context
 soulvault swarm use ops
 
-# 5. Agent submits join request (includes secp256k1 pubkey in calldata)
+# 6. Agent submits join request (includes secp256k1 pubkey in calldata)
 soulvault swarm join-request --swarm ops
 
-# 6. Check join status
+# 7. Check join status
 soulvault swarm join-status --swarm ops --request-id 1
 
-# 7. Owner approves join request
+# 8. Owner approves join request
 soulvault swarm approve-join --swarm ops --request-id 1
 
-# 8. Verify approval
+# 9. Verify approval
 soulvault swarm join-status --swarm ops --request-id 1
 ```
 
@@ -226,7 +230,47 @@ Sequence numbers are auto-incremented. Epoch is auto-resolved from contract stat
 
 ---
 
-## Workflow 8: New Member Onboarding (Full Cycle)
+## Workflow 8: Fund Request Flow (Story 08)
+
+An active swarm member requests funds from the org treasury; the treasury owner approves.
+
+```bash
+# --- One-time setup (if not already done in Workflow 1) ---
+
+# Deploy treasury + publish ENSIP-11 addr on org ENS name
+soulvault treasury create --organization soulvault.eth
+
+# Fund the treasury
+soulvault treasury deposit --amount 5 --organization soulvault.eth
+
+# The swarm was born already bound to the treasury (via constructor auto-discovery).
+# Verify the binding:
+soulvault swarm treasury-status --swarm ops
+
+# --- Agent files a fund request ---
+soulvault swarm fund-request --swarm ops --amount 1 --reason "inference credit top-up"
+
+# --- Treasury owner reviews and approves ---
+soulvault treasury fund-requests list --swarm ops --status pending --organization soulvault.eth
+soulvault treasury approve-fund --swarm ops --request-id 1 --organization soulvault.eth
+
+# --- Verify ---
+soulvault swarm fund-status --swarm ops --request-id 1
+soulvault treasury status --organization soulvault.eth
+```
+
+Rejection and cancellation paths:
+```bash
+# Treasury owner rejects
+soulvault treasury reject-fund --swarm ops --request-id 2 --reason "out of budget" --organization soulvault.eth
+
+# Agent cancels own pending request
+soulvault swarm cancel-fund-request --swarm ops --request-id 3
+```
+
+---
+
+## Workflow 9: New Member Onboarding (Full Cycle)
 
 Complete flow from join request to first backup. Includes the `epoch decrypt-bundle-member` auto-import fix for new machines.
 

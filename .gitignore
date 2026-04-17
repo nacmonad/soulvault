@@ -6,6 +6,7 @@
 !.env.example
 !.env.ledger.test.example
 !.env.speculos.test.example
+!.env.test.example
 
 # Foundry outputs
 out/

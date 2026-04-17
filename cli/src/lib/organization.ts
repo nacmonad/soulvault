@@ -20,6 +20,26 @@ export type OrganizationProfile = {
     txHash?: string;
     ownerAddress?: string;
   };
+  /**
+   * Mirror of the org metadata published on ENS (via the draft-ENSIP-aligned text records:
+   * `class`, `name`, `description`, `url`). Populated whenever `register-ens` writes the
+   * metadata successfully, so `organization status` and downstream readers can display
+   * what the on-chain state should look like without hitting the ENS RPC every time.
+   */
+  metadata?: {
+    publishedAt?: string;
+    txHashes?: {
+      class?: string;
+      name?: string;
+      description?: string;
+      url?: string;
+    };
+    values?: {
+      name?: string;
+      description?: string;
+      url?: string;
+    };
+  };
   createdAt: string;
   updatedAt: string;
 };

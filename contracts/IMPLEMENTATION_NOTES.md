@@ -16,7 +16,9 @@
 - pause / unpause
 - public `requestRekey()` hook
 - **fund request lifecycle** (swarm-side request/cancel + treasury-side approve/reject/payout, linked by mutual consent via `swarm.treasury()`)
-- **SoulVaultTreasury** as a separate payable contract, deployed once per organization on 0G Galileo, discovered via ENS text records on the org's root ENS name
+- **SoulVaultTreasury** as a separate payable contract, deployed once per organization per chain on 0G Galileo, discovered via ENSIP-11 multichain `addr` record on the org's root ENS name (keyed by `coinType = 0x80000000 | chainId`)
+- **Constructor-time treasury binding** — `SoulVaultSwarm.constructor(address initialTreasury)` accepts a treasury address at deploy time; non-zero values bind immediately and emit `TreasurySet`
+- **Treasury `chainId()` view** — immutable value baked in at construction (`block.chainid`) for cross-chain mis-wiring detection
 
 ## What is intentionally simple right now
 - no role system beyond `owner` (on either contract)
@@ -30,7 +32,7 @@
 - **no per-swarm spending caps or rate limits** on the treasury — the treasury owner is the v1 rate limiter
 - **hand-maintained ABI fragments** in `cli/src/lib/swarm-contract.ts` and `cli/src/lib/treasury-contract.ts` — TODO: regenerate from forge artifacts to eliminate drift
 
-## Follow-up items flagged during feat/agent-request-funds
+## Follow-up items flagged during feat/agent-request-funds and feat/ens-org-multichain-treasury
 
 ### Pause/unpause exposure in the CLI (swarm)
 `pause()` and `unpause()` are implemented on `SoulVaultSwarm` and guard all fund-request operations via the `whenNotPaused` modifier. Foundry tests fully cover the paused behavior (`test/SoulVaultSwarm.t.sol::testRequestFundsBlockedWhenPaused`, `test/SoulVaultFundRequest.t.sol::testPausedBlocksApproval`). However:
@@ -40,16 +42,11 @@
 
 Exposing `pause` / `unpause` in the CLI is a clean follow-up branch (e.g. `feat/cli-swarm-pause`): add the two fragments to the main ABI, add the two commands in `cli/src/commands/swarm.ts`, drop the workaround from the integration test.
 
-### Optional constructor-time treasury binding
-`SoulVaultSwarm.constructor()` currently takes no arguments. The treasury is always bound post-deploy via `setTreasury(address)`. This is deliberate (chicken-and-egg: the treasury is deployed after the swarm in the CLI flow) and compatible with the re-settable binding decision.
+### ~~Optional constructor-time treasury binding~~ ✅ Done
 
-A clean follow-up is to change the constructor to `constructor(address initialTreasury)` where:
-- `initialTreasury == address(0)` → behaves identically to today (unbound until `setTreasury`)
-- `initialTreasury != address(0)` → sets `treasury` immediately and emits `TreasurySet(address(0), initialTreasury, msg.sender)`
+`SoulVaultSwarm.constructor(address initialTreasury)` now accepts an optional treasury address. Passing a non-zero address binds the swarm at deploy time and emits `TreasurySet(address(0), initialTreasury, msg.sender)`. Passing `address(0)` is a first-class supported value for stealth swarms or deferred treasury binding. `setTreasury` remains as a re-binder for migrations or rotation.
 
-This saves one tx for deployers who know the treasury address in advance (e.g. when the treasury was deployed first using CREATE2 or a known deterministic address). The ethers `ContractFactory` default args `()` still work, so existing Foundry + CLI deploys remain unchanged. Same bricking-risk recovery path — `setTreasury` stays re-settable afterward.
-
-No urgent reason to do this now; documented here so it's visible when someone wants the single-tx convenience.
+The CLI's `swarm create` auto-discovers the org's treasury via ENSIP-11 `addr(orgNode, coinType)` and passes it through to the constructor. The bootstrap order is now `org create` → `treasury create` → `swarm create` (the swarm is born already bound).
 
 ### Organization-level pause (design open)
 The Organization entity is not a smart contract today — it's only an ENS name + local metadata. There is no on-chain way to halt every swarm + the treasury under an organization with a single signature. A cross-cutting kill switch would require either:

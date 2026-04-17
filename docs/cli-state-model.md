@@ -110,6 +110,10 @@ Recommended layout:
     soulvault.json
   swarms/
     ops.json
+    .archived/
+      <slug>.json          (archived swarms from `swarm remove`)
+  treasuries/
+    <orgSlug>.json         (treasury profiles — contract address, ENS binding, etc.)
   keys/
     ...
 ```

@@ -1,6 +1,18 @@
 import { Command } from 'commander';
-import { parseEther } from 'ethers';
-import { createSwarmProfile, getActiveSwarm, getSwarmProfile, listSwarmProfiles, updateSwarmProfile, useSwarm } from '../lib/swarm.js';
+import { ZeroAddress, getAddress, parseEther } from 'ethers';
+import {
+  archiveSwarmProfile,
+  createSwarmProfile,
+  getActiveSwarm,
+  getSwarmProfile,
+  listSwarmProfiles,
+  unlinkSwarmFromOrgList,
+  updateSwarmProfile,
+  useSwarm,
+} from '../lib/swarm.js';
+import { getOrganizationProfile } from '../lib/organization.js';
+import { getAddrMultichain } from '../lib/ens.js';
+import { loadEnv } from '../lib/config.js';
 import {
   approveJoinSwarm,
   cancelFundRequestOnSwarm,
@@ -28,6 +40,11 @@ export function registerSwarmCommands(program: Command) {
 
   swarm
     .command('create')
+    .description(
+      'Deploy a new SoulVaultSwarm. With --organization, auto-discovers the org\'s ' +
+        'treasury via ENSIP-11 addr on the org ENS name; without it, deploys a stealth ' +
+        'swarm with no treasury and no ENS presence.',
+    )
     .option('--organization <nameOrEns>')
     .requiredOption('--name <name>')
     .option('--chain-id <id>')
@@ -35,11 +52,48 @@ export function registerSwarmCommands(program: Command) {
     .option('--owner <address>')
     .option('--contract <address>')
     .option('--ens-name <name>')
+    .option(
+      '--treasury <address>',
+      'Explicit treasury address (overrides org ENSIP-11 auto-discovery). Pass 0x0000000000000000000000000000000000000000 to deploy org-affiliated but treasury-less.',
+    )
     .option('--public', 'Mark as publicly discoverable')
     .option('--private', 'Mark as private')
     .option('--semi-private', 'Mark as semi-private')
     .action(async (options) => {
       const visibility = options.public ? 'public' : options.private ? 'private' : options.semiPrivate ? 'semi-private' : undefined;
+
+      // Resolve the treasury address using the three-mode precedence:
+      //   1. --treasury <addr>           (explicit override, including 0x0 to opt out)
+      //   2. --organization <x>          (ENSIP-11 auto-discovery on the org's ENS name)
+      //   3. neither                     (stealth — ZeroAddress constructor arg)
+      let initialTreasury: string = ZeroAddress;
+      if (options.treasury) {
+        initialTreasury = getAddress(options.treasury);
+      } else if (options.organization) {
+        const org = await getOrganizationProfile(options.organization);
+        if (!org) throw new Error(`Organization not found: ${options.organization}`);
+        if (!org.ensName) {
+          throw new Error(
+            `Organization "${org.slug}" has no ENS name configured, so the CLI cannot ` +
+              `auto-discover a treasury. Either register the org's ENS name and create a ` +
+              `treasury, pass --treasury <addr> explicitly, or omit --organization to deploy ` +
+              `a stealth swarm.`,
+          );
+        }
+        const env = loadEnv();
+        const chainId = options.chainId ? Number(options.chainId) : env.SOULVAULT_CHAIN_ID;
+        const discovered = await getAddrMultichain(org.ensName, chainId);
+        if (!discovered) {
+          throw new Error(
+            `Organization "${org.slug}" has no treasury published on ENS for chain ${chainId}. ` +
+              `Run \`soulvault treasury create --organization ${org.slug}\` first, ` +
+              `pass --treasury 0x0000000000000000000000000000000000000000 to deploy ` +
+              `org-affiliated but treasury-less, or omit --organization for a stealth swarm.`,
+          );
+        }
+        initialTreasury = discovered;
+      }
+
       const profile = await createSwarmProfile({
         organization: options.organization,
         name: options.name,
@@ -47,10 +101,80 @@ export function registerSwarmCommands(program: Command) {
         rpcUrl: options.rpc,
         ownerAddress: options.owner,
         contractAddress: options.contract,
+        initialTreasury,
         ensName: options.ensName,
         visibility,
       });
       console.log(JSON.stringify(profile, null, 2));
+    });
+
+  swarm
+    .command('remove')
+    .description(
+      'Remove a swarm from local state. Archives the profile to ~/.soulvault/swarms/.archived/, ' +
+        'strips the swarm label from the parent org\'s ENS `soulvault.swarms` CBOR list, and ' +
+        'leaves the on-chain contract deployed. Use --ens-cleanup to additionally clear the ' +
+        'swarm subdomain\'s resolver records (opt-in to preserve recoverability by default).',
+    )
+    .requiredOption('--swarm <nameOrEns>', 'Swarm name/slug to remove')
+    .option('--yes', 'Skip the confirmation prompt', false)
+    .option('--reason <text>', 'Reason to record in the archive entry')
+    .option(
+      '--ens-cleanup',
+      'Also clear the swarm subdomain resolver records (addr + text). Does not delete the subdomain ownership.',
+      false,
+    )
+    .action(async (options) => {
+      const profile = await getSwarmProfile(options.swarm);
+      if (!profile) throw new Error(`Swarm not found: ${options.swarm}`);
+
+      if (!options.yes) {
+        // Non-interactive mode safety: we don't have a readline prompt wired in this
+        // file, and the existing commands don't prompt either. Require --yes explicitly
+        // rather than blocking on stdin, matching the CLI's current UX pattern.
+        throw new Error(
+          `Refusing to remove swarm "${profile.slug}" without --yes. ` +
+            `This archives the local profile and mutates the org's ENS discovery list. ` +
+            `Re-run with --yes to confirm.`,
+        );
+      }
+
+      const unlink = await unlinkSwarmFromOrgList(profile);
+      if (unlink.error) {
+        console.error(
+          `[swarm remove] WARNING: failed to update org's soulvault.swarms list: ${unlink.error} — ` +
+            `continuing with local archive.`,
+        );
+      }
+
+      if (options.ensCleanup) {
+        console.error(
+          `[swarm remove] NOTE: --ens-cleanup is declared but no subdomain resolver clearing ` +
+            `is implemented in this pass. The subdomain records are left in place.`,
+        );
+      }
+
+      const entry = await archiveSwarmProfile(profile.slug, options.reason);
+
+      console.log(
+        JSON.stringify(
+          {
+            slug: entry.slug,
+            archivedAt: entry.archived.at,
+            reason: entry.archived.reason,
+            orgEnsListUpdated: unlink.changed,
+            orgEnsListError: unlink.error,
+            onChainContract: entry.contractAddress,
+            note:
+              entry.contractAddress && entry.contractAddress !== ZeroAddress
+                ? `The on-chain swarm contract at ${entry.contractAddress} is still deployed. ` +
+                  `Use a separate tool to interact with it if needed.`
+                : undefined,
+          },
+          null,
+          2,
+        ),
+      );
     });
 
   swarm

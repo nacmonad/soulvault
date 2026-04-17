@@ -1,0 +1,51 @@
+# Speculos test fixture.
+#
+# Usage (manual, outside vitest globalSetup):
+#   cd cli/test/speculos
+#   docker compose up          # foreground, logs in terminal
+#   docker compose up -d       # detached
+#   docker compose down        # stop + cleanup
+#
+# Drop the Ledger Ethereum app ELF into ./apps/<model>-ethereum.elf
+# (default: ./apps/nanox-ethereum.elf).
+#
+# Override model/seed/ports via env:
+#   SPECULOS_MODEL=nanosp docker compose up
+#   SPECULOS_APP=ethereum docker compose up
+#
+# When started via vitest (`pnpm test:speculos`), `global-setup-speculos.ts`
+# uses docker.ts directly instead of this file; this compose file is the
+# operator-facing surface for manual exploration / screenshots / debugging.
+
+services:
+  speculos:
+    image: ghcr.io/ledgerhq/speculos:${SPECULOS_IMAGE_TAG:-latest}
+    container_name: soulvault-speculos
+    pull_policy: missing
+    restart: "no"
+    # Headless REST API on 5000 (APDU + /events + /button + /screenshot).
+    # VNC optional on 5001 if you want to eyeball the device; uncomment below.
+    ports:
+      - "127.0.0.1:5000:5000"
+      # - "127.0.0.1:5001:5001"
+    volumes:
+      - ./apps:/speculos/apps:ro
+      - ./seed.txt:/speculos/seed.txt:ro
+    command:
+      - "--model"
+      - "${SPECULOS_MODEL:-nanosp}"
+      - "--display"
+      - "headless"
+      - "--api-port"
+      - "5000"
+      - "--apdu-port"
+      - "9999"
+      - "--seed"
+      - "${SPECULOS_SEED:-test test test test test test test test test test test junk}"
+      - "/speculos/apps/${SPECULOS_MODEL:-nanosp}-${SPECULOS_APP:-ethereum}.elf"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:5000/events?currentscreenonly=true || exit 1"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+      start_period: 3s

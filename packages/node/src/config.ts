@@ -46,6 +46,16 @@ const envSchema = z.object({
     (v) => v === '1' || String(v ?? '').toLowerCase() === 'true',
     z.boolean(),
   ).default(false),
+  /**
+   * Default clear-sign mode for Ledger transaction signing. Per-call `{ clearSign }`
+   * option overrides this. See `docs/clear-signing-spec.md` §2.
+   *   - strict-clear-sign: fail if CAL context empty for the selector
+   *   - clear-sign-preferred: use CAL when available, fall back to generic signing
+   *   - blind-only: skip CAL entirely (legacy; use for known-unsupported selectors)
+   */
+  SOULVAULT_LEDGER_CLEAR_SIGN_MODE: z
+    .enum(['strict-clear-sign', 'clear-sign-preferred', 'blind-only'])
+    .default('clear-sign-preferred'),
 });
 
 export type SoulVaultEnv = z.infer<typeof envSchema>;

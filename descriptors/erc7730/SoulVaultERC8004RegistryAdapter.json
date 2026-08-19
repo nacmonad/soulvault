@@ -1,0 +1,49 @@
+{
+  "$schema": "https://raw.githubusercontent.com/LedgerHQ/clear-signing-erc7730-registry/main/specs/erc7730-v1.schema.json",
+  "context": {
+    "$id": "SoulVaultERC8004RegistryAdapter",
+    "contract": {
+      "abi": "contracts/SoulVaultERC8004RegistryAdapter.sol",
+      "deployments": [
+        { "chainId": 11155111, "address": "0x0000000000000000000000000000000000000000" }
+      ]
+    }
+  },
+  "metadata": {
+    "owner": "SoulVault",
+    "info": {
+      "legalName": "SoulVault ERC-8004 Agent Registry Adapter",
+      "url": "https://github.com/nacmonad/soulvault",
+      "lastUpdate": "2026-04-14"
+    }
+  },
+  "display": {
+    "formats": {
+      "registerAgent(address,string)": {
+        "intent": "Register agent identity",
+        "fields": [
+          { "path": "agentWallet", "label": "Agent wallet", "format": "addressName" },
+          { "path": "agentURI", "label": "Agent URI", "format": "raw" }
+        ],
+        "required": ["agentWallet", "agentURI"]
+      },
+      "updateAgentURI(uint256,string)": {
+        "intent": "Update agent URI",
+        "fields": [
+          { "path": "agentId", "label": "Agent #", "format": "raw" },
+          { "path": "agentURI", "label": "Agent URI", "format": "raw" }
+        ],
+        "required": ["agentId", "agentURI"]
+      },
+      "setMetadata(uint256,string,string)": {
+        "intent": "Set agent metadata",
+        "fields": [
+          { "path": "agentId", "label": "Agent #", "format": "raw" },
+          { "path": "key", "label": "Key", "format": "raw" },
+          { "path": "value", "label": "Value", "format": "raw" }
+        ],
+        "required": ["agentId", "key"]
+      }
+    }
+  }
+}

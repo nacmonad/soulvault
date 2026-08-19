@@ -1,0 +1,82 @@
+{
+  "$schema": "https://raw.githubusercontent.com/LedgerHQ/clear-signing-erc7730-registry/main/specs/erc7730-v1.schema.json",
+  "context": {
+    "$id": "SoulVaultTreasury",
+    "contract": {
+      "abi": "contracts/ISoulVaultTreasury.sol",
+      "deployments": [
+        { "chainId": 16602, "address": "0x0000000000000000000000000000000000000000" }
+      ]
+    }
+  },
+  "metadata": {
+    "owner": "SoulVault",
+    "info": {
+      "legalName": "SoulVault Organization Treasury",
+      "url": "https://github.com/nacmonad/soulvault",
+      "lastUpdate": "2026-04-14"
+    }
+  },
+  "display": {
+    "formats": {
+      "deposit()": {
+        "intent": "Deposit to treasury",
+        "fields": [
+          { "path": "$.tx.value", "label": "Amount", "format": "amount", "params": { "nativeCurrency": true } }
+        ]
+      },
+      "approveFundRequest(address,uint256)": {
+        "intent": "Approve fund request",
+        "fields": [
+          { "path": "swarm", "label": "Swarm", "format": "addressName" },
+          { "path": "requestId", "label": "Request #", "format": "raw" }
+        ],
+        "required": ["swarm", "requestId"]
+      },
+      "rejectFundRequest(address,uint256,string)": {
+        "intent": "Reject fund request",
+        "fields": [
+          { "path": "swarm", "label": "Swarm", "format": "addressName" },
+          { "path": "requestId", "label": "Request #", "format": "raw" },
+          { "path": "reason", "label": "Reason", "format": "raw" }
+        ],
+        "required": ["swarm", "requestId", "reason"]
+      },
+      "withdraw(address,uint256)": {
+        "intent": "Treasury withdraw",
+        "fields": [
+          { "path": "to", "label": "Recipient", "format": "addressName" },
+          { "path": "amount", "label": "Amount", "format": "amount", "params": { "nativeCurrency": true } }
+        ],
+        "required": ["to", "amount"]
+      },
+      "approveFundRequestWithSig(address,uint256,uint256,address,uint64,uint64,bytes)": {
+        "intent": "Approve fund request (relayed)",
+        "fields": [
+          { "path": "swarm", "label": "Swarm", "format": "addressName" },
+          { "path": "requestId", "label": "Request #", "format": "raw" },
+          { "path": "amount", "label": "Amount", "format": "amount", "params": { "nativeCurrency": true } },
+          { "path": "recipient", "label": "Recipient", "format": "addressName" }
+        ],
+        "required": ["swarm", "requestId", "amount", "recipient"]
+      },
+      "rejectFundRequestWithSig(address,uint256,string,uint64,uint64,bytes)": {
+        "intent": "Reject fund request (relayed)",
+        "fields": [
+          { "path": "swarm", "label": "Swarm", "format": "addressName" },
+          { "path": "requestId", "label": "Request #", "format": "raw" },
+          { "path": "reason", "label": "Reason", "format": "raw" }
+        ],
+        "required": ["swarm", "requestId"]
+      },
+      "withdrawWithSig(address,uint256,uint64,uint64,bytes)": {
+        "intent": "Treasury withdraw (relayed)",
+        "fields": [
+          { "path": "to", "label": "Recipient", "format": "addressName" },
+          { "path": "amount", "label": "Amount", "format": "amount", "params": { "nativeCurrency": true } }
+        ],
+        "required": ["to", "amount"]
+      }
+    }
+  }
+}

@@ -10,9 +10,14 @@ It is **not** responsible for:
 - ERC-20 tokens (v1 is native-only)
 - spending caps or rate-limits (v1 relies on the treasury owner as the rate limiter)
 
-The treasury is discoverable via ENS text records on the organization's root ENS name:
-- `soulvault.treasuryContract` → deployed treasury address
-- `soulvault.treasuryChainId` → chain id where the treasury lives (0G Galileo = `16602`)
+The treasury is discoverable via an **ENSIP-11 multichain `addr` record** on the organization's root ENS name, keyed by the EVM coinType for the target chain (`0x80000000 | chainId`). An org that operates on multiple chains deploys one treasury per chain and publishes each under its own coinType slot — `addr(orgNode, coinType)` returns the treasury address for that chain, and setting one coinType does not clobber the others. For 0G Galileo, `coinType = 0x80000000 | 16602 = 2147500186`.
+
+Example read via `cast`:
+```
+cast call <publicResolver> 'addr(bytes32,uint256)(bytes)' $(cast namehash myorg.eth) 2147500186
+```
+
+The legacy single-valued `soulvault.treasuryContract` / `soulvault.treasuryChainId` text records used in earlier prototypes have been removed in favor of ENSIP-11, which supports multi-chain discovery natively.
 
 ---
 
@@ -90,6 +95,10 @@ Owner drains value from the treasury. Reverts on zero address, insufficient bala
 
 Returns `address(this).balance`. Convenience view for CLI / off-chain status checks.
 
+### `chainId() view returns (uint256)`
+
+Returns the EVM chain ID that this treasury was deployed on, captured as `block.chainid` in the constructor and stored as an immutable. Because fund request approval and release happen atomically in a single transaction, the treasury must live on the same chain as the swarms that reference it. Clients (notably the CLI's `swarm set-treasury` command) probe this view before binding a swarm to a treasury and reject mismatched chains with a clear error instead of allowing a silent mis-configuration. An org that operates on multiple chains deploys one treasury per chain and discovers them through the org's ENS name using multi-chain address resolution (ENSIP-11).
+
 ---
 
 ## Events
@@ -122,14 +131,13 @@ The swarm contract emits its own paired events — see `SWARM_CONTRACT_SPEC.md` 
 
 ## Discovery via ENS
 
-Per the two-lane architecture, the treasury lives on 0G Galileo but its address is discoverable via ENS text records on Sepolia (on the org's existing root ENS name — no dedicated subdomain). When `soulvault treasury create` runs, it writes two text records:
+Per the two-lane architecture, the treasury lives on 0G Galileo (chain `16602`) but its address is discoverable via an ENSIP-11 multichain `addr` record on Sepolia (on the org's existing root ENS name — no dedicated subdomain). When `soulvault treasury create` runs, it calls `resolver.setAddr(orgNode, coinType, treasuryAddress)` where `coinType = 0x80000000 | chainId`:
 
 ```
-soulvault.treasuryContract = <0G treasury address>
-soulvault.treasuryChainId  = 16602
+addr(namehash('myorg.eth'), 2147500186) = <0G treasury address>   # coinType = 0x80000000 | 16602
 ```
 
-A downstream consumer that knows the org's ENS name (e.g. `soulvault.eth`) can resolve the treasury address without any local state. This mirrors the swarm discovery pattern (`soulvault.swarmContract` on the swarm subdomain).
+A downstream consumer that knows the org's ENS name can resolve the treasury for any chain by calling `addr(node, coinType)` with the appropriate coinType. An org with treasuries on multiple chains gets one slot per chain for free; setting one doesn't clobber the others.
 
 ---
 

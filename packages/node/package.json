@@ -9,11 +9,12 @@
 	},
 	"scripts": {
 		"test": "vitest run",
-		"test:watch": "vitest",
 		"test:ens-name": "SOULVAULT_INTEGRATION=1 vitest run src/ens-name.integration.test.ts",
 		"test:integration": "vitest run --config vitest.integration.config.ts",
-		"test:testnet": "SOULVAULT_TESTNET_INTEGRATION=1 vitest run --config vitest.integration.config.ts src/__integration__/fund-request-flow.testnet.test.ts",
 		"test:ledger": "vitest run --config vitest.ledger.integration.config.ts",
+		"test:speculos": "vitest run --config vitest.speculos.integration.config.ts",
+		"test:testnet": "SOULVAULT_TESTNET_INTEGRATION=1 vitest run --config vitest.integration.config.ts src/__integration__/fund-request-flow.testnet.test.ts",
+		"test:watch": "vitest",
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
@@ -31,6 +32,7 @@
 		"zod": "^3.24.4"
 	},
 	"devDependencies": {
+		"@ledgerhq/device-transport-kit-speculos": "^1.2.0",
 		"@types/fs-extra": "^11.0.4",
 		"@types/node": "^25.5.0",
 		"@types/tar": "^7.0.87",

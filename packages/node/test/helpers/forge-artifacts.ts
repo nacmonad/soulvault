@@ -44,7 +44,16 @@ export async function deployContract<T extends Contract = Contract>(
   args: unknown[] = [],
 ): Promise<T> {
   const factory = new ContractFactory(artifact.abi, artifact.bytecode, signer);
-  const contract = await factory.deploy(...args);
+  // Force a fresh nonce read from the provider to avoid collisions when
+  // multiple Wallet instances share a private key across test files.
+  const provider = signer.provider;
+  const fromAddr = await signer.getAddress();
+  const nonce =
+    provider && 'getTransactionCount' in provider
+      ? await provider.getTransactionCount(fromAddr, 'latest')
+      : undefined;
+  const deployArgs = nonce !== undefined ? [...args, { nonce }] : args;
+  const contract = await factory.deploy(...deployArgs);
   await contract.waitForDeployment();
   return contract as unknown as T;
 }

@@ -85,15 +85,17 @@ describe('fund request flow (CLI integration)', () => {
       await fundTx.wait();
     }
 
-    // 1. Deploy fresh SoulVaultSwarm + SoulVaultTreasury.
+    // 1. Deploy fresh SoulVaultTreasury first, then SoulVaultSwarm with the treasury address
+    //    baked into the constructor — matches the new bootstrap order where swarms are
+    //    born already bound to their treasury.
     const swarmArtifact = loadForgeArtifact('SoulVaultSwarm');
     const treasuryArtifact = loadForgeArtifact('SoulVaultTreasury');
 
-    const swarmContract = await deployContract(owner, swarmArtifact);
     const treasuryContract = await deployContract(owner, treasuryArtifact);
-
-    swarmAddress = await swarmContract.getAddress();
     treasuryAddress = await treasuryContract.getAddress();
+
+    const swarmContract = await deployContract(owner, swarmArtifact, [treasuryAddress]);
+    swarmAddress = await swarmContract.getAddress();
 
     swarmAsOwner = new Contract(swarmAddress, SOULVAULT_SWARM_ABI, owner);
     swarmRaw = new Contract(swarmAddress, SOULVAULT_SWARM_ABI, alice);
@@ -110,7 +112,11 @@ describe('fund request flow (CLI integration)', () => {
       provider,
     );
 
-    // 2. Bind swarm -> treasury
+    // 2. Re-bind swarm -> treasury via setTreasury. The swarm was already born bound
+    //    via the constructor above, so this is a no-op mutation of the storage slot to
+    //    the same address — but it still exercises the owner-only re-setter path that
+    //    older tests relied on, and verifies the post-construction binding flow keeps
+    //    working for swarms that need to rotate or attach a treasury later.
     const setTreasuryTx = await swarmAsOwner.setTreasury(treasuryAddress);
     await setTreasuryTx.wait();
 

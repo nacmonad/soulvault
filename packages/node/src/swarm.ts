@@ -1,9 +1,12 @@
 import fs from 'fs-extra';
+import path from 'node:path';
+import { ZeroAddress } from 'ethers';
 import { loadEnv } from './config.js';
 import { getOrganizationProfile } from './organization.js';
 import { resolveSwarmPath, resolveSwarmsDir } from './paths.js';
 import { readConfig, readJsonIfExists, writeConfig } from './state.js';
 import { bindSwarmEnsSubdomain, deploySoulVaultSwarmContract } from './swarm-deploy.js';
+import { addSwarmToOrgList, removeSwarmFromOrgList } from './ens.js';
 
 export type SwarmProfile = {
   name: string;
@@ -61,6 +64,13 @@ export async function createSwarmProfile(input: {
   rpcUrl?: string;
   ownerAddress?: string;
   contractAddress?: string;
+  /**
+   * Treasury to pass as the swarm constructor's `initialTreasury` argument. Must be a
+   * valid address (or `ZeroAddress` for stealth/deferred binding). Resolution of the
+   * treasury from the org's ENS addr record happens in the CLI command layer — this
+   * lib function expects the caller to have already decided.
+   */
+  initialTreasury?: string;
   ensName?: string;
   visibility?: 'public' | 'private' | 'semi-private';
 }) {
@@ -68,7 +78,10 @@ export async function createSwarmProfile(input: {
   const organization = input.organization ? await getOrganizationProfile(input.organization) : null;
   if (input.organization && !organization) throw new Error(`Organization not found: ${input.organization}`);
 
-  const deployment = input.contractAddress ? null : await deploySoulVaultSwarmContract();
+  const initialTreasury = input.initialTreasury ?? ZeroAddress;
+  const deployment = input.contractAddress
+    ? null
+    : await deploySoulVaultSwarmContract({ initialTreasury });
   const slug = slugify(input.name);
   const now = new Date().toISOString();
   const ensName = input.ensName ?? deriveSwarmEnsName(input.name, organization?.ensName);
@@ -88,7 +101,27 @@ export async function createSwarmProfile(input: {
       chainIdTextTxHash: bound.chainIdTextTxHash,
       contractTextTxHash: bound.contractTextTxHash,
     };
+
+    // Append this swarm's label to the org's CBOR `soulvault.swarms` list on the org
+    // ENS name. Best-effort: a failure here (e.g. network blip) shouldn't unwind an
+    // already-deployed swarm contract or a successfully-bound subdomain. Log and
+    // continue; the user can re-run a future `organization sync-swarms` to reconcile.
+    const label = ensName.replace(`.${organization.ensName}`, '');
+    try {
+      await addSwarmToOrgList(organization.ensName, label);
+    } catch (err) {
+      console.error(
+        `[swarm create] WARNING: failed to append "${label}" to ${organization.ensName}'s ` +
+          `soulvault.swarms list: ${(err as Error).message} — ` +
+          `the swarm is deployed and its subdomain is bound, but the parent org's ` +
+          `discovery list was not updated. Re-run with --force or reconcile manually.`,
+      );
+    }
   }
+
+  // Hint-only cache of the treasury the swarm was born with — the contract is the
+  // authoritative source. Only populate for non-zero values; stealth swarms leave this unset.
+  const treasuryHint = initialTreasury !== ZeroAddress ? initialTreasury : undefined;
 
   const profile: SwarmProfile = {
     name: input.name,
@@ -101,6 +134,7 @@ export async function createSwarmProfile(input: {
     contractAddress,
     ensName,
     visibility: input.visibility ?? (ensName ? 'public' : 'private'),
+    treasuryAddress: treasuryHint,
     createdAt: now,
     updatedAt: now,
     deployment: deployment ? { txHash: deployment.txHash } : undefined,
@@ -111,6 +145,72 @@ export async function createSwarmProfile(input: {
   await fs.writeJson(resolveSwarmPath(slug), profile, { spaces: 2 });
   await writeConfig({ activeSwarm: slug });
   return profile;
+}
+
+// ---------------------------------------------------------------------------
+// Swarm removal (local archive + best-effort ENS cleanup)
+// ---------------------------------------------------------------------------
+
+export type SwarmArchiveEntry = SwarmProfile & {
+  archived: {
+    at: string;
+    reason?: string;
+  };
+};
+
+function resolveSwarmArchiveDir() {
+  return path.join(resolveSwarmsDir(), '.archived');
+}
+
+function resolveSwarmArchivePath(slug: string) {
+  return path.join(resolveSwarmArchiveDir(), `${slug}.json`);
+}
+
+/**
+ * Move a swarm profile into the `.archived/` directory instead of deleting it outright.
+ * Preserves recovery: the contract address, chain id, and org linkage all stay on disk,
+ * so a future `swarm reattach` command can un-archive by reading this file. The original
+ * profile file at `~/.soulvault/swarms/<slug>.json` is removed.
+ */
+export async function archiveSwarmProfile(slug: string, reason?: string): Promise<SwarmArchiveEntry> {
+  const sourcePath = resolveSwarmPath(slug);
+  const existing = await readJsonIfExists<SwarmProfile>(sourcePath);
+  if (!existing) throw new Error(`Swarm not found: ${slug}`);
+
+  const entry: SwarmArchiveEntry = {
+    ...existing,
+    archived: {
+      at: new Date().toISOString(),
+      reason,
+    },
+  };
+
+  const archivePath = resolveSwarmArchivePath(slug);
+  await fs.ensureDir(resolveSwarmArchiveDir());
+  await fs.writeJson(archivePath, entry, { spaces: 2 });
+  await fs.remove(sourcePath);
+
+  // Clear active swarm pointer if we just archived the active one.
+  const config = await readConfig<{ activeSwarm?: string }>();
+  if (config?.activeSwarm === slug) {
+    await writeConfig({ activeSwarm: undefined });
+  }
+  return entry;
+}
+
+/**
+ * Remove a swarm from its parent org's CBOR `soulvault.swarms` list. Safe to call even
+ * if the swarm has no org or no ENS binding; returns quickly in those cases.
+ */
+export async function unlinkSwarmFromOrgList(profile: SwarmProfile): Promise<{ changed: boolean; error?: string }> {
+  if (!profile.organizationEnsName || !profile.ensName) return { changed: false };
+  const label = profile.ensName.replace(`.${profile.organizationEnsName}`, '');
+  try {
+    const result = await removeSwarmFromOrgList(profile.organizationEnsName, label);
+    return { changed: result !== null };
+  } catch (err) {
+    return { changed: false, error: (err as Error).message };
+  }
 }
 
 export async function getSwarmProfile(nameOrSlug: string) {

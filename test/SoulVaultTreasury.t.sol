@@ -123,6 +123,22 @@ contract SoulVaultTreasuryTest is Test {
         assertEq(treasury.owner(), DEPLOYER_EOA);
     }
 
+    function testChainIdIsBakedInAtConstruction() public {
+        // The treasury deployed in setUp recorded whatever chainid forge was running under.
+        uint256 recorded = treasury.chainId();
+        assertEq(recorded, block.chainid);
+
+        // Now roll the VM to a different chainid and deploy a second treasury — its
+        // recorded chainId should reflect the new value, proving construction-time capture.
+        vm.chainId(424242);
+        vm.prank(DEPLOYER_EOA);
+        SoulVaultTreasury other = new SoulVaultTreasury();
+        assertEq(other.chainId(), 424242);
+
+        // The original treasury's chainId must remain frozen at its construction value.
+        assertEq(treasury.chainId(), recorded);
+    }
+
     function testBalanceAfterSeed() public view {
         assertEq(treasury.balance(), 10 ether);
     }

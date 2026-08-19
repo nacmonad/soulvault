@@ -1,0 +1,136 @@
+{
+  "$schema": "https://raw.githubusercontent.com/LedgerHQ/clear-signing-erc7730-registry/main/specs/erc7730-v1.schema.json",
+  "context": {
+    "$id": "SoulVaultSwarm",
+    "contract": {
+      "abi": "contracts/ISoulVaultSwarm.sol",
+      "deployments": [
+        { "chainId": 16602, "address": "0x0000000000000000000000000000000000000000" }
+      ]
+    }
+  },
+  "metadata": {
+    "owner": "SoulVault",
+    "info": {
+      "legalName": "SoulVault Swarm Governance",
+      "url": "https://github.com/nacmonad/soulvault",
+      "lastUpdate": "2026-04-14"
+    }
+  },
+  "display": {
+    "formats": {
+      "approveJoin(uint256)": {
+        "intent": "Approve swarm join",
+        "fields": [
+          { "path": "requestId", "label": "Request #", "format": "raw" }
+        ],
+        "required": ["requestId"]
+      },
+      "rejectJoin(uint256,string)": {
+        "intent": "Reject swarm join",
+        "fields": [
+          { "path": "requestId", "label": "Request #", "format": "raw" },
+          { "path": "reason", "label": "Reason", "format": "raw" }
+        ],
+        "required": ["requestId", "reason"]
+      },
+      "removeMember(address)": {
+        "intent": "Remove member",
+        "fields": [
+          { "path": "member", "label": "Member", "format": "addressName" }
+        ],
+        "required": ["member"]
+      },
+      "setTreasury(address)": {
+        "intent": "Set treasury",
+        "fields": [
+          { "path": "newTreasury", "label": "Treasury", "format": "addressName" }
+        ],
+        "required": ["newTreasury"]
+      },
+      "requestFunds(uint256,string)": {
+        "intent": "Request funds",
+        "fields": [
+          { "path": "amount", "label": "Amount", "format": "amount", "params": { "nativeCurrency": true } },
+          { "path": "reason", "label": "Reason", "format": "raw" }
+        ],
+        "required": ["amount", "reason"]
+      },
+      "cancelFundRequest(uint256)": {
+        "intent": "Cancel fund request",
+        "fields": [
+          { "path": "requestId", "label": "Request #", "format": "raw" }
+        ],
+        "required": ["requestId"]
+      },
+      "rotateEpoch(uint64,string,bytes32,uint64)": {
+        "intent": "Rotate epoch",
+        "fields": [
+          { "path": "newEpoch", "label": "New epoch", "format": "raw" },
+          { "path": "keyBundleRef", "label": "Bundle ref", "format": "raw" },
+          { "path": "keyBundleHash", "label": "Bundle hash", "format": "raw" },
+          { "path": "expectedMembershipVersion", "label": "Membership v", "format": "raw" }
+        ],
+        "required": ["newEpoch", "keyBundleHash", "expectedMembershipVersion"]
+      },
+      "requestBackup(uint64,string,string,uint64)": {
+        "intent": "Request coordinated backup",
+        "fields": [
+          { "path": "epoch", "label": "Epoch", "format": "raw" },
+          { "path": "reason", "label": "Reason", "format": "raw" },
+          { "path": "targetRef", "label": "Target", "format": "raw" },
+          { "path": "deadline", "label": "Deadline", "format": "date", "params": { "encoding": "timestamp" } }
+        ],
+        "required": ["epoch", "deadline"]
+      },
+      "approveJoinWithSig(uint256,address,uint64,uint64,bytes)": {
+        "intent": "Approve swarm join (relayed)",
+        "fields": [
+          { "path": "requestId", "label": "Request #", "format": "raw" },
+          { "path": "requester", "label": "Requester", "format": "addressName" }
+        ],
+        "required": ["requestId", "requester"]
+      },
+      "rejectJoinWithSig(uint256,address,bytes32,string,uint64,uint64,bytes)": {
+        "intent": "Reject swarm join (relayed)",
+        "fields": [
+          { "path": "requestId", "label": "Request #", "format": "raw" },
+          { "path": "requester", "label": "Requester", "format": "addressName" },
+          { "path": "reason", "label": "Reason", "format": "raw" }
+        ],
+        "required": ["requestId", "requester"]
+      },
+      "removeMemberWithSig(address,uint64,uint64,bytes)": {
+        "intent": "Remove member (relayed)",
+        "fields": [
+          { "path": "member", "label": "Member", "format": "addressName" }
+        ],
+        "required": ["member"]
+      },
+      "setTreasuryWithSig(address,uint64,uint64,bytes)": {
+        "intent": "Set treasury (relayed)",
+        "fields": [
+          { "path": "newTreasury", "label": "Treasury", "format": "addressName" }
+        ],
+        "required": ["newTreasury"]
+      },
+      "rotateEpochWithSig(uint64,string,bytes32,uint64,uint64,bytes32,uint64,uint64,bytes)": {
+        "intent": "Rotate epoch (relayed)",
+        "fields": [
+          { "path": "fromEpoch", "label": "From", "format": "raw" },
+          { "path": "newEpoch", "label": "To", "format": "raw" },
+          { "path": "bundleManifestHash", "label": "Bundle", "format": "raw" }
+        ],
+        "required": ["newEpoch", "bundleManifestHash"]
+      },
+      "requestBackupWithSig(uint64,bytes32,string,string,uint64,uint64,uint64,bytes)": {
+        "intent": "Request backup (relayed)",
+        "fields": [
+          { "path": "epoch", "label": "Epoch", "format": "raw" },
+          { "path": "trigger", "label": "Trigger", "format": "raw" }
+        ],
+        "required": ["epoch", "trigger"]
+      }
+    }
+  }
+}

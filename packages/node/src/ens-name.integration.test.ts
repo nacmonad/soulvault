@@ -1,6 +1,6 @@
 /**
  * Chain smoke tests (read-only). Run from repo root with `.env` configured:
- *   cd cli && SOULVAULT_INTEGRATION=1 pnpm test
+ *   cd packages/node && SOULVAULT_INTEGRATION=1 pnpm test
  *
  * Does not register names or spend gas. Validates RPC + controller wiring used by `register-ens`.
  */

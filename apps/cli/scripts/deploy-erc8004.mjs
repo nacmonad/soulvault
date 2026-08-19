@@ -2,7 +2,11 @@ import { readFileSync } from 'node:fs';
 import { ContractFactory, JsonRpcProvider, Wallet } from 'ethers';
 
 const rpc = process.env.SOULVAULT_ENS_RPC_URL || 'https://ethereum-sepolia-rpc.publicnode.com';
-const pk = process.env.SOULVAULT_PRIVATE_KEY || '0x970dbfc3db53bd325bf90dcc14df32e5fa8c35ff02c0cc256fd1989af9fe772d';
+const pk = process.env.SOULVAULT_PRIVATE_KEY;
+if (!pk) {
+  console.error('SOULVAULT_PRIVATE_KEY is not set. Refusing to deploy without an explicit signer key.');
+  process.exit(1);
+}
 const abiPath = '/tmp/erc8004build/contracts_SoulVaultERC8004RegistryAdapter_sol_SoulVaultERC8004RegistryAdapter.abi';
 const binPath = '/tmp/erc8004build/contracts_SoulVaultERC8004RegistryAdapter_sol_SoulVaultERC8004RegistryAdapter.bin';
 const abi = JSON.parse(readFileSync(abiPath, 'utf8'));

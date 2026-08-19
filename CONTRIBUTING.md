@@ -21,27 +21,29 @@ cp .env.example .env   # fill in your keys and RPC endpoints
 
 ### Running the CLI
 ```bash
-pnpm exec tsx cli/src/index.ts <command>
+pnpm soulvault <command>
+# equivalent long form:
+pnpm exec tsx apps/cli/src/index.ts <command>
 # or alias it:
-alias soulvault="pnpm exec tsx cli/src/index.ts"
+alias soulvault="pnpm exec tsx apps/cli/src/index.ts"
 ```
 
 ### Running tests
 ```bash
 pnpm test              # vitest unit tests
 pnpm test -- --run     # single run (no watch)
-cd cli && pnpm test:integration   # local chain + `.env.test` (private-key owner)
-cd cli && pnpm test:ledger        # Ledger owner — copy `.env.ledger.test.example` → `.env.ledger.test`
+cd packages/node && pnpm test:integration   # local chain + `.env.test` (private-key owner)
+cd packages/node && pnpm test:ledger        # Ledger owner — copy `.env.ledger.test.example` → `.env.ledger.test`
 ```
 
 ## Repository layout
 
 ```
-contracts/       Solidity interfaces, specs, and protocol docs
-cli/src/         TypeScript CLI — commands + business logic
-  commands/      Commander.js command handlers
-  lib/           Core libraries (crypto, storage, contract, state)
-docs/            Architecture, protocol, glossary, roadmap
+contracts/          Solidity interfaces, specs, and protocol docs
+packages/protocol/  @soulvault/protocol — isomorphic core (crypto, wire formats)
+packages/node/      @soulvault/node — business logic (contracts, signer, 0G, ENS, state)
+apps/cli/           soulvault-cli — Commander.js command handlers
+docs/               Architecture, protocol, glossary, roadmap
 stories/         Narrative demo workflows (runnable)
 skills/          Agent skill package (SKILL.md + references)
 examples/        Standalone 0G SDK usage examples
@@ -92,7 +94,7 @@ Open a GitHub issue with:
 - Strict mode (`strict: true` in tsconfig)
 - Use `viem` for contract interactions (preferred over raw ethers for new code)
 - Use `zod` schemas for any external input validation (env, CLI args, contract return data)
-- Keep command handlers thin — business logic lives in `cli/src/lib/`
+- Keep command handlers thin — business logic lives in `packages/node/src/`
 
 ### Contract interfaces
 - Solidity interfaces live in `contracts/` alongside their spec docs
@@ -115,9 +117,9 @@ SoulVault uses real cryptographic primitives. If your change touches encryption:
 
 ## Adding a new CLI command
 
-1. Create the command handler in `cli/src/commands/<entity>.ts`
-2. Wire it into the Commander program in `cli/src/index.ts`
-3. Add business logic in `cli/src/lib/` (keep the command handler thin)
+1. Create the command handler in `apps/cli/src/commands/<entity>.ts`
+2. Wire it into the Commander program in `apps/cli/src/index.ts`
+3. Add business logic in `packages/node/src/` (keep the command handler thin)
 4. Update `skills/soulvault/references/commands.md`
 5. Add a story in `stories/` if the command introduces a new workflow
 6. Update `CLAUDE.md` if the command changes how agents should interact with the repo
@@ -127,8 +129,8 @@ SoulVault uses real cryptographic primitives. If your change touches encryption:
 1. Add the event signature to `contracts/ISoulVaultSwarm.sol`
 2. Document it in `contracts/SWARM_CONTRACT_SPEC.md`
 3. Add agent response behavior in `skills/soulvault/references/events.md`
-4. Update the ABI fragment in `cli/src/lib/swarm-contract.ts`
-5. If the event needs a CLI watcher response, update `cli/src/lib/backup-respond.ts` or create a new responder
+4. Update the ABI fragment in `packages/node/src/swarm-contract.ts`
+5. If the event needs a CLI watcher response, update `packages/node/src/backup-respond.ts` or create a new responder
 
 ## License
 

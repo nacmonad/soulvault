@@ -50,7 +50,7 @@ Organization  (ENS root, admin boundary)
 ```bash
 pnpm install
 cp .env.example .env   # fill in keys and RPC endpoints
-alias soulvault="pnpm exec tsx cli/src/index.ts"
+alias soulvault="pnpm exec tsx apps/cli/src/index.ts"
 ```
 
 Run through the [stories](stories/) for guided walkthroughs, starting with [story00](stories/story00.md) (bootstrap).
@@ -180,10 +180,11 @@ The [`stories/`](stories/) directory contains runnable, copy-paste walkthroughs:
 
 ```
 contracts/          Solidity interfaces + specs + protocol docs
-cli/src/
-  commands/         Thin Commander.js handlers (one per entity)
-  lib/              Business logic (crypto, contract, storage, state)
-  index.ts          CLI entry point
+packages/
+  protocol/         @soulvault/protocol — isomorphic core (crypto, wire formats); runs in Node + browsers
+  node/             @soulvault/node — business-logic handlers (contracts, signer, 0G, ENS, state cache)
+apps/
+  cli/              soulvault-cli — thin Commander.js handlers over @soulvault/node
 docs/               Architecture, protocol, glossary, roadmap
 stories/            Runnable demo walkthroughs
 skills/soulvault/   Agent skill package (SKILL.md + references)

@@ -230,7 +230,7 @@ The swarm-side request stays PENDING — the revert unwinds the swarm's status f
 ### Swarm paused mid-flow
 If the swarm owner pauses the swarm between the request being filed and the approval, the treasury's call to `markFundRequestApproved` reverts with `PausedError` (propagated from the swarm's `whenNotPaused` modifier). Treasury state is unchanged, the request stays PENDING, and retry works after `unpause`.
 
-**Note on pause UX:** the contract has `pause()` and `unpause()` functions, but they are not currently exposed as CLI commands — the `SOULVAULT_SWARM_ABI` in `cli/src/lib/swarm-contract.ts` does not list them. To exercise pause during testing today you have to use ethers directly or `cast send <swarm> "pause()"`. This is tracked as a follow-up (see `contracts/IMPLEMENTATION_NOTES.md`).
+**Note on pause UX:** the contract has `pause()` and `unpause()` functions, but they are not currently exposed as CLI commands — the `SOULVAULT_SWARM_ABI` in `packages/node/src/swarm-contract.ts` does not list them. To exercise pause during testing today you have to use ethers directly or `cast send <swarm> "pause()"`. This is tracked as a follow-up (see `contracts/IMPLEMENTATION_NOTES.md`).
 
 ### Mutual consent mismatch
 If a treasury tries to approve a request for a swarm that is bound to a DIFFERENT treasury (or no treasury at all), the tx reverts with `SwarmTreasuryMismatch`. This is the on-chain authorization gate that makes the "org-scoped single treasury" model work.

@@ -28,17 +28,17 @@
 - no richer validation around refs or hashes
 - **fund requests are native-only** — `FundRequest` struct has no `token` field; ERC-20 support is a future v2 struct migration
 - **no per-swarm spending caps or rate limits** on the treasury — the treasury owner is the v1 rate limiter
-- **hand-maintained ABI fragments** in `cli/src/lib/swarm-contract.ts` and `cli/src/lib/treasury-contract.ts` — TODO: regenerate from forge artifacts to eliminate drift
+- **hand-maintained ABI fragments** in `packages/node/src/swarm-contract.ts` and `packages/node/src/treasury-contract.ts` — TODO: regenerate from forge artifacts to eliminate drift
 
 ## Follow-up items flagged during feat/agent-request-funds
 
 ### Pause/unpause exposure in the CLI (swarm)
 `pause()` and `unpause()` are implemented on `SoulVaultSwarm` and guard all fund-request operations via the `whenNotPaused` modifier. Foundry tests fully cover the paused behavior (`test/SoulVaultSwarm.t.sol::testRequestFundsBlockedWhenPaused`, `test/SoulVaultFundRequest.t.sol::testPausedBlocksApproval`). However:
-- `SOULVAULT_SWARM_ABI` in `cli/src/lib/swarm-contract.ts` does NOT include `pause()` / `unpause()` fragments
+- `SOULVAULT_SWARM_ABI` in `packages/node/src/swarm-contract.ts` does NOT include `pause()` / `unpause()` fragments
 - There are no `soulvault swarm pause` / `soulvault swarm unpause` commands
-- The CLI integration test (`cli/src/lib/__integration__/fund-request-flow.integration.test.ts`) works around this by instantiating a separate `swarmPauseCtl` Contract with a 3-line inline ABI
+- The CLI integration test (`packages/node/src/__integration__/fund-request-flow.integration.test.ts`) works around this by instantiating a separate `swarmPauseCtl` Contract with a 3-line inline ABI
 
-Exposing `pause` / `unpause` in the CLI is a clean follow-up branch (e.g. `feat/cli-swarm-pause`): add the two fragments to the main ABI, add the two commands in `cli/src/commands/swarm.ts`, drop the workaround from the integration test.
+Exposing `pause` / `unpause` in the CLI is a clean follow-up branch (e.g. `feat/cli-swarm-pause`): add the two fragments to the main ABI, add the two commands in `apps/cli/src/commands/swarm.ts`, drop the workaround from the integration test.
 
 ### Optional constructor-time treasury binding
 `SoulVaultSwarm.constructor()` currently takes no arguments. The treasury is always bound post-deploy via `setTreasury(address)`. This is deliberate (chicken-and-egg: the treasury is deployed after the swarm in the CLI flow) and compatible with the re-settable binding decision.

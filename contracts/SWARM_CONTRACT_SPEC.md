@@ -181,7 +181,7 @@ Active member updates own manifest pointer.
 ## `pause()` / `unpause()`
 Owner emergency control. The `whenNotPaused` modifier guards `requestFunds`, `cancelFundRequest`, `markFundRequestApproved`, `markFundRequestRejected`, and all other state-mutating flows — a paused swarm blocks the entire fund-request lifecycle atomically.
 
-**CLI gap (deferred):** `SOULVAULT_SWARM_ABI` in `cli/src/lib/swarm-contract.ts` does NOT currently include `pause()` / `unpause()` fragments, and there are no `soulvault swarm pause` / `unpause` commands. The contract and its behavior are fully covered by Foundry tests (`testRequestFundsBlockedWhenPaused`, `testPausedBlocksApproval`) and by the CLI integration test (via a workaround inline ABI). Exposing pause/unpause in the CLI is tracked as a follow-up branch — see `IMPLEMENTATION_NOTES.md`.
+**CLI gap (deferred):** `SOULVAULT_SWARM_ABI` in `packages/node/src/swarm-contract.ts` does NOT currently include `pause()` / `unpause()` fragments, and there are no `soulvault swarm pause` / `unpause` commands. The contract and its behavior are fully covered by Foundry tests (`testRequestFundsBlockedWhenPaused`, `testPausedBlocksApproval`) and by the CLI integration test (via a workaround inline ABI). Exposing pause/unpause in the CLI is tracked as a follow-up branch — see `IMPLEMENTATION_NOTES.md`.
 
 ## `requestRekey(trigger)`
 Post-MVP automation hook.

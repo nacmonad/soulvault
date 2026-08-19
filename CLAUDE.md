@@ -14,24 +14,34 @@ An event-driven coordination and continuity layer for agent swarms. It combines:
 
 ## Quick orientation
 
+This is a pnpm workspace monorepo:
+
 ```
-contracts/         Solidity interfaces + spec docs (source of truth for onchain behavior)
-cli/src/commands/  Thin Commander.js handlers — one file per entity
-cli/src/lib/       Business logic (crypto, contract calls, state, storage)
-cli/src/index.ts   CLI entry point — all commands registered here
-docs/              Deep architecture, protocol, glossary
-stories/           Runnable demo walkthroughs (story00–story07)
-skills/soulvault/  Agent skill package with full reference docs
-examples/          Standalone 0G SDK usage examples
+contracts/              Solidity interfaces + spec docs (source of truth for onchain behavior)
+packages/protocol/      @soulvault/protocol — isomorphic core (crypto, wire formats).
+                        No Node built-ins allowed; must run in Node AND browsers.
+packages/node/src/      @soulvault/node — business logic (contract calls, signer, 0G, ENS, state)
+apps/cli/src/commands/  Thin Commander.js handlers — one file per entity
+apps/cli/src/index.ts   CLI entry point — all commands registered here
+docs/                   Deep architecture, protocol, glossary
+stories/                Runnable demo walkthroughs (story00–story07)
+skills/soulvault/       Agent skill package with full reference docs
+examples/               Standalone 0G SDK usage examples
 ```
+
+Dependency direction: `apps/cli` → `@soulvault/node` → `@soulvault/protocol`. A future
+Next.js app will import `@soulvault/node` from API routes and `@soulvault/protocol` from
+browser code. Internal packages export TypeScript source directly (`exports` → `./src/*.ts`);
+only `apps/cli` has a build step (tsup bundles the workspace packages into `dist/`).
 
 ## Running the CLI
 
 ```bash
-pnpm exec tsx cli/src/index.ts <command>
+pnpm soulvault <command>            # root script, or:
+pnpm exec tsx apps/cli/src/index.ts <command>
 ```
 
-Environment is loaded from `.env` via `cli/src/lib/config.ts` (zod-validated). Copy `.env.example` to `.env` and fill in credentials before running.
+Environment is loaded from `.env` via `packages/node/src/config.ts` (zod-validated). Copy `.env.example` to `.env` and fill in credentials before running.
 
 ## Two-lane architecture
 
@@ -58,17 +68,23 @@ Both lanes share a single signer wallet. The CLI routes to the correct chain aut
 
 ## Code patterns
 
-- **Command handlers are thin.** They parse CLI args and call into `cli/src/lib/`. Do not put business logic in `cli/src/commands/`.
-- **Contract interactions** go through `cli/src/lib/swarm-contract.ts` which holds the ABI fragments and typed wrappers.
-- **Environment validation** uses `zod` in `cli/src/lib/config.ts`. Add new env vars there with defaults.
-- **Signer** is resolved by `cli/src/lib/signer.ts` — supports `private-key`, `mnemonic`, and `ledger` modes.
-- **0G uploads** go through `cli/src/lib/0g.ts`. Returns `{ rootHash, txHash }`.
-- **Local state** is managed by `cli/src/lib/state.ts` + `cli/src/lib/paths.ts`.
+- **Command handlers are thin.** They parse CLI args and call into `packages/node/src/`. Do not put business logic in `apps/cli/src/commands/`.
+- **Contract interactions** go through `packages/node/src/swarm-contract.ts` which holds the ABI fragments and typed wrappers.
+- **Environment validation** uses `zod` in `packages/node/src/config.ts`. Add new env vars there with defaults.
+- **Signer** is resolved by `packages/node/src/signer.ts` — supports `private-key`, `mnemonic`, and `ledger` modes.
+- **0G uploads** go through `packages/node/src/0g.ts`. Returns `{ rootHash, txHash }`.
+- **Local state** is managed by `packages/node/src/state.ts` + `packages/node/src/paths.ts`.
 
 ## Cryptography — do not guess
 
-- **K_epoch wrapping:** secp256k1-ECDH + AES-256-GCM. Implemented in `cli/src/lib/epoch-bundle.ts`.
-- **Backup encryption:** AES-256-GCM with K_epoch. Implemented in `cli/src/lib/backup.ts`.
+Primitives live in `packages/protocol/src/crypto.ts` (noble libraries, isomorphic). The wire
+formats are locked to what the original node:crypto implementation produced — the compat
+contract is documented in that file and enforced by `packages/protocol/test/crypto-compat.test.ts`,
+which cross-checks against node:crypto in both directions. Do not change formats without a
+protocol version bump and updated compat tests.
+
+- **K_epoch wrapping:** secp256k1-ECDH + AES-256-GCM. Primitives in `@soulvault/protocol`; bundle assembly in `packages/node/src/epoch-bundle.ts`.
+- **Backup encryption:** AES-256-GCM with K_epoch. Implemented in `packages/node/src/backup.ts`.
 - **Group messages:** AES-256-GCM with K_epoch. AAD = `{from, to, topic}`.
 - **DM messages:** Ephemeral ECDH + AES-256-GCM to recipient pubkey.
 - **Never log plaintext keys.** Key storage is `~/.soulvault/keys/` only.
@@ -94,11 +110,11 @@ Full catalog: `skills/soulvault/references/events.md`
 ## Testing
 
 ```bash
-cd cli && pnpm test              # vitest, single run (unit tests, fast, no chain needed)
-cd cli && pnpm test:watch        # vitest watch
-cd cli && pnpm test:ens-name     # Sepolia read-only controller smoke test (needs .env; sets SOULVAULT_INTEGRATION=1)
-cd cli && pnpm test:integration  # full-stack integration test — deploys contracts against a local ens-app-v3 node on localhost:8545; config via .env.test
-cd cli && pnpm test:testnet      # gated testnet smoke (SOULVAULT_TESTNET_INTEGRATION=1, real 0G Galileo, funded key required)
+cd packages/node && pnpm test              # vitest, single run (unit tests, fast, no chain needed)
+cd packages/node && pnpm test:watch        # vitest watch
+cd packages/node && pnpm test:ens-name     # Sepolia read-only controller smoke test (needs .env; sets SOULVAULT_INTEGRATION=1)
+cd packages/node && pnpm test:integration  # full-stack integration test — deploys contracts against a local ens-app-v3 node on localhost:8545; config via .env.test
+cd packages/node && pnpm test:testnet      # gated testnet smoke (SOULVAULT_TESTNET_INTEGRATION=1, real 0G Galileo, funded key required)
 forge test                       # Foundry unit + integration tests for SoulVaultSwarm + SoulVaultTreasury (50+ tests)
 ```
 
@@ -124,12 +140,12 @@ The `stories/` directory contains numbered walkthroughs. Each one is designed to
 
 ## When editing this repo
 
-1. **Adding a CLI command:** handler in `commands/`, logic in `lib/`, wire in `index.ts`, update `skills/soulvault/references/commands.md`
+1. **Adding a CLI command:** handler in `apps/cli/src/commands/`, logic in `packages/node/src/`, wire in `apps/cli/src/index.ts`, update `skills/soulvault/references/commands.md`
 2. **Adding a contract event:** update `ISoulVaultSwarm.sol` (or `ISoulVaultTreasury.sol`), the matching spec doc (`SWARM_CONTRACT_SPEC.md` / `TREASURY_CONTRACT_SPEC.md`), ABI in `swarm-contract.ts` (or `treasury-contract.ts`), and `skills/soulvault/references/events.md`
 3. **Adding a story:** create `stories/storyNN.md`, update `stories/README.md`
-4. **Changing crypto:** update `skills/soulvault/references/crypto.md` and this file
-5. **Changing env vars:** update `cli/src/lib/config.ts` (zod schema), `.env.example`, and `skills/soulvault/references/env.md`
-6. **Adding or changing the test harness:** update `cli/test/global-setup.ts`, `cli/test/helpers/`, and `cli/vitest.integration.config.ts` as needed. Keep `pnpm test` fast and dependency-free; integration tests live under `cli/src/lib/__integration__/` and run only via `pnpm test:integration`.
+4. **Changing crypto:** primitives belong in `packages/protocol` (isomorphic — no Node built-ins, no Buffer); update the compat tests, `skills/soulvault/references/crypto.md`, and this file
+5. **Changing env vars:** update `packages/node/src/config.ts` (zod schema), `.env.example`, and `skills/soulvault/references/env.md`
+6. **Adding or changing the test harness:** update `packages/node/test/global-setup.ts`, `packages/node/test/helpers/`, and `packages/node/vitest.integration.config.ts` as needed. Keep `pnpm test` fast and dependency-free; integration tests live under `packages/node/src/__integration__/` and run only via `pnpm test:integration`.
 
 ## Do not
 

@@ -1,0 +1,26 @@
+{
+	"name": "@soulvault/protocol",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "Isomorphic SoulVault protocol core: crypto primitives, shared types, and wire formats. No Node built-ins — runs in Node, browsers, and edge runtimes.",
+	"exports": {
+		".": "./src/index.ts",
+		"./*": "./src/*.ts"
+	},
+	"scripts": {
+		"test": "vitest run",
+		"typecheck": "tsc --noEmit && tsc --noEmit -p test"
+	},
+	"dependencies": {
+		"@noble/ciphers": "^1.2.1",
+		"@noble/curves": "^1.8.1",
+		"@noble/hashes": "^1.7.1",
+		"@scure/base": "^1.2.4"
+	},
+	"devDependencies": {
+		"@types/node": "^25.5.0",
+		"typescript": "^6.0.2",
+		"vitest": "^4.1.2"
+	}
+}

@@ -1,6 +1,6 @@
 # SoulVault CLI Commands Reference
 
-Run all commands with `npx tsx cli/src/index.ts` or the `soulvault` alias.
+Run all commands with `npx tsx apps/cli/src/index.ts` or the `soulvault` alias.
 
 ---
 

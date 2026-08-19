@@ -1,0 +1,28 @@
+schema_version: 1
+slug: soulvault
+name: SoulVault
+one_liner: "Encrypted continuity for agent swarms; wallet-authorized selective disclosure for confidential collaboration"
+tagline: ""
+archetype: ""
+status: draft
+stage: "pre-launch"
+industry: "agent-coordination"
+languages: [en]
+links:
+  domain: ""
+  repo: ""
+created: 2026-08-20
+updated: 2026-08-20
+version: 1
+artifacts:
+  context: true
+  naming: false
+  strategy: true
+  architecture: false
+  identity: true
+  voice: false
+  messaging: false
+  positioning: false
+  story: false
+  guidelines: false
+  audit: false

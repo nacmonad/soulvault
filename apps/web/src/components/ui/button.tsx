@@ -44,12 +44,19 @@ function Button({
   className,
   variant = "default",
   size = "default",
+  render,
+  // Base UI warns when `nativeButton` is true but the rendered element is not a
+  // real <button>. Our `render` targets are links (next/link, <a>), so default
+  // it off whenever a render prop is supplied; an explicit prop still wins.
+  nativeButton = render === undefined,
   ...props
 }: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
   return (
     <ButtonPrimitive
       data-slot="button"
       className={cn(buttonVariants({ variant, size, className }))}
+      render={render}
+      nativeButton={nativeButton}
       {...props}
     />
   )

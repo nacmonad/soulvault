@@ -1,0 +1,16 @@
+# Known historical findings, reviewed 2026-08-19.
+# Format: <commit>:<file>:<rule>:<line>
+# Fingerprints pin to specific commits — new leaks always produce new fingerprints.
+
+# Burned testnet deploy key (wallet 0x33764cD26F5884BFf194D38ED00DBB249C130B10).
+# Removed from the script in a0ae3ef; key is public and must never be reused.
+201d89c28bb06c920e244486da224650009347d0:cli/scripts/deploy-erc8004.mjs:generic-api-key:5
+
+# Anvil default dev accounts (publicly known, pre-funded local-chain keys) in a
+# since-deleted integration test.
+5eef708c3fb2215712364384f905f53810de598a:cli/src/lib/__integration__/org-layer-flow.integration.test.ts:generic-api-key:57
+5eef708c3fb2215712364384f905f53810de598a:cli/src/lib/__integration__/org-layer-flow.integration.test.ts:generic-api-key:58
+
+# Example env templates with placeholder/local-dev values (files reviewed at ignore time).
+93318de6a7c1d2a7cb41f89ab525a5d7da850110:.env.test.example:generic-api-key:21
+124c8fd57f85a315f511ba0dc88bb48b742eb021:.env.ledger.test.example:generic-api-key:18

@@ -1,0 +1,20 @@
+#!/bin/sh
+# Block commits that introduce secrets. Scans only staged changes, so it's fast.
+# Setup (once per clone): git config core.hooksPath .githooks
+# Install gitleaks: brew install gitleaks  (https://github.com/gitleaks/gitleaks)
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "[pre-commit] warning: gitleaks not installed — skipping secret scan." >&2
+  echo "[pre-commit] install with: brew install gitleaks" >&2
+  exit 0
+fi
+
+gitleaks git --pre-commit --staged --no-banner --redact
+status=$?
+if [ $status -ne 0 ]; then
+  echo "" >&2
+  echo "[pre-commit] gitleaks found potential secrets in your staged changes." >&2
+  echo "[pre-commit] Remove them (use env vars / .env, which is gitignored)." >&2
+  echo "[pre-commit] False positive? Add its fingerprint to .gitleaksignore." >&2
+  exit $status
+fi

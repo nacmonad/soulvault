@@ -17,7 +17,14 @@ git clone https://github.com/<org>/soulvault.git
 cd soulvault
 pnpm install
 cp .env.example .env   # fill in your keys and RPC endpoints
+git config core.hooksPath .githooks   # enable the secret-scanning pre-commit hook
+brew install gitleaks                 # required by the hook (skips with a warning if missing)
 ```
+
+Secrets policy: never commit private keys, mnemonics, or API tokens — use env vars via
+`.env` (gitignored). The pre-commit hook runs [gitleaks](https://github.com/gitleaks/gitleaks)
+on staged changes, and CI scans full history on every push/PR. False positives get a
+fingerprint entry in `.gitleaksignore` (the failing scan prints the fingerprint).
 
 ### Running the CLI
 ```bash

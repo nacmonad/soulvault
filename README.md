@@ -1,14 +1,42 @@
-# SoulVault
+<div align="center">
 
-Encrypted continuity and coordination for agent swarms.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.png">
+  <img alt="SoulVault" src="assets/logo-light.png" width="260">
+</picture>
 
-SoulVault gives autonomous agent swarms membership governance, encrypted backup/restore, epoch-key rotation, a three-mode messaging bus, and a fund-request treasury — all driven by onchain contract events with encrypted offchain storage.
+**Coordinate securely. Collaborate privately.**
 
-## Why
+Encrypted continuity for agent swarms, and wallet-authorized selective
+disclosure for confidential documents.
 
-Agent sessions are ephemeral. Shared state is ad hoc. Backups are uncoordinated. Identity and permissions are fuzzy. Multi-agent systems need shared encrypted state and verifiable coordination.
+[![License: MIT](https://img.shields.io/badge/license-MIT-0F766E.svg)](LICENSE.md)
+[![Ops lane: 0G Galileo](https://img.shields.io/badge/ops-0G%20Galileo-0F766E.svg)](https://0g.ai/)
+[![Identity lane: Sepolia](https://img.shields.io/badge/identity-Sepolia-334155.svg)](https://sepolia.etherscan.io/)
 
-SoulVault is that layer.
+</div>
+
+---
+
+## What this is
+
+Agent sessions are ephemeral. Shared state is ad hoc. Backups are uncoordinated.
+Identity and permissions are fuzzy. Multi-agent systems need shared encrypted
+state and verifiable coordination — and so do the humans working alongside them.
+
+SoulVault is a coordination layer built on one cryptographic core
+(secp256k1 ECDH + AES-256-GCM), applied to two problems:
+
+**Continuity for agent swarms** — *shipped.* Encrypted backup, restore, and
+transfer of swarm state across ephemeral sessions. Membership governance, epoch
+key rotation, a three-mode messaging bus, and a fund-request treasury, all driven
+by onchain contract events with encrypted offchain storage.
+
+**Selective disclosure for documents** — *in progress.* Redaction runs locally,
+so the artifact that travels through email or Slack carries no sensitive fields
+at all. Authorized wallets reconstruct only the slots they are permitted to see,
+and revocation blocks every future reconstruction. See
+[Roadmap](#roadmap) for what exists today.
 
 ## Architecture
 
@@ -19,7 +47,10 @@ SoulVault operates across two EVM lanes:
 | **Ops** | 0G Galileo (16602) | Swarm contract, treasury contract, membership, epochs, backups, messaging, fund requests |
 | **Identity** | Sepolia (11155111) | ENS naming (org roots, swarm subdomains, ENSIP-11 treasury discovery), ERC-8004 agent identity |
 
-The swarm contract on 0G holds coordination truth. The treasury contract on 0G holds native value and releases funds on approved requests. 0G Storage holds encrypted artifacts (backups, key bundles, message envelopes). ENS + ERC-8004 on Sepolia provide public naming and discovery.
+The swarm contract on 0G holds coordination truth. The treasury contract on 0G
+holds native value and releases funds on approved requests. 0G Storage holds
+encrypted artifacts (backups, key bundles, message envelopes). ENS + ERC-8004 on
+Sepolia provide public naming and discovery.
 
 ### Entity model
 
@@ -45,13 +76,15 @@ Organization  (ENS root, admin boundary, optional treasury per chain)
 | `soulvault.swarmContract` text record | Swarm subdomain | Swarm contract address on 0G |
 | `soulvault.chainId` text record | Swarm subdomain | Chain ID where the swarm contract lives |
 
-Treasury discovery uses ENSIP-11 rather than text records so an org with treasuries on multiple chains gets one slot per chain without clobbering. For 0G Galileo: `coinType = 2147500186`.
+Treasury discovery uses ENSIP-11 rather than text records so an org with
+treasuries on multiple chains gets one slot per chain without clobbering. For
+0G Galileo: `coinType = 2147500186`.
 
 ### Signer model
 
 | Role | Purpose | Recommended backend |
 |------|---------|-------------------|
-| **Admin** | ENS registration, join approvals, epoch rotation, treasury operations | Ledger (shipped) |
+| **Admin** | ENS registration, join approvals, epoch rotation, treasury operations | Ledger (shipped, with clear-signing) |
 | **Agent** | Backups, message posting, join requests, fund requests | Hot key |
 
 Visibility posture shorthand:
@@ -64,10 +97,17 @@ Visibility posture shorthand:
 ```bash
 pnpm install
 cp .env.example .env   # fill in keys and RPC endpoints
-alias soulvault="pnpm exec tsx apps/cli/src/index.ts"
+pnpm soulvault status
 ```
 
-Run through the [stories](stories/) for guided walkthroughs, starting with [story00](stories/story00.md) (bootstrap).
+`pnpm soulvault <command>` runs the CLI from source. To shorten it:
+
+```bash
+alias soulvault="pnpm --dir /path/to/soulvault soulvault"
+```
+
+Run through the [stories](stories/) for guided walkthroughs, starting with
+[story00](stories/story00.md) (bootstrap).
 
 ## CLI commands
 
@@ -156,7 +196,10 @@ Full command reference: [`skills/soulvault/references/commands.md`](skills/soulv
 
 ## Encryption model
 
-Each swarm epoch has one shared symmetric key (`K_epoch`). When membership changes, the owner rotates the epoch — generating a new key, wrapping it per member's secp256k1 pubkey, and uploading the bundle to 0G. Only the wrapped bundle reference and hash go onchain; symmetric keys never touch the chain.
+Each swarm epoch has one shared symmetric key (`K_epoch`). When membership
+changes, the owner rotates the epoch — generating a new key, wrapping it per
+member's secp256k1 pubkey, and uploading the bundle to 0G. Only the wrapped
+bundle reference and hash go onchain; symmetric keys never touch the chain.
 
 | What | How |
 |------|-----|
@@ -164,6 +207,11 @@ Each swarm epoch has one shared symmetric key (`K_epoch`). When membership chang
 | Group messages | AES-256-GCM with K_epoch |
 | Direct messages | Ephemeral ECDH + AES-256-GCM to recipient pubkey |
 | Key wrapping | secp256k1-ECDH + AES-256-GCM per member |
+
+The primitives live in `@soulvault/protocol` and are isomorphic — the same code
+runs in Node and in the browser, with no Node built-ins. Wire formats are locked
+to what the original `node:crypto` implementation produced, and cross-checked
+against it in both directions by `packages/protocol/test/crypto-compat.test.ts`.
 
 Details: [`skills/soulvault/references/crypto.md`](skills/soulvault/references/crypto.md)
 
@@ -203,58 +251,63 @@ Two contracts emit events that drive the protocol:
 | `FundRequestRejectedByTreasury` | Fund request rejected |
 | `TreasuryWithdrawn` | Owner withdrawal |
 
-When a swarm has a bound treasury, `swarm events watch` merges events from both contracts into a single stream sorted by `(blockNumber, logIndex)`.
+When a swarm has a bound treasury, `swarm events watch` merges events from both
+contracts into a single stream sorted by `(blockNumber, logIndex)`.
 
 Full catalog: [`skills/soulvault/references/events.md`](skills/soulvault/references/events.md)
 
+## Repo layout
+
+```
+contracts/          Solidity interfaces + specs + protocol docs
+packages/
+  protocol/         @soulvault/protocol — isomorphic core (crypto, wire formats); runs in Node + browsers
+  node/             @soulvault/node — business-logic handlers (contracts, signer, 0G, ENS, state cache)
+    test/           Integration test harness (global-setup, helpers, speculos)
+apps/
+  cli/              soulvault-cli — thin Commander.js handlers over @soulvault/node
+  web/              soulvault-web — Next.js app (landing + dashboard scaffold)
+    brand/          Brand package: context, strategy, visual identity
+docs/               Architecture, protocol, glossary, roadmap
+stories/            Runnable demo walkthroughs
+skills/soulvault/   Agent skill package (SKILL.md + references)
+examples/           Standalone 0G SDK usage examples
+slides/             Deck outline and presentation notes
+test/               Foundry tests (SoulVaultSwarm, SoulVaultTreasury, fund requests)
+```
+
+Dependency direction is `apps/cli → @soulvault/node → @soulvault/protocol`.
+The web app imports `@soulvault/node` from server code only (it touches `fs` and
+Ledger HID) and `@soulvault/protocol` from anywhere.
+
 ## Testing
 
-### Foundry (Solidity unit + integration tests)
-
 ```bash
-forge test          # 50+ tests covering SoulVaultSwarm + SoulVaultTreasury
-forge test -vvv     # verbose output with traces
+pnpm test              # all workspace unit tests (26 vitest tests)
+forge test             # 60 Solidity tests across SoulVaultSwarm + SoulVaultTreasury
+pnpm typecheck         # all four workspace packages
 ```
 
-### Vitest (CLI unit tests)
+Per-package and integration suites:
 
 ```bash
-cd packages/node && pnpm test           # fast, no chain needed
-cd packages/node && pnpm test:watch     # watch mode
+cd packages/node && pnpm test:watch         # watch mode
+cd packages/node && pnpm test:ens-name      # Sepolia read-only smoke (needs .env)
+cd packages/node && pnpm test:integration   # full-stack against a local ens-app-v3 node
+cd packages/node && pnpm test:speculos      # Ledger clear-signing against the Speculos simulator
+cd packages/node && pnpm test:testnet       # gated smoke against real 0G Galileo
 ```
 
-### Integration tests (full-stack, local ens-app-v3 node)
+The integration harness deploys contracts against a local
+[ens-app-v3](https://github.com/ensdomains/ens-app-v3) node on `localhost:8545`
+(chain id `1337`); both lanes point at that single node during tests. Config
+lives in `.env.test` at the repo root — copy `.env.test.example` and adjust ENS
+addresses for your local deployment. The global setup verifies the node is
+reachable, the chain ID matches, funded accounts exist, and the ENS registry owns
+`.eth` before any test runs.
 
-The integration harness deploys contracts against a local [ens-app-v3](https://github.com/ensdomains/ens-app-v3) node on `localhost:8545` (chain id `1337`). Both the ops lane and the identity lane point at this single node during tests.
-
-```bash
-# 1. Start the ens-app-v3 local node (in a separate terminal)
-#    Follow ens-app-v3 setup instructions — the node must be running before tests start.
-
-# 2. Configure .env.test at the repo root (gitignored; tracked template below)
-cp .env.test.example .env.test
-# Edit .env.test:
-#   - Point RPC URLs at your local node (default example: localhost:8545, chain 1337)
-#   - Set ENS contract addresses from the ens-app-v3 / local deployment
-#   - Use a funded key for that chain (the example uses Anvil account #0)
-
-# 3. Run integration tests
-cd packages/node && pnpm test:integration
-```
-
-The global setup verifies the ens-app-v3 node is reachable, the chain ID matches, funded accounts exist, and the ENS registry owns `.eth` before any test runs.
-
-### Sepolia read-only smoke test
-
-```bash
-cd packages/node && pnpm test:ens-name    # reads minCommitmentAge from public Sepolia RPC
-```
-
-### Testnet smoke (real 0G Galileo)
-
-```bash
-cd packages/node && pnpm test:testnet     # requires SOULVAULT_TESTNET_INTEGRATION=1, funded key
-```
+Speculos suites need Docker and a Ledger app ELF; see
+[`docs/clear-signing-runbook.md`](docs/clear-signing-runbook.md).
 
 ## Stories
 
@@ -272,54 +325,55 @@ The [`stories/`](stories/) directory contains runnable, copy-paste walkthroughs:
 | [story07](stories/story07.md) | Ledger signer: local vs on-chain signing |
 | [story08](stories/story08.md) | Fund request flow: treasury, approval, rejection, failure modes |
 
-## Repo layout
-
-```
-contracts/          Solidity interfaces + specs + protocol docs
-packages/
-  protocol/         @soulvault/protocol — isomorphic core (crypto, wire formats); runs in Node + browsers
-  node/             @soulvault/node — business-logic handlers (contracts, signer, 0G, ENS, state cache)
-    test/           Integration test harness (global-setup, helpers, speculos)
-apps/
-  cli/              soulvault-cli — thin Commander.js handlers over @soulvault/node
-  web/              soulvault-web — Next.js app (scaffold)
-docs/               Architecture, protocol, glossary, roadmap
-stories/            Runnable demo walkthroughs
-skills/soulvault/   Agent skill package (SKILL.md + references)
-examples/           Standalone 0G SDK usage examples
-slides/             Deck outline and presentation notes
-test/               Foundry tests (SoulVaultSwarm, SoulVaultTreasury, fund requests)
-```
-
 ## Key specs
 
-- [`docs/ethereum-standards-research.md`](docs/ethereum-standards-research.md) — Ethereum / ENS / ERC-8004 standards SoulVault touches (research map)
-- [`contracts/ISoulVaultSwarm.sol`](contracts/ISoulVaultSwarm.sol) — swarm contract interface
-- [`contracts/ISoulVaultTreasury.sol`](contracts/ISoulVaultTreasury.sol) — treasury contract interface
-- [`contracts/SWARM_CONTRACT_SPEC.md`](contracts/SWARM_CONTRACT_SPEC.md) — swarm contract specification
-- [`contracts/TREASURY_CONTRACT_SPEC.md`](contracts/TREASURY_CONTRACT_SPEC.md) — treasury contract specification
-- [`contracts/IERC8004AgentRegistryAdapter.sol`](contracts/IERC8004AgentRegistryAdapter.sol) — identity adapter
-- [`contracts/MESSAGE_PROTOCOL.md`](contracts/MESSAGE_PROTOCOL.md) — messaging protocol
 - [`docs/architecture.md`](docs/architecture.md) — system architecture
 - [`docs/protocol-v0.1.md`](docs/protocol-v0.1.md) — protocol specification
 - [`docs/glossary.md`](docs/glossary.md) — terminology
+- [`docs/technologies.md`](docs/technologies.md) — Ethereum / ENS / ERC-8004 standards SoulVault touches
+- [`docs/clear-signing-spec.md`](docs/clear-signing-spec.md) — Ledger clear-signing spec and ERC-7730 descriptors
+- [`contracts/SWARM_CONTRACT_SPEC.md`](contracts/SWARM_CONTRACT_SPEC.md) — swarm contract specification
+- [`contracts/TREASURY_CONTRACT_SPEC.md`](contracts/TREASURY_CONTRACT_SPEC.md) — treasury contract specification
+- [`contracts/MESSAGE_PROTOCOL.md`](contracts/MESSAGE_PROTOCOL.md) — messaging protocol
 
 ## Agent skill
 
-A repo-local skill package at [`skills/soulvault/`](skills/soulvault/) teaches agents how to use SoulVault:
+A repo-local skill package at [`skills/soulvault/`](skills/soulvault/) teaches
+agents how to use SoulVault — [`SKILL.md`](skills/soulvault/SKILL.md) plus
+references for [commands](skills/soulvault/references/commands.md),
+[events](skills/soulvault/references/events.md),
+[crypto](skills/soulvault/references/crypto.md),
+[contracts](skills/soulvault/references/contract.md),
+[env](skills/soulvault/references/env.md), and
+[workflows](skills/soulvault/references/workflows.md).
 
-- [`SKILL.md`](skills/soulvault/SKILL.md) — main skill documentation
-- [`references/commands.md`](skills/soulvault/references/commands.md) — full CLI reference
-- [`references/events.md`](skills/soulvault/references/events.md) — contract event catalog
-- [`references/crypto.md`](skills/soulvault/references/crypto.md) — cryptographic model
-- [`references/contract.md`](skills/soulvault/references/contract.md) — contract reference (swarm + treasury)
-- [`references/env.md`](skills/soulvault/references/env.md) — environment variables
-- [`references/workflows.md`](skills/soulvault/references/workflows.md) — end-to-end workflows
+## Roadmap
+
+**Working today.** The CLI, swarm contract, treasury contract, fund-request flow,
+messaging, backup/restore, epoch rotation, Ledger signing with clear-sign modes,
+ENSIP-11 multichain treasury discovery, and ENS/ERC-8004 identity flows are
+implemented and tested on 0G Galileo + Sepolia.
+
+**In progress.** The confidential-collaboration layer:
+
+- Redaction manifest — local PII detection via
+  [presidio-web](https://github.com/nacmonad/presidio-web), producing a redacted
+  artifact plus an encrypted hydration bundle
+- Wallet-authorized hydration in the browser, reusing the existing ECDH
+  recipient-key machinery
+- Per-field grants and revocation committed onchain as roots and nonces, never
+  as plaintext or guessable hashes
+- `USE` versus `READ` — authorizing computation over a field inside a TEE without
+  disclosing the field itself
+
+The web app in `apps/web` is currently a landing page and a dashboard scaffold;
+the wallet connector and the panels behind it are not wired up yet.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) — it covers the gitleaks pre-commit hook
+and the secrets policy. Never commit `.env` or private keys.
 
 ## License
 
 [MIT](LICENSE.md)
-
-## Status
-
-SoulVault is under active development. The CLI, swarm contract, treasury contract, fund-request flow, messaging, backup/restore, epoch rotation, Ledger signing, ENSIP-11 multichain treasury discovery, and ENS/ERC-8004 identity flows are implemented and tested on 0G Galileo + Sepolia.

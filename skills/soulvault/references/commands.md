@@ -135,14 +135,33 @@ The org list mutation is read-modify-write — not atomic against concurrent wri
 --semi-private             Bind the subdomain but stay off the org's discovery list
 ```
 
+### `soulvault swarm unpublish`
+Retract a swarm's ENS presence **without removing the swarm**. Clears the subdomain's resolver records (`addr`, `soulvault.chainId`, `soulvault.swarmContract`), releases the subnode by zeroing its owner and resolver, and strips the label from the parent org's `soulvault.swarms` list. The contract stays deployed, the local profile stays in place, and membership/epochs are untouched.
+
+This is the fix for a swarm that was published by mistake — including any swarm created before visibility gating landed, which could be marked `private` on disk while its subdomain was live. Use `swarm remove` instead when you actually want the swarm gone.
+
+`--delist-only` stops halfway, taking a swarm from public to semi-private: still resolvable by name, no longer discoverable by walking the org.
+
+**This stops the name resolving from now on. It cannot un-disclose anything** — every record was public on a public chain, and the transaction history is permanent. Anyone who read or indexed the name still has that data.
+
+Order is deliberate: the org-list update runs first, and **if it fails the subdomain is left bound.** A released subnode whose label is still listed is not private in any honest sense, and unbinding is not safely retryable once done (clearing resolver records afterwards needs a node the release has already zeroed). Leaving ENS untouched keeps a re-run clean. For the same reason the recorded visibility only moves as far as the work that actually succeeded — the profile never claims to be more private than it is.
+
+```
+--swarm <nameOrEns>        [REQUIRED] Swarm to unpublish
+--yes                      [REQUIRED] Skip confirmation prompt
+--delist-only              Only strip the org-list label; keep the subdomain resolvable (public → semi-private)
+```
+
 ### `soulvault swarm remove`
 Remove a swarm from local state. Archives the profile to `~/.soulvault/swarms/.archived/<slug>.json` (preserves recoverability — the contract address, chain, and org linkage all stay on disk for a future `swarm reattach`), strips the swarm label from the parent org's ENS `soulvault.swarms` CBOR list, and leaves the on-chain contract deployed. The command refuses to run without `--yes` since both the local archive and the ENS list mutation are destructive to discovery.
+
+`--ens-cleanup` additionally clears the subdomain's resolver records and releases the subnode — the same retraction `swarm unpublish` performs. It is opt-in because the archived profile is otherwise enough to reattach later. A failure here warns but does not abort the archive: a half-done removal is worse than a loud warning.
 
 ```
 --swarm <nameOrEns>        [REQUIRED] Swarm to remove
 --yes                      [REQUIRED] Skip confirmation prompt
 --reason <text>            Record a reason in the archive entry
---ens-cleanup              Also clear the swarm subdomain resolver records (not yet implemented)
+--ens-cleanup              Also clear the subdomain resolver records and release the subnode
 ```
 
 ### `soulvault swarm list`

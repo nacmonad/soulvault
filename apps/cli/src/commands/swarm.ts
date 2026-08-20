@@ -7,11 +7,13 @@ import {
   getSwarmProfile,
   listSwarmProfiles,
   unlinkSwarmFromOrgList,
+  unpublishSwarm,
   updateSwarmProfile,
   useSwarm,
 } from '@soulvault/node/swarm';
 import { getOrganizationProfile } from '@soulvault/node/organization';
 import { getAddrMultichain } from '@soulvault/node/ens';
+import { unbindSwarmEnsSubdomain } from '@soulvault/node/swarm-deploy';
 import { loadEnv } from '@soulvault/node/config';
 import {
   approveJoinSwarm,
@@ -128,14 +130,16 @@ export function registerSwarmCommands(program: Command) {
       'Remove a swarm from local state. Archives the profile to ~/.soulvault/swarms/.archived/, ' +
         'strips the swarm label from the parent org\'s ENS `soulvault.swarms` CBOR list, and ' +
         'leaves the on-chain contract deployed. Use --ens-cleanup to additionally clear the ' +
-        'swarm subdomain\'s resolver records (opt-in to preserve recoverability by default).',
+        'swarm subdomain\'s resolver records and release the subnode (opt-in, because the ' +
+        'archived profile is otherwise enough to reattach later). To retract a swarm\'s ENS ' +
+        'presence while keeping the swarm, use `swarm unpublish` instead.',
     )
     .requiredOption('--swarm <nameOrEns>', 'Swarm name/slug to remove')
     .option('--yes', 'Skip the confirmation prompt', false)
     .option('--reason <text>', 'Reason to record in the archive entry')
     .option(
       '--ens-cleanup',
-      'Also clear the swarm subdomain resolver records (addr + text). Does not delete the subdomain ownership.',
+      'Also clear the swarm subdomain resolver records (addr + text) and release the subnode.',
       false,
     )
     .action(async (options) => {
@@ -161,11 +165,32 @@ export function registerSwarmCommands(program: Command) {
         );
       }
 
+      let ensCleanupError: string | undefined;
+      let ensCleanupDone = false;
       if (options.ensCleanup) {
-        console.error(
-          `[swarm remove] NOTE: --ens-cleanup is declared but no subdomain resolver clearing ` +
-            `is implemented in this pass. The subdomain records are left in place.`,
-        );
+        if (!profile.ensName || !profile.organizationEnsName) {
+          console.error(
+            `[swarm remove] NOTE: --ens-cleanup requested but swarm "${profile.slug}" has no ` +
+              `bound subdomain. Nothing to clear.`,
+          );
+        } else {
+          try {
+            await unbindSwarmEnsSubdomain({
+              organizationEnsName: profile.organizationEnsName,
+              swarmEnsName: profile.ensName,
+            });
+            ensCleanupDone = true;
+          } catch (err) {
+            // Don't abort the archive over this — the operator asked for the swarm to
+            // be removed, and a half-done removal is worse than a loud warning.
+            ensCleanupError = (err as Error).message;
+            console.error(
+              `[swarm remove] WARNING: failed to clear the subdomain for ` +
+                `${profile.ensName}: ${ensCleanupError} — the records are still live. ` +
+                `Run \`soulvault swarm unpublish\` against the archived profile once fixed.`,
+            );
+          }
+        }
       }
 
       const entry = await archiveSwarmProfile(profile.slug, options.reason);
@@ -178,11 +203,85 @@ export function registerSwarmCommands(program: Command) {
             reason: entry.archived.reason,
             orgEnsListUpdated: unlink.changed,
             orgEnsListError: unlink.error,
+            ensRecordsCleared: ensCleanupDone,
+            ensCleanupError,
             onChainContract: entry.contractAddress,
             note:
               entry.contractAddress && entry.contractAddress !== ZeroAddress
                 ? `The on-chain swarm contract at ${entry.contractAddress} is still deployed. ` +
                   `Use a separate tool to interact with it if needed.`
+                : undefined,
+          },
+          null,
+          2,
+        ),
+      );
+    });
+
+  swarm
+    .command('unpublish')
+    .description(
+      'Retract a swarm\'s ENS presence without removing the swarm. Clears the subdomain\'s ' +
+        'resolver records, releases the subnode, and strips the label from the parent org\'s ' +
+        '`soulvault.swarms` list — leaving the contract deployed, the local profile in place, ' +
+        'and membership untouched. Use this to fix a swarm that was published by mistake; use ' +
+        '`swarm remove` when you actually want the swarm gone. --delist-only stops halfway, ' +
+        'taking a public swarm to semi-private: still resolvable by name, no longer ' +
+        'discoverable by walking the org. NOTE: this stops the name resolving from now on. It ' +
+        'cannot un-disclose anything — the records were public on a public chain and the ' +
+        'transaction history is permanent.',
+    )
+    .requiredOption('--swarm <nameOrEns>', 'Swarm name/slug to unpublish')
+    .option('--yes', 'Skip the confirmation prompt', false)
+    .option(
+      '--delist-only',
+      'Only strip the label from the org\'s discovery list; keep the subdomain resolvable (public → semi-private).',
+      false,
+    )
+    .action(async (options) => {
+      const profile = await getSwarmProfile(options.swarm);
+      if (!profile) throw new Error(`Swarm not found: ${options.swarm}`);
+
+      if (!options.yes) {
+        // Same non-interactive pattern as `swarm remove` — require --yes rather than
+        // blocking on stdin.
+        throw new Error(
+          `Refusing to unpublish swarm "${profile.slug}" without --yes. ` +
+            (options.delistOnly
+              ? `This mutates the org's ENS discovery list. `
+              : `This clears the swarm subdomain's resolver records and releases the subnode. `) +
+            `Re-run with --yes to confirm.`,
+        );
+      }
+
+      const result = await unpublishSwarm({
+        nameOrSlug: profile.slug,
+        mode: options.delistOnly ? 'delist-only' : 'full',
+      });
+
+      if (result.delistError) {
+        console.error(
+          `[swarm unpublish] WARNING: failed to strip "${result.slug}" from the org's ` +
+            `soulvault.swarms list: ${result.delistError}`,
+        );
+      }
+      if (result.subdomainError) {
+        console.error(
+          `[swarm unpublish] WARNING: subdomain not cleared. ${result.subdomainError} ` +
+            `The profile still records visibility "${result.visibility}", because the name ` +
+            `may still resolve and it must not claim to be more private than it is.`,
+        );
+      }
+
+      console.log(
+        JSON.stringify(
+          {
+            ...result,
+            note:
+              result.visibility === 'private'
+                ? 'The name no longer resolves. It was public on a public chain while it was ' +
+                  'bound, so anyone who read or indexed it still has that data — this stops ' +
+                  'future resolution, it does not undo disclosure.'
                 : undefined,
           },
           null,

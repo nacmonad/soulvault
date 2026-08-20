@@ -31,12 +31,12 @@ label below the org (`a.b.acme.eth`) made the binder create a subnode at
 `namehash("a.b.acme.eth")` — two different nodes, so the swarm resolved to nothing and the
 org gained a junk subnode. Now rejected.
 
-**Still open — no remediation path for swarms already leaked.** The fix stops new leaks;
-it does nothing for a swarm created before it that is marked `private` on disk while its
-subdomain and org-list entry are live on ENS. There is no command to retract them:
-`swarm remove --ens-cleanup` is documented as *not yet implemented*, and it archives the
-swarm locally as a side effect anyway. A `swarm unpublish` that clears the resolver
-records and strips the label — without touching local state — is the missing piece.
+Remediation for swarms already leaked by the old behaviour ships as `swarm unpublish`:
+clears the subdomain's resolver records, releases the subnode, and strips the org-list
+label, leaving the contract, the local profile, and membership alone. `--delist-only`
+stops at semi-private. `swarm remove --ens-cleanup` — previously a documented no-op — now
+performs the same retraction. Note that neither can un-disclose anything: the records were
+public on a public chain and the history is permanent.
 
 **Still open from the VPS branch:** it has its own test suite for the visibility/ENS
 planning rules. Diff it against `swarm-visibility.test.ts` when porting — it may cover

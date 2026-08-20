@@ -5,7 +5,11 @@ import { loadEnv } from './config.js';
 import { getOrganizationProfile } from './organization.js';
 import { resolveSwarmPath, resolveSwarmsDir } from './paths.js';
 import { readConfig, readJsonIfExists, writeConfig } from './state.js';
-import { bindSwarmEnsSubdomain, deploySoulVaultSwarmContract } from './swarm-deploy.js';
+import {
+  bindSwarmEnsSubdomain,
+  deploySoulVaultSwarmContract,
+  unbindSwarmEnsSubdomain,
+} from './swarm-deploy.js';
 import { addSwarmToOrgList, removeSwarmFromOrgList } from './ens.js';
 
 /**
@@ -314,6 +318,145 @@ export async function unlinkSwarmFromOrgList(profile: SwarmProfile): Promise<{ c
   } catch (err) {
     return { changed: false, error: (err as Error).message };
   }
+}
+
+/**
+ * How far to walk a swarm back down the visibility ladder.
+ *
+ * - `full`        — clear the subdomain's resolver records and release the subnode,
+ *                   then strip the label from the org's list. Ends at `private`.
+ * - `delist-only` — strip the label from the org's list and leave the subdomain
+ *                   resolvable. Ends at `semi-private`.
+ */
+export type SwarmUnpublishMode = 'full' | 'delist-only';
+
+export type SwarmUnpublishResult = {
+  slug: string;
+  mode: SwarmUnpublishMode;
+  previousVisibility: SwarmVisibility;
+  visibility: SwarmVisibility;
+  /** The name that was retracted, for the record — it is gone from the profile after a full unpublish. */
+  ensName?: string;
+  delisted: boolean;
+  delistError?: string;
+  subdomainReleased: boolean;
+  subdomainError?: string;
+  txHashes: Record<string, string | undefined>;
+};
+
+/**
+ * Retract a swarm's ENS presence without touching anything else about it. The contract
+ * stays deployed, the local profile stays put, membership and epochs are untouched —
+ * this is the counterpart to `swarm remove`, which archives the swarm as a side effect
+ * and so cannot be used to fix a swarm that is merely published by mistake.
+ *
+ * Failures are reported, not thrown, and the recorded visibility only moves as far as
+ * the work that actually succeeded. A profile that claims `private` while its subdomain
+ * still resolves is the exact failure this command exists to fix, so it must not create
+ * one of its own.
+ */
+export async function unpublishSwarm(input: {
+  nameOrSlug: string;
+  mode?: SwarmUnpublishMode;
+}): Promise<SwarmUnpublishResult> {
+  const mode = input.mode ?? 'full';
+  const profile = await getSwarmProfile(input.nameOrSlug);
+  if (!profile) throw new Error(`Swarm not found: ${input.nameOrSlug}`);
+
+  const base = {
+    slug: profile.slug,
+    mode,
+    previousVisibility: profile.visibility,
+    ensName: profile.ensName,
+  };
+
+  if (!profile.ensName || !profile.organizationEnsName) {
+    // Nothing was ever published. Still correct the profile if it claims otherwise,
+    // since a mislabelled record is what sends someone looking for this command.
+    const visibility: SwarmVisibility = 'private';
+    if (profile.visibility !== visibility) await updateSwarmProfile(profile.slug, { visibility });
+    return {
+      ...base,
+      visibility,
+      delisted: false,
+      subdomainReleased: false,
+      txHashes: {},
+    };
+  }
+
+  const unlink = await unlinkSwarmFromOrgList(profile);
+
+  if (mode === 'delist-only') {
+    // Only claim semi-private if the delisting actually landed.
+    const visibility: SwarmVisibility = unlink.error ? profile.visibility : 'semi-private';
+    if (visibility !== profile.visibility) await updateSwarmProfile(profile.slug, { visibility });
+    return {
+      ...base,
+      visibility,
+      delisted: unlink.changed,
+      delistError: unlink.error,
+      subdomainReleased: false,
+      txHashes: {},
+    };
+  }
+
+  if (unlink.error) {
+    // Stop before touching the subdomain. Two reasons: a released subnode with the
+    // label still in the org's list is not `private` in any honest sense — the name
+    // is still disclosed, it just doesn't resolve — and unbinding is not safely
+    // retryable once done, because clearing the resolver records afterwards needs a
+    // node the release has already zeroed. Leaving ENS untouched keeps a re-run clean.
+    return {
+      ...base,
+      visibility: profile.visibility,
+      delisted: false,
+      delistError: unlink.error,
+      subdomainReleased: false,
+      subdomainError:
+        `Skipped: the swarm could not be removed from the org's discovery list first, ` +
+        `so the subdomain was left bound. Re-run once the list update can succeed.`,
+      txHashes: {},
+    };
+  }
+
+  let released = false;
+  let subdomainError: string | undefined;
+  let txHashes: Record<string, string | undefined> = {};
+  try {
+    const result = await unbindSwarmEnsSubdomain({
+      organizationEnsName: profile.organizationEnsName,
+      swarmEnsName: profile.ensName,
+    });
+    released = true;
+    txHashes = {
+      clearAddr: result.clearAddrTxHash,
+      clearChainIdText: result.clearChainIdTextTxHash,
+      clearContractText: result.clearContractTextTxHash,
+      releaseSubdomain: result.releaseSubdomainTxHash,
+    };
+  } catch (err) {
+    subdomainError = (err as Error).message;
+  }
+
+  if (released) {
+    // The name is gone from ENS, so it must go from the profile too — leaving it
+    // would have `swarm status` advertising a name that no longer resolves.
+    await updateSwarmProfile(profile.slug, {
+      visibility: 'private',
+      ensName: undefined,
+      ensBinding: undefined,
+    });
+  }
+
+  return {
+    ...base,
+    visibility: released ? 'private' : profile.visibility,
+    delisted: unlink.changed,
+    delistError: unlink.error,
+    subdomainReleased: released,
+    subdomainError,
+    txHashes,
+  };
 }
 
 export async function getSwarmProfile(nameOrSlug: string) {

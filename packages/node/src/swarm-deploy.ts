@@ -1,6 +1,6 @@
 import fs from 'fs-extra';
 import path from 'node:path';
-import { ContractFactory, id } from 'ethers';
+import { ContractFactory, id, ZeroAddress } from 'ethers';
 import { namehash } from 'viem/ens';
 import { createSigner } from './signer.js';
 import { getEnsRegistry, getPublicResolver, createEnsSigner } from './ens.js';
@@ -84,5 +84,62 @@ export async function bindSwarmEnsSubdomain(input: {
     addrTxHash: setAddrReceipt?.hash,
     chainIdTextTxHash: setChainIdReceipt?.hash,
     contractTextTxHash: setContractReceipt?.hash,
+  };
+}
+
+/**
+ * The inverse of `bindSwarmEnsSubdomain`: blank the swarm subdomain's resolver
+ * records, then release the subnode itself by zeroing its owner and resolver in the
+ * registry.
+ *
+ * Order matters. The records are cleared while the resolver is still wired up —
+ * dropping the resolver first would leave the old values sitting in the resolver
+ * contract, unreachable through normal resolution but still readable by anyone who
+ * computes the node hash.
+ *
+ * This does not, and cannot, undo disclosure. Every value written here was public on
+ * a public chain, and the transaction history keeps it that way forever. What this
+ * buys is that the name stops resolving going forward.
+ */
+export async function unbindSwarmEnsSubdomain(input: {
+  organizationEnsName: string;
+  swarmEnsName: string;
+}) {
+  const signer = await createEnsSigner();
+  const registry = await getEnsRegistry(true);
+  const resolver = await getPublicResolver(true);
+
+  const orgNode = namehash(input.organizationEnsName);
+  const swarmLabel = input.swarmEnsName.replace(`.${input.organizationEnsName}`, '');
+  const labelhash = id(swarmLabel);
+  const swarmNode = namehash(input.swarmEnsName);
+
+  const clearAddrTx = await resolver.setAddr(swarmNode, ZeroAddress);
+  const clearAddrReceipt = await clearAddrTx.wait();
+
+  const clearChainIdTx = await resolver.setText(swarmNode, 'soulvault.chainId', '');
+  const clearChainIdReceipt = await clearChainIdTx.wait();
+
+  const clearContractTx = await resolver.setText(swarmNode, 'soulvault.swarmContract', '');
+  const clearContractReceipt = await clearContractTx.wait();
+
+  // Zeroing owner and resolver releases the subnode. The org owner can re-create it
+  // later with `setSubnodeRecord`, so this is retraction, not destruction.
+  const releaseTx = await registry.setSubnodeRecord(
+    orgNode,
+    labelhash,
+    ZeroAddress,
+    ZeroAddress,
+    0
+  );
+  const releaseReceipt = await releaseTx.wait();
+
+  return {
+    node: swarmNode,
+    signerAddress: signer.address,
+    clearAddrTxHash: clearAddrReceipt?.hash,
+    clearChainIdTextTxHash: clearChainIdReceipt?.hash,
+    clearContractTextTxHash: clearContractReceipt?.hash,
+    releaseSubdomainTxHash: releaseReceipt?.hash,
   };
 }

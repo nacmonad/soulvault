@@ -10,8 +10,8 @@
 Encrypted continuity for agent swarms, and wallet-authorized selective
 disclosure for confidential documents.
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-0F766E.svg)](LICENSE.md)
-[![Ops lane: 0G Galileo](https://img.shields.io/badge/ops-0G%20Galileo-0F766E.svg)](https://0g.ai/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-4F46E5.svg)](LICENSE.md)
+[![Ops lane: 0G Galileo](https://img.shields.io/badge/ops-0G%20Galileo-4F46E5.svg)](https://0g.ai/)
 [![Identity lane: Sepolia](https://img.shields.io/badge/identity-Sepolia-334155.svg)](https://sepolia.etherscan.io/)
 
 </div>

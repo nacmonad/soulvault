@@ -48,36 +48,40 @@ Borrow: The icon is pure geometric construction—nested rectangles that suggest
 
 ## 03 — COLOR PALETTE
 
-**Primary Color: Deep Teal**
-- **Hex:** `#0F766E` (or `#1B7A74` for slightly brighter variant)
-- **Rationale:** Teal conveys both trust (cool, calm) and technical sophistication (association with network cables, infrastructure). It's not blue (overused in tech), not green (too associative with growth/nature). Teal is the color of precision and controlled systems. Deep teal is formal and authoritative without being cold.
+**Primary Color: Indigo**
+- **Hex:** `#4F46E5` — light mode. Dark-mode primary is `#A5B4FC`; a solid fill dark enough for white text stops being legible against a dark ground, so the role inverts rather than the hue.
+- **Rationale:** Indigo reads cool, serious, and technical without landing in the two crowded rooms next door. Plain SaaS blue (`#0052CC`-ish) is the single most occupied space in developer tooling — Stripe, Linear, Vercel, and a hundred imitators. Teal was the first choice here and was dropped for a more specific reason: [presidio-web](https://github.com/nacmonad/presidio-web) already owns it, and the two products appear side by side constantly — in the architecture diagram, in the README, in the same pitch. Two products in one story wearing one color read as one product, or as carelessness. Indigo is adjacent to both and identical to neither.
+
+**Supporting Ramp**
+- `#3730A3` — deep indigo, for text on the light tint and for dark-mode chart fills
+- `#6366F1` / `#818CF8` — mid ramp, for secondary data series and hover states
+- `#EEF2FF` — pale tint, for passive status surfaces (badges, callouts, active nav)
 
 **Secondary Color 1: Slate Gray (Text & Structure)**
-- **Hex:** `#334155` (or lighter `#475569` for secondary text)
-- **Role:** Primary text, interface elements, structure. High contrast with white for readability. Feels architectural and professional.
+- **Hex:** `#334155` (or `#64748B` for secondary text)
+- **Role:** Primary text, interface elements, structure. Carries most of the interface. Feels architectural and professional.
 
 **Secondary Color 2: Cool Off-White (Background)**
-- **Hex:** `#F8FAFC` (or true white `#FFFFFF` for contrast)
-- **Role:** Primary background color. Cool white (slight blue undertone) pairs with teal better than warm white. Avoids the sterile feeling of bright white while maintaining clarity.
+- **Hex:** `#F8FAFC` (cards sit on `#FFFFFF` for a half-step of elevation)
+- **Role:** Primary background. The cool undertone pairs with indigo; a warm white would fight it. Avoids the sterile feel of pure white while keeping the page bright.
 
-**Secondary Color 3: Accent (Status & Emphasis)**
-- **Hex:** `#06B6D4` (bright cyan) OR `#DC2626` (reserved red for alerts/caution)
-- **Role:** CTAs, success states, warnings. Cyan for positive/active states; red reserved only for alerts, errors, revocation warnings. Use sparingly.
+**Secondary Color 3: Alert (Reserved)**
+- **Hex:** `#DC2626`
+- **Role:** Irreversible and destructive actions only — revoke access, delete, critical errors. Never decorative. Nothing else in the system is red, so red always means the same thing.
 
 **Color Personality**
-Cool, technical, trustworthy. The palette occupies the "calm authority" territory—not warm or inviting, but not sterile or cold either. It feels like looking at a well-lit server room: organized, clear, and slightly industrial.
+Cool, technical, trustworthy. The palette occupies the "calm authority" territory — not warm or inviting, but not sterile either. It feels like looking at a well-lit server room: organized, clear, slightly industrial.
 
 **Usage Rules**
-- Teal as primary brand color appears on CTAs, accents, key UI elements
-- Slate gray dominates text and structural elements (should be 70%+ of the interface)
-- Off-white is the primary background
-- Cyan accent is for positive interactions (success, active state, confirmation)
-- Red is reserved only for irreversible actions (revoke access, delete, critical alerts)
-- Never use: warm colors (orange, warm yellow), pastels, desaturated versions of primary colors
-- Accessibility: maintain 4.5:1 contrast ratio (teal on white passes; slate on white passes)
+- Indigo is the only saturated color in the interface; it marks what is interactive or what matters
+- Slate gray dominates text and structure (should be 70%+ of the interface)
+- Off-white is the page; white is a card
+- Red is reserved for irreversible actions and never appears otherwise
+- Never use: warm colors (orange, warm yellow), pastels, or a second saturated hue competing with indigo
+- Accessibility: every pairing below clears WCAG AA (4.5:1)
 
 **Palette Type**
-Cool analogous (teal → cyan) with neutral support (grays). Deliberately not complementary or triadic because those feel more playful. The harmony should feel engineered, not intuitive.
+Monochromatic indigo with a neutral slate support. Deliberately not complementary or triadic — those read as playful. A single hue doing all the signalling is what makes the system feel engineered rather than decorated.
 
 ---
 
@@ -124,9 +128,9 @@ Technical, minimal, architectural. Avoid lifestyle photography entirely. The vis
 - **Avoid:** People in lifestyle poses, stock photos of handshakes/trust/security, clipart clouds, blockchain visual clichés (chains, coins, circuit boards).
 
 **Color Treatment**
-- Desaturated or monochromatic (grays, blacks, brand teal)
+- Desaturated or monochromatic (grays, blacks, brand indigo)
 - High contrast—avoid muddy midtones
-- If color is used in imagery, limit to 2 colors maximum (e.g., teal + gray)
+- If color is used in imagery, limit to 2 colors maximum (e.g., indigo + gray)
 - No warm color casts or golden-hour sunsets
 
 **What to Avoid**
@@ -178,58 +182,58 @@ The visual language should reflect what the product actually does. Don't hide or
 ## 08 — BRAND EXPRESSIONS
 
 ### Social Media (Twitter, LinkedIn, GitHub)
-**Avatar:** Mark + logotype (combined or icon alone; must remain recognizable at 48px). Teal primary, gray/white supporting.
+**Avatar:** Mark + logotype (combined or icon alone; must remain recognizable at 48px). Indigo primary, gray/white supporting.
 
-**Post Templates:** Minimal backgrounds (white or off-white), bold teal accents for key information. Typography hierarchy: Inter for all. Use monospace (`Inconsolata`) for code snippets or technical callouts. Avoid full-bleed images; frame content in white cards with subtle borders (1px slate gray).
+**Post Templates:** Minimal backgrounds (white or off-white), bold indigo accents for key information. Typography hierarchy: Inter for all. Use monospace (`Inconsolata`) for code snippets or technical callouts. Avoid full-bleed images; frame content in white cards with subtle borders (1px slate gray).
 
-**Color Coding:** Technical posts (teal), announcements (teal + white), developer updates (white with code blocks), security/privacy focus (teal on white, no images necessary).
+**Color Coding:** Technical posts (indigo), announcements (indigo + white), developer updates (white with code blocks), security/privacy focus (indigo on white, no images necessary).
 
 ---
 
 ### Website / App Interface
-**Navigation:** Slate gray text on off-white background. Teal used for active states and CTAs. Generous whitespace. Monospace font for technical fields (API keys, wallet addresses, hashes). Code blocks: dark background (`#1E293B`), teal syntax highlighting, `Inconsolata` font.
+**Navigation:** Slate gray text on off-white background. Indigo used for active states and CTAs. Generous whitespace. Monospace font for technical fields (API keys, wallet addresses, hashes). Code blocks: dark background (`#1E293B`), indigo syntax highlighting, `Inconsolata` font.
 
-**Hero Section:** Off-white background, teal accent line or minimal geometric shape. Headline in Inter Bold. No hero image; if visual is needed, use abstract geometric shapes (e.g., interlocking circles suggesting encryption).
+**Hero Section:** Off-white background, indigo accent line or minimal geometric shape. Headline in Inter Bold. No hero image; if visual is needed, use abstract geometric shapes (e.g., interlocking circles suggesting encryption).
 
-**CTAs:** Teal background, white text, Inter Semibold. Hover state: slightly darker teal. No rounded corners; squared corners maintain precision.
+**CTAs:** Indigo background, white text, Inter Semibold. Hover state: slightly darker indigo. No rounded corners; squared corners maintain precision.
 
 **Documentation:** Clean hierarchy, generous spacing, sidebar navigation in slate gray. Code samples on dark background. Monospace for technical terms inline.
 
 ---
 
 ### Business Cards / Stationery
-**Format:** Minimal. Wordmark + logotype on front, contact info on back. Teal on one side (wordmark), white on reverse (text). Paper should feel substantial (cardstock, not standard glossy). Consider: uncoated paper for a more technical, less polished feel. No photos or illustrations.
+**Format:** Minimal. Wordmark + logotype on front, contact info on back. Indigo on one side (wordmark), white on reverse (text). Paper should feel substantial (cardstock, not standard glossy). Consider: uncoated paper for a more technical, less polished feel. No photos or illustrations.
 
-**Layout:** Lots of negative space. Text left-aligned, not centered. Use the grid (align to thirds). Teal accent line (2–3mm thick) running down one edge.
+**Layout:** Lots of negative space. Text left-aligned, not centered. Use the grid (align to thirds). Indigo accent line (2–3mm thick) running down one edge.
 
 ---
 
 ### Presentations / Pitch Decks
-**Deck Template:** Off-white background (`#F8FAFC`), slate gray text, teal for emphasis and section dividers. Headlines in Inter Bold. Body in Inter Regular, generous line spacing. Use geometric shapes (rectangles, lines, circles) as visual accents, not photography.
+**Deck Template:** Off-white background (`#F8FAFC`), slate gray text, indigo for emphasis and section dividers. Headlines in Inter Bold. Body in Inter Regular, generous line spacing. Use geometric shapes (rectangles, lines, circles) as visual accents, not photography.
 
-**Title Slide:** Wordmark, headline, and a minimal geometric accent (e.g., a teal line or interlocking circles). No photo.
+**Title Slide:** Wordmark, headline, and a minimal geometric accent (e.g., an indigo line or interlocking circles). No photo.
 
-**Content Slides:** 70% text, 30% visual (never imagery; use diagrams, geometric shapes, or interface screenshots). Data visualizations in teal + gray. Avoid: clipart, stock photos, animated transitions.
+**Content Slides:** 70% text, 30% visual (never imagery; use diagrams, geometric shapes, or interface screenshots). Data visualizations in indigo + gray. Avoid: clipart, stock photos, animated transitions.
 
-**Close Slide:** Wordmark + "Questions?" in Inter Bold. Optional: teal accent. No call-to-action graphic; let the work speak.
+**Close Slide:** Wordmark + "Questions?" in Inter Bold. Optional: indigo accent. No call-to-action graphic; let the work speak.
 
 ---
 
 ### Email Templates
-**Header:** Wordmark + minimal teal accent line. Off-white background.
+**Header:** Wordmark + minimal indigo accent line. Off-white background.
 
-**Body:** Inter Regular, 16px, slate gray text. Generous line height (1.6). Use teal for links (underlined). Code blocks in monospace on light gray background.
+**Body:** Inter Regular, 16px, slate gray text. Generous line height (1.6). Use indigo for links (underlined). Code blocks in monospace on light gray background.
 
-**CTA Button:** Teal background, white Inter Semibold text, squared corners, generous padding. Hover state: darker teal.
+**CTA Button:** Indigo background, white Inter Semibold text, squared corners, generous padding. Hover state: darker indigo.
 
 ---
 
 ## ACCESSIBILITY & IMPLEMENTATION
 
 **Color Contrast**
-- Teal (#0F766E) on white: 7.2:1 contrast ratio ✓
+- Indigo (#4F46E5) on white: 6.29:1 contrast ratio ✓
 - Slate gray (#334155) on white: 10.6:1 contrast ratio ✓
-- Cyan (#06B6D4) on white: 4.8:1 contrast ratio ✓
+- Deep indigo (#3730A3) on #EEF2FF tint: 8.88:1 contrast ratio ✓
 - All combinations meet WCAG AA standards
 
 **Responsive Design**
@@ -240,7 +244,7 @@ The visual language should reflect what the product actually does. Don't hide or
 
 **Production Guidelines**
 - Logo files: SVG (primary), PNG variants (favicon, social), PDF (print)
-- Color palette: document as hex codes, RGB, and CSS variables (e.g., `--color-primary-teal`, `--color-text-slate`)
+- Color palette: document as hex codes, RGB, and CSS variables (e.g., `--color-primary-indigo`, `--color-text-slate`)
 - Typography: provide font files for self-hosting or declare Google Fonts CDN usage
 - Icon set: create as SVG master file with consistent stroke weight and sizing
 - Grid system: document spacing (4px base unit), sizing, and alignment rules for developers

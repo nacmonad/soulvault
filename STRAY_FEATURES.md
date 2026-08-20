@@ -44,90 +44,82 @@ cases this doesn't.
 
 ---
 
-## Integration lane: the e2e suites are non-deterministic against `pnpm denv`
+## Integration lane: non-determinism — RESOLVED
 
-**Root cause, proven — it is the chain harness, not our code.**
+`pnpm test:integration` is 21/21 green against a stock `pnpm denv`. Two bugs, both in
+our own test setup. Everything else investigated was a dead end; the disproved theories
+are kept at the bottom so they are not retried.
 
-anvil auto-mines: a transaction is mined the instant it is submitted, and the chain
-then sits idle. ethers' `tx.wait()` resolves off a block-event subscription, so when
-the receipt lands *before* the listener is installed there is no subsequent block to
-wake it, and `wait()` blocks forever. Evidence, from a hung wait:
+### Bug 1 — the Vitest 4 upgrade silently dropped serialization
 
-```
-wait() HUNG.  eth_getTransactionReceipt -> RECEIPT EXISTS block 494;  head=494
-              after mining another block, wait() resolved in 126ms
-```
+Both integration configs asked for serialization with
+`poolOptions.threads.singleThread`. Vitest 4 removed `poolOptions` and ignores it with
+only a deprecation notice, so the files started running concurrently. That breaks two
+invariants: global setup mutates `process.env.HOME` (the config's own comment says so),
+and every file drives the same signer EOA against the same chain.
 
-Reproduces at ~5% per transaction. Our suites fire ~30 transactions per run, which is
-why *exactly one* test stalls per run and it is a different test each time. A stale
-provider view of the head also surfaces as a spurious `nonce too low` on a freshly
-constructed wallet — same mismatch, second symptom.
+Fixed with `fileParallelism: false` + `maxWorkers`/`minWorkers`. The speculos config
+already carried `fileParallelism: false`, which is why that lane was never affected.
 
-**Why this surfaced now: the migration hid the suite, it did not break the chain.**
+### Bug 2 — `deployContract` pinned deploys to a stale nonce
+
+`test/helpers/forge-artifacts.ts` pinned an explicit nonce, with a comment claiming it
+forced a fresh read. It did neither:
+
+- it read `'latest'`, which counts only *mined* transactions, so anything still in the
+  pool was invisible — and it then pinned the deploy to that number;
+- the read was not fresh, because `getTransactionCount` routes through ethers' 250ms
+  request cache and back-to-back deploys land well inside that window.
+
+Fixed by reading `'pending'` and adding `makeTestProvider()`, which builds providers with
+`cacheTimeout: -1`. Measured, 50 sequential transactions from one wallet on a local
+anvil: default cache 14 `NONCE_EXPIRED`, `cacheTimeout: -1` zero.
+
+**This single bug produced both symptoms.** A pinned nonce below the real one throws
+`NONCE_EXPIRED`; one above it leaves the transaction queued in the pool, unmined, so its
+`tx.wait()` never resolves — the "hang" that looked like an ethers or networking problem.
+Which symptom appeared depended on which side of the real nonce the stale read fell, and
+that is why it looked random.
+
+It was also a large silent tax on runtime. After the fix, on the same chain:
+`wires swarm -> treasury` 4195ms -> 119ms, `receives native value` 4208ms -> 120ms,
+`cancel path` 8884ms -> 304ms. Those transactions had been waiting behind bad nonces.
+
+### Disproved — do not retry
+
+- **`anvil --block-time 1`.** Actively breaks the harness. `ANVIL_EXTRA_ARGS` does reach
+  anvil, but `manager.js:waitForENSNode()` blocks until the indexer reports
+  `_meta.block.number >= <deploy block>`; with the chain advancing on a timer ponder's
+  historical sync finishes at genesis and its status keeps returning `null`/`0`
+  (`ZodError: Too small: expected number to be >=1`), so startup spins forever on
+  `ENSNode at blockheight: 0, need 12`. ens-test-env assumes the chain only advances when
+  a transaction is sent.
+- **A provider leak / churn in `ens.ts`.** Measured at 1.1x, ~1.75ms per call. An
+  undestroyed provider does not hold the event loop open either.
+- **The ethers pin (`^6.16.0` -> `6.13.1`, from the monorepo commit).** Head-to-head, 50
+  sequential transactions on a native anvil: `6.13.1 hung=0/50 nonceErr=14` vs
+  `6.16.0 hung=0/50 nonceErr=34`. Zero hangs on both; the older pin is better for nonces.
+- **Docker networking.** Plausible while the hang would not reproduce on a native anvil,
+  but fully explained by Bug 2 once the nonce pinning was fixed.
+
+### The migration's real effect: it hid the lane
+
 `org-layer-flow.integration.test.ts` was born at `cli/src/lib/__integration__/`
-(5b8c953). From there `../../../test/helpers/` resolved to `cli/test/helpers/` —
-correct. The monorepo move relocated it to `packages/node/src/__integration__/`, where
-that same path resolves to `packages/test/helpers/`, but the helpers live at
-`packages/node/test/helpers/`. Off by one level, so the imports failed to resolve and
-the files were never collected — the "No test files found" we kept seeing. The whole
-integration lane was dark from the migration until the 15 paths were fixed. These tests
-were not passing before; they were not running. Treat every failure the lane is now
-showing as pre-existing and newly visible, not as a regression.
+(5b8c953), where `../../../test/helpers/` resolved to `cli/test/helpers/`. The monorepo
+move relocated it to `packages/node/src/__integration__/`, where that same path points at
+`packages/test/helpers/` while the helpers live at `packages/node/test/helpers/`. Off by
+one level, imports unresolvable, files never collected — the "No test files found" we kept
+hitting. The lane was dark from the migration until the 15 paths were fixed, so both bugs
+above were pre-existing and merely invisible. Unit tests could never have caught them:
+no unit test file references `JsonRpcProvider`.
 
-**The ethers pin is NOT the cause.** The migration also pinned ethers `^6.16.0` ->
-`6.13.1`. Tested head-to-head, 50 sequential transactions each, native anvil:
-`6.13.1 hung=0/50 nonceErr=14` vs `6.16.0 hung=0/50 nonceErr=34`. Zero hangs on both,
-and the *older* pin is the better one for nonces. Ruled out.
+### Still open: the lane takes ~7 minutes
 
-**The hang is specific to the dockerized chain.** It reproduces at ~5% against the
-docker anvil on 8545 and not at all against a native `anvil` on another port under an
-identical workload. So it is container networking, not ethers and not our code.
+Nothing calls `evm_increaseTime`/`evm_mine`. `ens-name.ts:191` genuinely sleeps
+`minCommitmentAge + 1` seconds in wall-clock, so a single org-layer-flow test burns ~130s.
+On a local chain that wait can be skipped by advancing chain time instead of sleeping,
+which would cut minutes off the run.
 
-**Unit tests cannot see any of this.** No unit test file references `JsonRpcProvider`;
-`swarm-visibility.test.ts` has zero mocks because `planSwarmEns()` is pure. A green unit
-lane says nothing about the chain lane.
-
-**`cacheTimeout: -1` is confirmed, not inferred.** Same workload, same version:
-`default cache -> nonceErr=14`, `cacheTimeout:-1 -> nonceErr=0`.
-
-**Two hypotheses were tested and disproved**, recorded so they are not retried:
-- *Provider churn / leaked pollers.* Measured at 1.1x, ~1.75ms per call. A single
-  undestroyed provider does not hold the event loop open either. Not the cause.
-- *Nonce races between independently constructed signers.* The stall reproduces
-  identically with one shared provider and one shared wallet (3 hangs in 40).
-
-**`--block-time 1` is NOT the fix — it breaks the harness.** Tried and reverted.
-`ens-test-env`'s anvil entrypoint does take `$ANVIL_EXTRA_ARGS`, so
-`ANVIL_EXTRA_ARGS="--block-time 1" pnpm denv` does reach anvil — but startup then never
-completes. `manager.js:waitForENSNode()` blocks until the indexer reports
-`_meta.block.number >= <deploy block>`; with the chain advancing on a timer, ponder's
-historical sync finishes at genesis and its status keeps coming back `null`/`0`
-(`ZodError: Too small: expected number to be >=1`), so the wait loop spins forever on
-`ENSNode at blockheight: 0, need 12` while anvil marches past block 37. The harness
-assumes the chain only advances when a transaction is sent. Do not retry this.
-
-**Fix — library side, two parts.** Both mechanisms confirmed in the ethers v6.13.1
-source, not inferred:
-
-1. *The hung wait.* Replace the 28 `await tx.wait()` calls in `packages/node/src` with a
-   `waitForTx()` that polls `eth_getTransactionReceipt` directly instead of relying on
-   the block-event subscription. Worth doing for real networks (0G, Sepolia) regardless.
-
-2. *The stale nonce.* Construct providers with `{ cacheTimeout: -1 }`.
-   `getTransactionCount` routes through `AbstractProvider.#perform`, which by default
-   serves any identical request from a 250ms cache (`abstract-provider.js:155,246`). On
-   a local chain transactions land well inside 250ms, so a fresh wallet can read a stale
-   nonce and get `nonce too low`. `cacheTimeout < 0` bypasses the cache entirely
-   (`abstract-provider.js:246-248`).
-
-Part 1 alone is insufficient — it does not address symptom 2.
-
-**This affects the Speculos and Ledger suites too.** They never touch `ens.ts`, but
-`global-setup-speculos.ts` probes the same `SOULVAULT_RPC_URL`, and every privileged
-operation they exercise goes through the same lib `.wait()` calls. Expect the same ~5%
-per-transaction stall there until the block cadence is fixed.
-
----
 
 ## The rest
 

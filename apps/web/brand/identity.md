@@ -12,8 +12,14 @@ SoulVault's visual identity must embody architectural precision and decentralize
 
 ## 02 — LOGO DIRECTION
 
-**Primary Direction**
-Wordmark + optional icon system. The wordmark is the primary mark (SoulVault as logotype). An optional accompanying icon can represent the core concepts (continuity, encryption, vault/security) but the wordmark should stand alone confidently.
+**The Mark — Constellation Shield** *(shipped 2026-08-20)*
+
+A shield outline in a single stroke weight, with a six-node constellation drawn inside it: a boundary holding a swarm. Source of truth is `LogoMark` in [`../src/components/brand/logo.tsx`](../src/components/brand/logo.tsx), which strokes with `currentColor` and therefore inherits the theme. Standalone copies live at [`../../../assets/soulvault-mark.svg`](../../../assets/soulvault-mark.svg) (indigo, for the README) and [`../src/app/icon.svg`](../src/app/icon.svg) (solid indigo fill with the constellation knocked out in white — the outline version disappears at favicon size). A fourth copy is hand-inlined in `app/opengraph-image.tsx` because Satori renders only a subset of SVG. **Four copies, no build step: change one, change all four.**
+
+The shield is a deliberate exception to the usual "no security clichés" rule. It was kept because it is self-describing — an abstract geometric mark would have needed a caption to say what the product does. What makes it defensible is that it obeys every other rule in this section: flat, monochrome, one stroke weight, squared corners, no gradient, no depth, no light source. The cliché is the *glowing* shield, not the silhouette.
+
+**Lockup**
+Mark + logotype, set horizontally with the mark at cap height. The logotype is Inter Semibold with tight tracking. Either half works alone: the mark carries favicon, avatar, and hero use; the logotype carries anywhere the mark would be too small to resolve.
 
 **Character**
 Authority and precision. The mark should feel constructed and mathematical, not organic or hand-drawn. It should convey trustworthiness through geometric clarity, not through friendliness. When a developer or legal professional sees this mark, they should think "this is engineered properly."
@@ -166,7 +172,7 @@ Functional and utilitarian. Icons should communicate their meaning without needi
 **Examples**
 - Encryption: Concentric rectangles or a simple geometric lock shape
 - Continuity: Interlocking or stacked elements suggesting persistence
-- Wallet: Simplified geometric envelope or shield outline
+- Wallet: Simplified geometric envelope or keyed rectangle — **not** a shield outline; the shield is now the logo and must not appear as UI iconography
 - Revocation: Clean X or blocking line
 - Access: A keyhole or authorization gate rendered geometrically
 

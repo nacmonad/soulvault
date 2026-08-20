@@ -1,9 +1,8 @@
 <div align="center">
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.png">
-  <img alt="SoulVault" src="assets/logo-light.png" width="260">
-</picture>
+<img alt="" src="assets/soulvault-mark.svg" width="96">
+
+# SoulVault
 
 **Coordinate securely. Collaborate privately.**
 

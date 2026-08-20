@@ -1,5 +1,19 @@
 # SoulVault Logo Generation Brief
 
+> **Status: resolved — 2026-08-20.** The mark shipped is the **Constellation
+> Shield**: `assets/soulvault-mark.svg`, inlined as `LogoMark` in
+> [`../src/components/brand/logo.tsx`](../src/components/brand/logo.tsx).
+>
+> It **deliberately overrides the "no shields" constraint below.** The shield
+> was kept because it is self-describing: a boundary holding a swarm reads as
+> what the product does, where an abstract nested-rectangle mark would have
+> needed a caption. Everything else in this brief held — the mark is flat,
+> monochrome, single-weight, squared-cornered, gradient-free, and drawn from
+> pure geometry, which is what separates it from the April hackathon shield.
+>
+> The rest of this file is kept as the record of the brief that produced it.
+> If you regenerate, read the resolution note before the constraints.
+
 For generating a beautiful, minimal SVG logo using an AI image model.
 
 ## Brand Context
@@ -33,7 +47,10 @@ Geometric construction. Mathematical. Intentional, not organic. The logo should 
 ### What NOT to do
 
 - **No lock icons.** Every security product uses them. Overused cliché.
-- **No shields.** Another cliché. No "protected by X" symbolism.
+- ~~**No shields.**~~ *Overridden — see the resolution note at the top.* The
+  cliché is the *glowing* shield with a padlock in it. A flat single-weight
+  shield outline used as a boundary, with the swarm drawn inside it, carries
+  actual meaning rather than borrowed "protected by X" symbolism.
 - **No gradients or shadows.** Those signal consumer-product depth. SoulVault should feel flat and structural.
 - **No blockchain tropes.** No chain links, coins, circuit boards, nodes connected by lines.
 - **No mascots, characters, or illustrations.**
@@ -113,7 +130,7 @@ Constraints:
 - Squared corners only, no rounded corners
 - Monochromatic (black or white)
 - Works at 16px to 256px
-- No lock icons, shields, blockchain tropes, mascots, or illustrations
+- No lock icons, blockchain tropes, mascots, or illustrations
 - Flat, structural feel — precision over friendliness
 
 Output: Minified SVG, under 2KB, viewBox="0 0 256 256", square 1:1 ratio.
@@ -121,13 +138,28 @@ Output: Minified SVG, under 2KB, viewBox="0 0 256 256", square 1:1 ratio.
 
 ## Next Steps
 
-1. Generate SVG using the prompt above.
-2. Test at 16px (favicon), 32px (header), and 256px (print/hero).
-3. Verify stroke weight and negative space read clearly at all sizes.
-4. Extract the minified SVG and save to `apps/web/src/components/brand/logo.svg`.
-5. Update `Logo.tsx` to import and render it alongside the wordmark.
-6. Verify both light and dark modes with `@media (prefers-color-scheme: dark)` color overrides in `globals.css`.
+All done, for the record:
+
+1. ~~Generate SVG using the prompt above.~~
+2. ~~Test at 16px (favicon), 32px (header), and 256px (print/hero).~~
+3. ~~Verify stroke weight and negative space read clearly at all sizes.~~
+4. ~~Extract the minified SVG and save it.~~ Lives at
+   [`../../../assets/soulvault-mark.svg`](../../../assets/soulvault-mark.svg)
+   (indigo-filled, for the README), with a solid-fill favicon variant at
+   [`../src/app/icon.svg`](../src/app/icon.svg).
+5. ~~Update `Logo.tsx`.~~ `LogoMark` inlines the paths as JSX and strokes with
+   `currentColor`, so it inherits the theme instead of shipping two files. The
+   two standalone SVGs and the Satori copy in `app/opengraph-image.tsx` are
+   hand-synced duplicates — change one, change all four.
+6. ~~Verify light and dark.~~ `currentColor` + `text-primary` covers it; no
+   `prefers-color-scheme` override was needed.
 
 ## Historical Context
 
-The preliminary logo from the April hackathon slides is a shield with a glowing network inside—beautiful as a hero image, but contradicts the brand brief (shields are a cliché, gradients and glows signal consumer-friendliness). The new logo should be distinct from that aesthetic: geometric, constructed, squared.
+The preliminary logo from the April hackathon slides is a shield with a glowing
+network inside — good as a hero image, wrong as a mark: the gradient, the glow,
+and the rendered depth all signal consumer product, and none of it survives at
+16px. The Constellation Shield is that idea reduced to geometry — the same
+"swarm inside a boundary" story, drawn in one stroke weight with no fills, no
+depth, and no light source. Keeping the silhouette was the point; keeping the
+render was not.

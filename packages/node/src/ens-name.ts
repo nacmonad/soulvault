@@ -1,5 +1,5 @@
 import fs from 'fs-extra';
-import { ZeroAddress, ZeroHash, hexlify, randomBytes } from 'ethers';
+import { ZeroAddress, ZeroHash, hexlify, randomBytes, type Provider } from 'ethers';
 import { namehash } from 'viem/ens';
 import { keccak256, toUtf8Bytes } from 'ethers';
 import {
@@ -20,6 +20,56 @@ const ZERO_OWNER = '0x0000000000000000000000000000000000000000';
 
 function registerEnsLog(...parts: unknown[]) {
   console.error('[register-ens]', ...parts);
+}
+
+/**
+ * Chain ids where the node is a local dev chain we are allowed to fast-forward.
+ * 1337 is the local ens-app-v3 stack, 31337 is a bare `anvil`/hardhat node.
+ */
+const DEV_CHAIN_IDS = new Set<bigint>([1337n, 31337n]);
+
+/**
+ * Wait out the ENS controller's commit→register delay.
+ *
+ * On a real network this is a real wait — `minCommitmentAge` is enforced against
+ * `block.timestamp` and there is nothing to do but sit through it.
+ *
+ * On a local dev chain the clock is ours, so jump it instead of burning ~60s of wall
+ * time per registration. That is worth real minutes across the integration lane.
+ *
+ * Guarded three ways, because taking this path on a live network would be a bug that
+ * only shows up in front of a hardware wallet: the chain id must be a known dev chain,
+ * the provider must actually implement `evm_increaseTime`, and ANY failure falls back to
+ * sleeping rather than proceeding as if time had advanced.
+ */
+async function awaitCommitmentMaturation(
+  provider: Provider | null | undefined,
+  totalSec: number,
+) {
+  const n = Math.max(1, Math.floor(totalSec));
+
+  try {
+    const chainId = provider ? (await provider.getNetwork()).chainId : undefined;
+    if (chainId !== undefined && DEV_CHAIN_IDS.has(chainId) && 'send' in provider!) {
+      const send = (provider as { send: (m: string, p: unknown[]) => Promise<unknown> }).send.bind(
+        provider,
+      );
+      await send('evm_increaseTime', [n]);
+      await send('evm_mine', []);
+      registerEnsLog(
+        `Dev chain ${chainId}: advanced chain time by ${n}s instead of waiting. ` +
+          'This path is never taken on a live network.',
+      );
+      return;
+    }
+  } catch (err) {
+    registerEnsLog(
+      'Could not fast-forward dev chain time, falling back to a real wait:',
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
+  await sleepCommitmentMaturation(n);
 }
 
 /** Visible heartbeat during the mandatory commit→register delay (often ~60s on Sepolia). */
@@ -188,7 +238,7 @@ export async function registerOrganizationEns(nameOrSlug: string) {
   const commitReceipt = await commitTx.wait();
   registerEnsLog('Commit confirmed in block:', commitReceipt?.blockNumber?.toString() ?? '?');
 
-  await sleepCommitmentMaturation(Number(minCommitmentAge + 1n));
+  await awaitCommitmentMaturation(signer.provider, Number(minCommitmentAge + 1n));
 
   registerEnsLog('Approve REGISTER transaction on your wallet (tx 2/2, pays rent)…');
   const registerTx = await controller.register(...registerArgs, { value });

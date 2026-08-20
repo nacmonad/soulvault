@@ -43,7 +43,11 @@ export function registerSwarmCommands(program: Command) {
     .description(
       'Deploy a new SoulVaultSwarm. With --organization, auto-discovers the org\'s ' +
         'treasury via ENSIP-11 addr on the org ENS name; without it, deploys a stealth ' +
-        'swarm with no treasury and no ENS presence.',
+        'swarm with no treasury and no ENS presence. Visibility controls what reaches ' +
+        'ENS: --public binds the subdomain and lists the swarm on the org, ' +
+        '--semi-private binds the subdomain but omits it from the org\'s list, and ' +
+        '--private publishes nothing (the swarm can still be org-affiliated and ' +
+        'org-funded locally).',
     )
     .option('--organization <nameOrEns>')
     .requiredOption('--name <name>')
@@ -56,11 +60,21 @@ export function registerSwarmCommands(program: Command) {
       '--treasury <address>',
       'Explicit treasury address (overrides org ENSIP-11 auto-discovery). Pass 0x0000000000000000000000000000000000000000 to deploy org-affiliated but treasury-less.',
     )
-    .option('--public', 'Mark as publicly discoverable')
-    .option('--private', 'Mark as private')
-    .option('--semi-private', 'Mark as semi-private')
+    .option('--public', 'Bind the ENS subdomain and list the swarm on the org (default with --organization)')
+    .option('--private', 'Publish nothing to ENS (default without --organization)')
+    .option('--semi-private', 'Bind the ENS subdomain but keep the swarm off the org\'s discovery list')
     .action(async (options) => {
-      const visibility = options.public ? 'public' : options.private ? 'private' : options.semiPrivate ? 'semi-private' : undefined;
+      // Reject rather than let a ternary silently pick a winner — one of the losing
+      // flags would be --private, and dropping that is a privacy leak.
+      const chosen = (['public', 'private', 'semi-private'] as const).filter(
+        (v) => (v === 'semi-private' ? options.semiPrivate : options[v]),
+      );
+      if (chosen.length > 1) {
+        throw new Error(
+          `Visibility flags are mutually exclusive, but got: ${chosen.map((v) => `--${v}`).join(', ')}.`,
+        );
+      }
+      const visibility = chosen[0];
 
       // Resolve the treasury address using the three-mode precedence:
       //   1. --treasury <addr>           (explicit override, including 0x0 to opt out)

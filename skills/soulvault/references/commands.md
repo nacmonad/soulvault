@@ -98,7 +98,28 @@ Create a swarm profile and deploy the `SoulVaultSwarm` contract on 0G Galileo. T
 2. `--organization <x>`: auto-discover via ENSIP-11 `addr(orgNode, coinType)` on the org's ENS name, where `coinType = 0x80000000 | chainId`. Fails loudly if no treasury is published on that coinType.
 3. Neither: **stealth mode** — deploys with `address(0)` as the treasury, does NOT touch ENS at all, does NOT mutate any parent `soulvault.swarms` list. The swarm exists only in local state and on-chain. Useful for swarms that deliberately skip discovery and fund their agents off-band.
 
-When `--organization` is set and the parent has an ENS name, the command also binds an ENS subdomain (`<label>.<orgEnsName>`) and appends the swarm's label to the org's CBOR `soulvault.swarms` text record (read-modify-write — not atomic against concurrent writers).
+**Visibility decides what reaches ENS.** It is an input, not a label describing what
+happened — a `--private` swarm publishes nothing even when it has a parent org:
+
+| Flag | ENS subdomain | Listed in org's `soulvault.swarms` | Effect |
+|---|---|---|---|
+| `--public` | bound | yes | Resolvable and enumerable by walking the org. Default when `--organization` is set. |
+| `--semi-private` | bound | no | Resolvable by anyone who already knows the name; invisible to anyone enumerating the org. |
+| `--private` | none | no | Nothing published. The swarm may still be org-affiliated and hold an org-funded treasury — all of that stays local and on-chain. Default without `--organization`. |
+
+The three flags are mutually exclusive; passing more than one is an error rather than a
+silent precedence win. Contradictory combinations are rejected **before** the contract is
+deployed, so a rejected create costs no gas:
+
+- `--ens-name` with `--private` — a private swarm publishes no name.
+- `--public` / `--semi-private` without a parent org that has a registered ENS name — there
+  is nothing to publish under.
+- `--ens-name` that is not exactly one label below the org's name (`ops.acme.eth` is fine,
+  `a.b.acme.eth` and `ops.other.eth` are not). The binder derives the label by stripping
+  the org suffix, so a deeper name would create a subnode at one namehash while writing
+  resolver records to another.
+
+The org list mutation is read-modify-write — not atomic against concurrent writers.
 
 ```
 --name <name>              [REQUIRED] Swarm name
@@ -108,10 +129,10 @@ When `--organization` is set and the parent has an ENS name, the command also bi
 --rpc <url>                RPC URL (defaults to env SOULVAULT_RPC_URL)
 --owner <address>          Owner address
 --contract <address>       Existing contract address (skip deployment)
---ens-name <name>          Custom ENS subdomain name
---public                   Mark as publicly discoverable
---private                  Mark as private
---semi-private             Mark as semi-private
+--ens-name <name>          Custom ENS subdomain (must be one label below the org)
+--public                   Bind the subdomain and list on the org (default with --organization)
+--private                  Publish nothing to ENS (default without --organization)
+--semi-private             Bind the subdomain but stay off the org's discovery list
 ```
 
 ### `soulvault swarm remove`

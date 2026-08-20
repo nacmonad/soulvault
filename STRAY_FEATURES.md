@@ -10,26 +10,37 @@ moved. Audited against `e7d23c5`; every item below is confirmed absent.
 
 ---
 
-## Do this one first, on its own
+## Fixed — visibility now gates ENS binding
 
-### Visibility does not gate ENS binding — live privacy leak
+*Was: `--private` set `visibility` on the profile but the flag was never consulted before
+publishing, so a private swarm under an org still got a public ENS subdomain and was
+appended to the org's `soulvault.swarms` CBOR list. "Stealth" only meant "no
+`--organization`".*
 
-`--private` / `--semi-private` set `visibility` on the profile, but the flag is never
-consulted before publishing:
+Resolved. The decision moved into `planSwarmEns()` in
+[`packages/node/src/swarm.ts`](packages/node/src/swarm.ts) — a pure function that runs
+before the contract is deployed and returns `{ visibility, ensName, bindSubdomain,
+listInOrg }`. Visibility is now an input that decides what gets written, rather than a
+label back-derived from what happened to be written. `semi-private` also means something
+for the first time: subdomain bound, but kept off the org's discovery list.
 
-- [`packages/node/src/swarm.ts:87`](packages/node/src/swarm.ts) — `ensName` is derived
-  unconditionally via `deriveSwarmEnsName(...)`
-- [`packages/node/src/swarm.ts:89`](packages/node/src/swarm.ts) — binds whenever
-  `organization?.ensName && ensName && contractAddress`
-- [`packages/node/src/swarm.ts:136`](packages/node/src/swarm.ts) — `visibility` is then
-  *back-derived* from `ensName`, so it documents the outcome rather than controlling it
+Covered by [`swarm-visibility.test.ts`](packages/node/src/swarm-visibility.test.ts).
+A second bug turned up while adding the direct-child check: an `--ens-name` more than one
+label below the org (`a.b.acme.eth`) made the binder create a subnode at
+`keccak(namehash(org) ‖ id("a.b"))` while writing resolver records to
+`namehash("a.b.acme.eth")` — two different nodes, so the swarm resolved to nothing and the
+org gained a junk subnode. Now rejected.
 
-Consequence: **a swarm created with `--private` under an org still gets a public ENS
-subdomain and is appended to the org's `soulvault.swarms` CBOR list.** "Stealth" today
-only means "no `--organization`". No test covers this.
+**Still open — no remediation path for swarms already leaked.** The fix stops new leaks;
+it does nothing for a swarm created before it that is marked `private` on disk while its
+subdomain and org-list entry are live on ENS. There is no command to retract them:
+`swarm remove --ens-cleanup` is documented as *not yet implemented*, and it archives the
+swarm locally as a side effect anyway. A `swarm unpublish` that clears the resolver
+records and strips the label — without touching local state — is the missing piece.
 
-Fix is small and independent of everything else here. The VPS branch has a test suite for
-the visibility/ENS planning rules — port that with it.
+**Still open from the VPS branch:** it has its own test suite for the visibility/ENS
+planning rules. Diff it against `swarm-visibility.test.ts` when porting — it may cover
+cases this doesn't.
 
 ---
 

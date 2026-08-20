@@ -282,7 +282,7 @@ Ledger HID) and `@soulvault/protocol` from anywhere.
 ## Testing
 
 ```bash
-pnpm test              # all workspace unit tests (26 vitest tests)
+pnpm test              # all workspace unit tests (38 vitest tests)
 forge test             # 60 Solidity tests across SoulVaultSwarm + SoulVaultTreasury
 pnpm typecheck         # all four workspace packages
 ```

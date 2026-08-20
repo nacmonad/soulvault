@@ -8,6 +8,20 @@ import { readConfig, readJsonIfExists, writeConfig } from './state.js';
 import { bindSwarmEnsSubdomain, deploySoulVaultSwarmContract } from './swarm-deploy.js';
 import { addSwarmToOrgList, removeSwarmFromOrgList } from './ens.js';
 
+/**
+ * How much of a swarm is published to ENS. This is an *input* that decides what
+ * gets written, never a label derived from what happened to be written.
+ *
+ * - `public`       — subdomain bound, and the label appended to the parent org's
+ *                    `soulvault.swarms` list, so the swarm is enumerable from the org.
+ * - `semi-private` — subdomain bound, but the label is kept out of the org's list.
+ *                    Resolvable by anyone who already knows the name; not discoverable
+ *                    by walking the org.
+ * - `private`      — no ENS presence at all. The swarm may still be org-affiliated
+ *                    locally and hold an org-funded treasury; none of that is published.
+ */
+export type SwarmVisibility = 'public' | 'private' | 'semi-private';
+
 export type SwarmProfile = {
   name: string;
   slug: string;
@@ -18,7 +32,7 @@ export type SwarmProfile = {
   ownerAddress?: string;
   contractAddress?: string;
   ensName?: string;
-  visibility: 'public' | 'private' | 'semi-private';
+  visibility: SwarmVisibility;
   /** Hint-only cache of the bound treasury address from the swarm contract's `treasury()` view.
    *  Never authoritative — mutating flows re-resolve from the contract. */
   treasuryAddress?: string;
@@ -57,6 +71,80 @@ function deriveSwarmEnsName(swarmName: string, organizationEnsName?: string) {
   return `${slugify(swarmName)}.${organizationEnsName}`;
 }
 
+export type SwarmEnsPlan = {
+  visibility: SwarmVisibility;
+  /** The name to bind, or `undefined` when the swarm gets no ENS presence. */
+  ensName?: string;
+  /** Write the subdomain and its resolver records. */
+  bindSubdomain: boolean;
+  /** Append the label to the parent org's `soulvault.swarms` discovery list. */
+  listInOrg: boolean;
+};
+
+/**
+ * Decide the ENS consequences of a swarm's visibility, before anything is written.
+ *
+ * Pure and exported so the rules can be tested without deploying a contract — the
+ * previous shape derived `visibility` from whether an ENS name happened to exist,
+ * which meant `--private` recorded the leak instead of preventing it.
+ *
+ * Throws on contradictory input rather than silently picking a winner: quietly
+ * downgrading `--public` to private would be surprising, and quietly ignoring
+ * `--private` would be a privacy leak.
+ */
+export function planSwarmEns(input: {
+  swarmName: string;
+  organizationEnsName?: string;
+  explicitEnsName?: string;
+  visibility?: SwarmVisibility;
+}): SwarmEnsPlan {
+  const visibility = input.visibility ?? (input.organizationEnsName ? 'public' : 'private');
+
+  if (visibility === 'private') {
+    if (input.explicitEnsName) {
+      throw new Error(
+        `--ens-name and --private contradict each other: a private swarm publishes no ` +
+          `ENS name. Drop one of the two.`,
+      );
+    }
+    return { visibility, ensName: undefined, bindSubdomain: false, listInOrg: false };
+  }
+
+  if (!input.organizationEnsName) {
+    throw new Error(
+      `A ${visibility} swarm needs a parent organization with a registered ENS name to ` +
+        `publish under. Pass --organization <nameOrEns>, or use --private for a swarm ` +
+        `with no ENS presence.`,
+    );
+  }
+
+  const ensName = input.explicitEnsName ?? deriveSwarmEnsName(input.swarmName, input.organizationEnsName)!;
+
+  // `bindSwarmEnsSubdomain` strips `.${org}` off the end and uses the remainder as a
+  // single label. For a grandchild like `a.b.acme.eth` that yields the label "a.b",
+  // so `setSubnodeRecord` creates a node at keccak(namehash(org) ‖ id("a.b")) while
+  // the resolver records go to namehash("a.b.acme.eth") — two different nodes. The
+  // swarm would resolve to nothing and the org would gain a junk subnode. Require a
+  // direct child so the two agree.
+  const label = ensName.endsWith(`.${input.organizationEnsName}`)
+    ? ensName.slice(0, -`.${input.organizationEnsName}`.length)
+    : undefined;
+  if (!label || label.includes('.')) {
+    throw new Error(
+      `ENS name "${ensName}" is not a direct subdomain of the organization's name ` +
+        `"${input.organizationEnsName}". Swarm names must be exactly one label below ` +
+        `their org (e.g. "ops.${input.organizationEnsName}").`,
+    );
+  }
+
+  return {
+    visibility,
+    ensName,
+    bindSubdomain: true,
+    listInOrg: visibility === 'public',
+  };
+}
+
 export async function createSwarmProfile(input: {
   organization?: string;
   name: string;
@@ -72,11 +160,20 @@ export async function createSwarmProfile(input: {
    */
   initialTreasury?: string;
   ensName?: string;
-  visibility?: 'public' | 'private' | 'semi-private';
+  visibility?: SwarmVisibility;
 }) {
   const env = loadEnv();
   const organization = input.organization ? await getOrganizationProfile(input.organization) : null;
   if (input.organization && !organization) throw new Error(`Organization not found: ${input.organization}`);
+
+  // Resolve the ENS plan *before* deploying anything: a contradictory flag
+  // combination should fail without having spent gas.
+  const plan = planSwarmEns({
+    swarmName: input.name,
+    organizationEnsName: organization?.ensName,
+    explicitEnsName: input.ensName,
+    visibility: input.visibility,
+  });
 
   const initialTreasury = input.initialTreasury ?? ZeroAddress;
   const deployment = input.contractAddress
@@ -84,11 +181,11 @@ export async function createSwarmProfile(input: {
     : await deploySoulVaultSwarmContract({ initialTreasury });
   const slug = slugify(input.name);
   const now = new Date().toISOString();
-  const ensName = input.ensName ?? deriveSwarmEnsName(input.name, organization?.ensName);
+  const ensName = plan.ensName;
   const contractAddress = input.contractAddress ?? deployment?.address;
 
   let ensBinding: SwarmProfile['ensBinding'];
-  if (organization?.ensName && ensName && contractAddress) {
+  if (plan.bindSubdomain && organization?.ensName && ensName && contractAddress) {
     const bound = await bindSwarmEnsSubdomain({
       organizationEnsName: organization.ensName,
       swarmEnsName: ensName,
@@ -103,19 +200,25 @@ export async function createSwarmProfile(input: {
     };
 
     // Append this swarm's label to the org's CBOR `soulvault.swarms` list on the org
-    // ENS name. Best-effort: a failure here (e.g. network blip) shouldn't unwind an
-    // already-deployed swarm contract or a successfully-bound subdomain. Log and
-    // continue; the user can re-run a future `organization sync-swarms` to reconcile.
-    const label = ensName.replace(`.${organization.ensName}`, '');
-    try {
-      await addSwarmToOrgList(organization.ensName, label);
-    } catch (err) {
-      console.error(
-        `[swarm create] WARNING: failed to append "${label}" to ${organization.ensName}'s ` +
-          `soulvault.swarms list: ${(err as Error).message} — ` +
-          `the swarm is deployed and its subdomain is bound, but the parent org's ` +
-          `discovery list was not updated. Re-run with --force or reconcile manually.`,
-      );
+    // ENS name — public swarms only. A semi-private swarm is resolvable by name but
+    // must not be enumerable by walking the org, which is the whole difference between
+    // the two levels.
+    //
+    // Best-effort: a failure here (e.g. network blip) shouldn't unwind an already-
+    // deployed swarm contract or a successfully-bound subdomain. Log and continue;
+    // the user can re-run a future `organization sync-swarms` to reconcile.
+    if (plan.listInOrg) {
+      const label = ensName.replace(`.${organization.ensName}`, '');
+      try {
+        await addSwarmToOrgList(organization.ensName, label);
+      } catch (err) {
+        console.error(
+          `[swarm create] WARNING: failed to append "${label}" to ${organization.ensName}'s ` +
+            `soulvault.swarms list: ${(err as Error).message} — ` +
+            `the swarm is deployed and its subdomain is bound, but the parent org's ` +
+            `discovery list was not updated. Re-run with --force or reconcile manually.`,
+        );
+      }
     }
   }
 
@@ -133,7 +236,7 @@ export async function createSwarmProfile(input: {
     ownerAddress: input.ownerAddress ?? deployment?.ownerAddress ?? organization?.ownerAddress,
     contractAddress,
     ensName,
-    visibility: input.visibility ?? (ensName ? 'public' : 'private'),
+    visibility: plan.visibility,
     treasuryAddress: treasuryHint,
     createdAt: now,
     updatedAt: now,

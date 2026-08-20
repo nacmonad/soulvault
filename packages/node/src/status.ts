@@ -266,6 +266,16 @@ export function formatStatusText(report: StatusReport): string {
     const sw = report.swarms.active;
     kv('Name', sw.name);
     kv('ENS', sw.ensName ?? '(none)');
+    // Spelled out rather than shown bare: the whole point of the setting is what
+    // is or isn't published, and "semi-private" doesn't say that on its own.
+    kv(
+      'Visibility',
+      sw.visibility === 'public'
+        ? 'public (ENS bound, listed on org)'
+        : sw.visibility === 'semi-private'
+          ? 'semi-private (ENS bound, not listed on org)'
+          : 'private (nothing published to ENS)',
+    );
     kv('Contract', show(sw.contractAddress));
     kv('Chain', `${sw.chainId}`);
   } else {

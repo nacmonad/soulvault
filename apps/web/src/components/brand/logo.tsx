@@ -2,28 +2,36 @@ import { cn } from "@/lib/utils";
 import { site } from "@/lib/site";
 
 /**
- * Geometric mark: an outer frame (the artifact that travels) enclosing an
- * inner solid block (the fields only an authorized key resolves). Constructed
- * from two rects on a 24-unit grid — no lock iconography, no gradients.
+ * Constellation Shield: a protected, living swarm. This is the reductive SVG
+ * counterpart to the original luminous shield used in the SoulVault slides.
  */
 export function LogoMark({ className }: { className?: string }) {
   return (
     <svg
-      viewBox="0 0 24 24"
+      viewBox="0 0 256 256"
       fill="none"
       aria-hidden="true"
       className={cn("size-6", className)}
     >
-      <rect
-        x="2.75"
-        y="2.75"
-        width="18.5"
-        height="18.5"
+      <path
+        d="M128 20C154 40 185 48 218 54V116C218 174 182 216 128 238C74 216 38 174 38 116V54C71 48 102 40 128 20Z"
         stroke="currentColor"
-        strokeWidth="1.5"
+        strokeWidth="14"
+        strokeLinejoin="round"
       />
-      <rect x="7" y="7" width="10" height="4" fill="currentColor" />
-      <rect x="7" y="13.5" width="6" height="4" fill="currentColor" opacity="0.35" />
+      <path
+        d="M78 104L111 78L145 112L180 76M111 78L124 158M145 112L124 158L170 164"
+        stroke="currentColor"
+        strokeWidth="8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="78" cy="104" r="10" fill="currentColor" />
+      <circle cx="111" cy="78" r="10" fill="currentColor" />
+      <circle cx="145" cy="112" r="10" fill="currentColor" />
+      <circle cx="180" cy="76" r="10" fill="currentColor" />
+      <circle cx="124" cy="158" r="10" fill="currentColor" />
+      <circle cx="170" cy="164" r="10" fill="currentColor" />
     </svg>
   );
 }

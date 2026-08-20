@@ -92,10 +92,11 @@ Monochromatic indigo with a neutral slate support. Deliberately not complementar
 - **Weight usage:** Regular (400) for body, Semibold (600) for subheads, Bold (700) for headlines
 - **Character:** Professional, modern, no decorative serifs or flourishes. Works equally well in headings and dense body copy. Tight, economical letterforms suggest engineering.
 
-**Secondary Typeface: Inconsolata or JetBrains Mono**
-- **Rationale:** Monospace for code samples, technical documentation, feature callouts. Monospace signals "this is technical, precise, and trustworthy." Users expect to see monospace in infrastructure documentation.
-- **Role:** Code blocks, API references, cryptographic hashes, wallet addresses, technical specifications
-- **Character:** Fixed-width, industrial aesthetic. Reinforces precision and engineering.
+**Secondary Typeface: IBM Plex Mono**
+- **Rationale:** Monospace signals "technical, precise, trustworthy," and it is the one typographic contrast on the page — so the eyebrows, stat values, and code all share it. IBM Plex Mono specifically because it is *humanist*: rounder counters, slightly angled terminals, a trace of calligraphic stress. JetBrains Mono was the first choice and was replaced — its flat terminals and near-square counters read as stencil-like at the 11px all-caps size the section eyebrows use.
+- **Role:** Section eyebrows, code blocks, API references, cryptographic hashes, wallet addresses, technical specifications
+- **Character:** Fixed-width and engineered, but not rigid. Softer than a grotesque mono without tipping into friendly.
+- **Weights:** 400 and 500 only. Not a variable font, so every weight used has to be requested explicitly.
 
 **Type Personality**
 Clean, engineered, precise. Typography should be invisible—it should serve the content, not draw attention to itself. Kerning should be tight. Line spacing should be generous (1.6–1.8 line height for body). No italic variants except for emphasis in code or quotes. Hierarchy should be achieved through size and weight, not through style variations.
@@ -105,7 +106,7 @@ Clean, engineered, precise. Typography should be invisible—it should serve the
 - **Subheads (H2/H3):** Inter Semibold, 24–28px, line height 1.3
 - **Body:** Inter Regular, 16px, line height 1.6, max 70 characters per line
 - **Labels & Microcopy:** Inter Regular, 12–14px, line height 1.5
-- **Code/Technical:** Inconsolata Regular, 13–14px, line height 1.4
+- **Code/Technical:** IBM Plex Mono Regular, 13–14px, line height 1.4
 
 **Avoid**
 - Rounded sans-serifs (Rounded Gotham, SF Display with rounded variants)
@@ -184,14 +185,14 @@ The visual language should reflect what the product actually does. Don't hide or
 ### Social Media (Twitter, LinkedIn, GitHub)
 **Avatar:** Mark + logotype (combined or icon alone; must remain recognizable at 48px). Indigo primary, gray/white supporting.
 
-**Post Templates:** Minimal backgrounds (white or off-white), bold indigo accents for key information. Typography hierarchy: Inter for all. Use monospace (`Inconsolata`) for code snippets or technical callouts. Avoid full-bleed images; frame content in white cards with subtle borders (1px slate gray).
+**Post Templates:** Minimal backgrounds (white or off-white), bold indigo accents for key information. Typography hierarchy: Inter for all. Use monospace (`IBM Plex Mono`) for code snippets or technical callouts. Avoid full-bleed images; frame content in white cards with subtle borders (1px slate gray).
 
 **Color Coding:** Technical posts (indigo), announcements (indigo + white), developer updates (white with code blocks), security/privacy focus (indigo on white, no images necessary).
 
 ---
 
 ### Website / App Interface
-**Navigation:** Slate gray text on off-white background. Indigo used for active states and CTAs. Generous whitespace. Monospace font for technical fields (API keys, wallet addresses, hashes). Code blocks: dark background (`#1E293B`), indigo syntax highlighting, `Inconsolata` font.
+**Navigation:** Slate gray text on off-white background. Indigo used for active states and CTAs. Generous whitespace. Monospace font for technical fields (API keys, wallet addresses, hashes). Code blocks: dark background (`#1E293B`), indigo syntax highlighting, `IBM Plex Mono` font.
 
 **Hero Section:** Off-white background, indigo accent line or minimal geometric shape. Headline in Inter Bold. No hero image; if visual is needed, use abstract geometric shapes (e.g., interlocking circles suggesting encryption).
 

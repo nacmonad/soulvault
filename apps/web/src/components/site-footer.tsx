@@ -40,7 +40,7 @@ export function SiteFooter() {
 
         {columns.map((column) => (
           <div key={column.heading}>
-            <h2 className="font-mono text-[11px] tracking-widest text-muted-foreground uppercase">
+            <h2 className="eyebrow text-muted-foreground">
               {column.heading}
             </h2>
             <ul className="mt-4 space-y-2.5">

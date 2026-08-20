@@ -12,9 +12,9 @@ const inter = Inter({
   subsets: ["latin"],
 });
 
-// Humanist mono: rounder counters and softer terminals than JetBrains Mono,
-// which read as stencil-like in the small all-caps eyebrows. Not a variable
-// font, so the weights we actually use have to be listed.
+// Reserved for genuine technical values — hashes, addresses, file paths, code.
+// Labels and eyebrows use Inter (see the `eyebrow` utility in globals.css).
+// Humanist mono, and not a variable font, so weights must be listed.
 const ibmPlexMono = IBM_Plex_Mono({
   variable: "--font-ibm-plex-mono",
   subsets: ["latin"],

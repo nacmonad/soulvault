@@ -93,10 +93,17 @@ Monochromatic indigo with a neutral slate support. Deliberately not complementar
 - **Character:** Professional, modern, no decorative serifs or flourishes. Works equally well in headings and dense body copy. Tight, economical letterforms suggest engineering.
 
 **Secondary Typeface: IBM Plex Mono**
-- **Rationale:** Monospace signals "technical, precise, trustworthy," and it is the one typographic contrast on the page — so the eyebrows, stat values, and code all share it. IBM Plex Mono specifically because it is *humanist*: rounder counters, slightly angled terminals, a trace of calligraphic stress. JetBrains Mono was the first choice and was replaced — its flat terminals and near-square counters read as stencil-like at the 11px all-caps size the section eyebrows use.
-- **Role:** Section eyebrows, code blocks, API references, cryptographic hashes, wallet addresses, technical specifications
-- **Character:** Fixed-width and engineered, but not rigid. Softer than a grotesque mono without tipping into friendly.
-- **Weights:** 400 and 500 only. Not a variable font, so every weight used has to be requested explicitly.
+- **Rationale:** Monospace signals "this is a value, not prose." Humanist rather than grotesque — rounder counters, slightly angled terminals — so it stays engineered without going rigid.
+- **Role:** *Technical values only.* Cryptographic hashes, wallet addresses, file paths, code, contract identifiers, stat figures, step numerals. Nothing decorative.
+- **Weights:** 400 and 500 only. Not a variable font, so every weight used must be requested explicitly.
+
+**The mono/sans line**
+Mono earns its place by meaning something: if the reader could copy the string and paste it into a terminal, it is mono. If it is a label describing the content, it is Inter. Two earlier drafts got this wrong — first JetBrains Mono, then IBM Plex Mono, set the small all-caps section eyebrows, and both read as stencil-like at 11px. The problem was not which mono; it was using mono for a label at all. Eyebrows and status chips are now Inter (see the `eyebrow` and `chip` utilities in `globals.css`), and the page reads calmer for it.
+
+**Labels and eyebrows (Inter)**
+- **Eyebrow:** 11px, weight 500, letter-spacing 0.12em, uppercase. Caps at this size need the extra tracking and the medium weight to stay legible; the defaults look thin and cramped.
+- **Status chip:** 10px, weight 500, letter-spacing 0.08em, uppercase.
+- Both are defined once as Tailwind utilities rather than repeated as class strings, so they cannot drift apart across the seven places they appear.
 
 **Type Personality**
 Clean, engineered, precise. Typography should be invisible—it should serve the content, not draw attention to itself. Kerning should be tight. Line spacing should be generous (1.6–1.8 line height for body). No italic variants except for emphasis in code or quotes. Hierarchy should be achieved through size and weight, not through style variations.
@@ -107,6 +114,7 @@ Clean, engineered, precise. Typography should be invisible—it should serve the
 - **Body:** Inter Regular, 16px, line height 1.6, max 70 characters per line
 - **Labels & Microcopy:** Inter Regular, 12–14px, line height 1.5
 - **Code/Technical:** IBM Plex Mono Regular, 13–14px, line height 1.4
+- **Eyebrow / Label:** Inter Medium, 11px, 0.12em tracking, uppercase
 
 **Avoid**
 - Rounded sans-serifs (Rounded Gotham, SF Display with rounded variants)

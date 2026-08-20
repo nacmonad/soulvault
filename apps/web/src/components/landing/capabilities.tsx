@@ -42,7 +42,7 @@ export function Capabilities() {
       <div className="grid gap-px border border-border bg-border lg:grid-cols-2">
         {capabilities.map((capability) => (
           <div key={capability.title} className="bg-card p-8">
-            <p className="font-mono text-[11px] tracking-widest text-muted-foreground uppercase">
+            <p className="eyebrow text-muted-foreground">
               {capability.label}
             </p>
             <h3 className="mt-3 text-lg font-semibold tracking-tight">

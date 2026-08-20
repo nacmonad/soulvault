@@ -21,7 +21,7 @@ export function Section({
       className={cn("border-b border-border scroll-mt-14", className)}
     >
       <div className="mx-auto w-full max-w-6xl px-6 py-20">
-        <p className="font-mono text-[11px] tracking-widest text-primary uppercase">
+        <p className="eyebrow text-primary">
           {eyebrow}
         </p>
         <h2 className="mt-3 max-w-2xl text-2xl font-semibold tracking-tight text-balance sm:text-3xl">

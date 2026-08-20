@@ -140,6 +140,29 @@
   }
 }
 
+/*
+ * Small all-caps label above a heading, and the status chips that match it.
+ * Sans rather than mono: at 11px in caps a mono reads stencil-like, and the
+ * page keeps mono for things that are actually technical values — hashes,
+ * addresses, file paths, code. Caps at this size need the extra tracking and
+ * a medium weight to stay legible.
+ */
+@utility eyebrow {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+@utility chip {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 @utility grid-field {
   background-image: linear-gradient(
       to right,

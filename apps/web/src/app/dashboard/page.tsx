@@ -62,7 +62,7 @@ export default function DashboardPage() {
           <div key={panel.title} className="bg-card p-6">
             <div className="flex items-center gap-2">
               <h2 className="font-semibold tracking-tight">{panel.title}</h2>
-              <span className="border border-border px-1.5 py-0.5 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
+              <span className="border border-border px-1.5 py-0.5 chip text-muted-foreground">
                 soon
               </span>
             </div>

@@ -12,7 +12,7 @@ export function Hero() {
         className="grid-field pointer-events-none absolute inset-0 [mask-image:radial-gradient(ellipse_at_top,black,transparent_72%)] opacity-60"
       />
       <div className="relative mx-auto w-full max-w-6xl px-6 py-24 sm:py-32">
-        <p className="inline-flex items-center gap-2 border border-border bg-card px-2.5 py-1 font-mono text-[11px] tracking-widest text-muted-foreground uppercase">
+        <p className="inline-flex items-center gap-2 border border-border bg-card px-2.5 py-1 eyebrow text-muted-foreground">
           <span className="size-1.5 bg-primary" />
           Pre-launch · 0G Galileo + Sepolia
         </p>

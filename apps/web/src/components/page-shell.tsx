@@ -11,7 +11,7 @@ export function PageShell({
 }) {
   return (
     <div className="mx-auto w-full max-w-6xl flex-1 px-6 py-16">
-      <p className="font-mono text-[11px] tracking-widest text-primary uppercase">
+      <p className="eyebrow text-primary">
         {eyebrow}
       </p>
       <h1 className="mt-3 text-3xl font-semibold tracking-tight text-balance">

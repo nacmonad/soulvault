@@ -23,7 +23,7 @@ export function SiteHeader() {
             >
               {item.label}
               {item.comingSoon ? (
-                <span className="rounded-xs bg-muted px-1.5 py-0.5 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
+                <span className="rounded-xs bg-muted px-1.5 py-0.5 chip text-muted-foreground">
                   soon
                 </span>
               ) : null}

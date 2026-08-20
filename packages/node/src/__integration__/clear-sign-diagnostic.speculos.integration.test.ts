@@ -17,8 +17,8 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { parseEther } from 'ethers';
 import { createSigner, signTypedDataWithMode, type SoulVaultSigner } from '../signer.js';
 import { buildApproveFundRequest, defaultDeadline } from '../typed-data.js';
-import { pollEvents } from '../../../test/speculos/screen.js';
-import { pressRight, pressBoth, pressLeft } from '../../../test/speculos/buttons.js';
+import { pollEvents } from '../../test/speculos/screen.js';
+import { pressRight, pressBoth, pressLeft } from '../../test/speculos/buttons.js';
 
 const SPECULOS_URL = process.env.SOULVAULT_SPECULOS_API_URL ?? 'http://127.0.0.1:5000';
 

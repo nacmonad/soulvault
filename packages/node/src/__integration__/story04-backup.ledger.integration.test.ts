@@ -4,13 +4,13 @@
 
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { Contract, JsonRpcProvider, Wallet, ZeroAddress, keccak256, parseEther, toUtf8Bytes } from 'ethers';
-import { loadForgeArtifact, deployContract } from '../../../test/helpers/forge-artifacts.js';
+import { loadForgeArtifact, deployContract } from '../../test/helpers/forge-artifacts.js';
 import {
   setupFundedEnv,
   walkAndCaptureDevice,
   sendWithFreshNonce,
   resetDeviceToHome,
-} from '../../../test/speculos/suite-helpers.js';
+} from '../../test/speculos/suite-helpers.js';
 import { buildBackupRequest, defaultDeadline } from '../typed-data.js';
 import { createSigner, signTypedDataWithMode, type SoulVaultSigner } from '../signer.js';
 

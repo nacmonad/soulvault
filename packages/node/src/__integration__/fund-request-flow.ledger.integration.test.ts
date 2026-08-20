@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { Contract, JsonRpcProvider, Wallet, parseEther, formatEther } from 'ethers';
 import fs from 'fs-extra';
-import { loadForgeArtifact, deployContract } from '../../../test/helpers/forge-artifacts.js';
+import { loadForgeArtifact, deployContract } from '../../test/helpers/forge-artifacts.js';
 import { createSigner, type SoulVaultSigner } from '../signer.js';
 import { createOrganizationProfile } from '../organization.js';
 import { createSwarmProfile } from '../swarm.js';

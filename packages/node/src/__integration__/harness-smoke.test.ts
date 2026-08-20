@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { JsonRpcProvider, Wallet, ZeroAddress, type Contract } from 'ethers';
-import { loadForgeArtifact, deployContract } from '../../../test/helpers/forge-artifacts.js';
+import { loadForgeArtifact, deployContract } from '../../test/helpers/forge-artifacts.js';
 
 /**
  * Smoke test for the integration harness (Lane B of feat/agent-request-funds).

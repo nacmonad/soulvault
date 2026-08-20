@@ -1,16 +1,11 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import fs from 'fs-extra';
 import { Contract, JsonRpcProvider, Wallet, ZeroAddress } from 'ethers';
 import { namehash } from 'viem/ens';
 import { createOrganizationProfile } from '../organization.js';
 import { createSwarmProfile, getSwarmProfile, unpublishSwarm } from '../swarm.js';
 import { registerOrganizationEns } from '../ens-name.js';
-import {
-  createEnsProvider,
-  getEnsRegistry,
-  readEnsText,
-  readOrgSwarmsList,
-} from '../ens.js';
+import { readEnsText, readOrgSwarmsList } from '../ens.js';
 import { resolveCliStateDir } from '../paths.js';
 
 /**
@@ -52,10 +47,25 @@ describe('swarm visibility and ENS retraction', () => {
   let provider: JsonRpcProvider;
   let owner: Wallet;
   let orgSlug: string;
+  let registry: Contract;
+
+  /*
+   * One provider for the whole file, deliberately.
+   *
+   * Every read helper in ens.ts constructs a fresh JsonRpcProvider (8 call sites), and
+   * ethers starts a polling loop per provider that nothing ever destroys. Assertions
+   * that each built their own added enough of those to flood the dockerised anvil:
+   * runs stalled on a *different* test each time — 180s, 300s, 360s — while every
+   * other test finished in 4-43s. Reusing one provider here removes this file's share
+   * of that churn. The leak in ens.ts itself is untouched and still worth fixing.
+   */
+  const REGISTRY_ABI = [
+    'function owner(bytes32) view returns (address)',
+    'function resolver(bytes32) view returns (address)',
+  ] as const;
 
   /** Read the subnode's registry entry — the ground truth for "does this name exist". */
   async function readNode(ensName: string) {
-    const registry = await getEnsRegistry(false);
     const node = namehash(ensName);
     const [nodeOwner, resolver] = await Promise.all([registry.owner(node), registry.resolver(node)]);
     return { node, owner: String(nodeOwner), resolver: String(resolver) };
@@ -65,8 +75,7 @@ describe('swarm visibility and ENS retraction', () => {
   async function readAddr(ensName: string): Promise<string | null> {
     const { node, resolver } = await readNode(ensName);
     if (resolver.toLowerCase() === ZeroAddress.toLowerCase()) return null;
-    const ensProvider = await createEnsProvider();
-    const contract = new Contract(resolver, RESOLVER_ADDR_ABI, ensProvider);
+    const contract = new Contract(resolver, RESOLVER_ADDR_ABI, provider);
     const value = String(await contract.addr(node));
     return value.toLowerCase() === ZeroAddress.toLowerCase() ? null : value;
   }
@@ -81,6 +90,7 @@ describe('swarm visibility and ENS retraction', () => {
 
     provider = new JsonRpcProvider(rpcUrl);
     owner = new Wallet(privateKey, provider);
+    registry = new Contract(process.env.SOULVAULT_ENS_REGISTRY_ADDRESS!, REGISTRY_ABI, provider);
     await fs.ensureDir(resolveCliStateDir());
 
     // One org, registered once — the commit→register wait is the slow part of this
@@ -95,6 +105,11 @@ describe('swarm visibility and ENS retraction', () => {
     const reg = await registerOrganizationEns(orgSlug);
     expect(reg.organization.ensRegistration?.status).toBe('registered');
   }, 300_000);
+
+  afterAll(() => {
+    // Stop the polling loop rather than leaving it running for the rest of the lane.
+    provider?.destroy();
+  });
 
   it('publishes a public swarm to ENS and lists it on the org', async () => {
     const profile = await createSwarmProfile({
@@ -116,7 +131,7 @@ describe('swarm visibility and ENS retraction', () => {
       profile.contractAddress,
     );
     expect(await readOrgSwarmsList(ORG_ENS_NAME)).toContain(label(profile.ensName!));
-  }, 180_000);
+  }, 300_000);
 
   it('binds a semi-private swarm but keeps it off the org discovery list', async () => {
     const profile = await createSwarmProfile({
@@ -135,7 +150,7 @@ describe('swarm visibility and ENS retraction', () => {
     );
     // ...but invisible to anyone walking the org.
     expect(await readOrgSwarmsList(ORG_ENS_NAME)).not.toContain(label(profile.ensName!));
-  }, 180_000);
+  }, 300_000);
 
   // The regression test for the original defect: `--private` under an org used to bind
   // a public subdomain and append the label to the org's list regardless.
@@ -161,7 +176,7 @@ describe('swarm visibility and ENS retraction', () => {
     expect(node.owner.toLowerCase()).toBe(ZeroAddress.toLowerCase());
     expect(await readAddr(wouldHaveBeen)).toBeNull();
     expect(await readOrgSwarmsList(ORG_ENS_NAME)).not.toContain(name);
-  }, 180_000);
+  }, 300_000);
 
   it('unpublish clears the records, releases the subnode, and delists', async () => {
     const profile = await createSwarmProfile({
@@ -194,7 +209,7 @@ describe('swarm visibility and ENS retraction', () => {
     expect(after?.ensBinding).toBeUndefined();
     expect(after?.visibility).toBe('private');
     expect(after?.contractAddress).toBe(profile.contractAddress);
-  }, 180_000);
+  }, 300_000);
 
   it('unpublish --delist-only strips the label but leaves the name resolving', async () => {
     const profile = await createSwarmProfile({
@@ -219,5 +234,5 @@ describe('swarm visibility and ENS retraction', () => {
     const after = await getSwarmProfile(profile.slug);
     expect(after?.ensName).toBe(ensName);
     expect(after?.visibility).toBe('semi-private');
-  }, 180_000);
+  }, 300_000);
 });

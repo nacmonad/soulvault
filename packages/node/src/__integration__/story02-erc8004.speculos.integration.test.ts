@@ -4,12 +4,12 @@
 
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { Contract, JsonRpcProvider, Wallet } from 'ethers';
-import { loadForgeArtifact, deployContract } from '../../../test/helpers/forge-artifacts.js';
+import { loadForgeArtifact, deployContract } from '../../test/helpers/forge-artifacts.js';
 import {
   setupFundedEnv,
   walkAndCaptureDevice,
   resetDeviceToHome,
-} from '../../../test/speculos/suite-helpers.js';
+} from '../../test/speculos/suite-helpers.js';
 import { createSigner, signTransactionWithMode, type SoulVaultSigner } from '../signer.js';
 
 describe('story02 — ERC-8004 register [speculos|hardware]', () => {

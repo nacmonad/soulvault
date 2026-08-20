@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { Contract, JsonRpcProvider, Wallet, parseEther } from 'ethers';
-import { loadForgeArtifact, deployContract } from '../../../test/helpers/forge-artifacts.js';
+import { loadForgeArtifact, deployContract } from '../../test/helpers/forge-artifacts.js';
 import { SOULVAULT_SWARM_ABI } from '../swarm-contract.js';
 
 /**

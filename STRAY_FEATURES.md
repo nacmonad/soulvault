@@ -69,14 +69,31 @@ constructed wallet — same mismatch, second symptom.
 - *Nonce races between independently constructed signers.* The stall reproduces
   identically with one shared provider and one shared wallet (3 hangs in 40).
 
-**Fix — harness, not library.** Give the dev chain a steady block cadence
-(`anvil --block-time 1`, set in ens-app-v3's `pnpm denv` compose config). That fixes
-both symptoms for every suite at once with no code change.
+**`--block-time 1` is NOT the fix — it breaks the harness.** Tried and reverted.
+`ens-test-env`'s anvil entrypoint does take `$ANVIL_EXTRA_ARGS`, so
+`ANVIL_EXTRA_ARGS="--block-time 1" pnpm denv` does reach anvil — but startup then never
+completes. `manager.js:waitForENSNode()` blocks until the indexer reports
+`_meta.block.number >= <deploy block>`; with the chain advancing on a timer, ponder's
+historical sync finishes at genesis and its status keeps coming back `null`/`0`
+(`ZodError: Too small: expected number to be >=1`), so the wait loop spins forever on
+`ENSNode at blockheight: 0, need 12` while anvil marches past block 37. The harness
+assumes the chain only advances when a transaction is sent. Do not retry this.
 
-A library-side `waitForTx()` that polls `eth_getTransactionReceipt` instead of relying
-on the subscription would fix the hang across all 28 `.wait()` call sites in
-`packages/node/src`, and is worth doing anyway for real networks — but on its own it is
-**not sufficient**, because it does not address the stale-nonce symptom.
+**Fix — library side, two parts.** Both mechanisms confirmed in the ethers v6.13.1
+source, not inferred:
+
+1. *The hung wait.* Replace the 28 `await tx.wait()` calls in `packages/node/src` with a
+   `waitForTx()` that polls `eth_getTransactionReceipt` directly instead of relying on
+   the block-event subscription. Worth doing for real networks (0G, Sepolia) regardless.
+
+2. *The stale nonce.* Construct providers with `{ cacheTimeout: -1 }`.
+   `getTransactionCount` routes through `AbstractProvider.#perform`, which by default
+   serves any identical request from a 250ms cache (`abstract-provider.js:155,246`). On
+   a local chain transactions land well inside 250ms, so a fresh wallet can read a stale
+   nonce and get `nonce too low`. `cacheTimeout < 0` bypasses the cache entirely
+   (`abstract-provider.js:246-248`).
+
+Part 1 alone is insufficient — it does not address symptom 2.
 
 **This affects the Speculos and Ledger suites too.** They never touch `ens.ts`, but
 `global-setup-speculos.ts` probes the same `SOULVAULT_RPC_URL`, and every privileged

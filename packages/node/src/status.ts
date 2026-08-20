@@ -1,4 +1,5 @@
 import fs from 'fs-extra';
+import { createJsonRpcProvider } from './provider.js';
 import { Contract, JsonRpcProvider } from 'ethers';
 import { getAgentProfile, type AgentProfile } from './agent.js';
 import { getActiveOrganization, listOrganizationProfiles, type OrganizationProfile } from './organization.js';
@@ -79,7 +80,7 @@ async function probeOnchain(
   agentAddress: string | null,
 ): Promise<StatusReport['onchain']> {
   try {
-    const provider = new JsonRpcProvider(swarmProfile.rpcUrl);
+    const provider = createJsonRpcProvider(swarmProfile.rpcUrl, swarmProfile.chainId);
     const contract = new Contract(swarmProfile.contractAddress!, READONLY_ABI, provider);
 
     const [epoch, membershipVersion, memberCount, owner] = await Promise.all([

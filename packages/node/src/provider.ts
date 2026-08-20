@@ -24,8 +24,25 @@ const DEV_POLLING_INTERVAL_MS = 100;
  * never hammer a public RPC.
  */
 export function createJsonRpcProvider(url: string, chainId?: number): JsonRpcProvider {
-  const provider = new JsonRpcProvider(url, chainId);
-  if (chainId !== undefined && DEV_CHAIN_IDS.has(chainId)) {
+  const isDevChain = chainId !== undefined && DEV_CHAIN_IDS.has(chainId);
+
+  // Disable the request cache on dev chains, together with the faster polling below.
+  //
+  // ethers shares identical requests for `cacheTimeout` ms (default 250), and
+  // getTransactionCount goes through it. On a local chain consecutive transactions land
+  // well inside 250ms, so the second one reads the first one's nonce and the node
+  // rejects it with "nonce too low". The 4s polling default used to space transactions
+  // out far enough to hide this; dropping to 100ms exposed it immediately.
+  //
+  // Left at the default for real networks: there the spacing is naturally larger, and
+  // sharing repeat reads inside a quarter second is worth having against a public RPC.
+  const provider = new JsonRpcProvider(
+    url,
+    chainId,
+    isDevChain ? { cacheTimeout: -1 } : undefined,
+  );
+
+  if (isDevChain) {
     provider.pollingInterval = DEV_POLLING_INTERVAL_MS;
   }
   return provider;

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { Contract, JsonRpcProvider, Wallet, parseEther, formatEther } from 'ethers';
+import { makeTestProvider } from '../../test/helpers/provider.js';
 import fs from 'fs-extra';
 import { loadForgeArtifact, deployContract } from '../../test/helpers/forge-artifacts.js';
 import { createOrganizationProfile } from '../organization.js';
@@ -63,7 +64,7 @@ describe('fund request flow (CLI integration)', () => {
     if (!rpcUrl) throw new Error('SOULVAULT_RPC_URL not set (global-setup should populate it)');
     if (!privateKey) throw new Error('SOULVAULT_PRIVATE_KEY not set (global-setup should populate it)');
 
-    provider = new JsonRpcProvider(rpcUrl);
+    provider = makeTestProvider(rpcUrl);
     owner = new Wallet(privateKey, provider);
 
     // Derive a second local account for alice. Anvil / hardhat default mnemonic

@@ -44,13 +44,19 @@ export async function deployContract<T extends Contract = Contract>(
   args: unknown[] = [],
 ): Promise<T> {
   const factory = new ContractFactory(artifact.abi, artifact.bytecode, signer);
-  // Force a fresh nonce read from the provider to avoid collisions when
-  // multiple Wallet instances share a private key across test files.
+  // Pin the nonce explicitly, because several test files drive the same EOA.
+  //
+  // This MUST read 'pending', not 'latest'. 'latest' counts only mined
+  // transactions, so anything still in the pool is invisible and the deploy gets
+  // pinned to a nonce that is already spoken for -> "nonce too low". Build the
+  // provider with `cacheTimeout: -1` too (see makeTestProvider): ethers serves
+  // identical requests from a 250ms cache by default, which makes this read stale
+  // exactly when back-to-back deploys need it to be fresh.
   const provider = signer.provider;
   const fromAddr = await signer.getAddress();
   const nonce =
     provider && 'getTransactionCount' in provider
-      ? await provider.getTransactionCount(fromAddr, 'latest')
+      ? await provider.getTransactionCount(fromAddr, 'pending')
       : undefined;
   const deployArgs = nonce !== undefined ? [...args, { nonce }] : args;
   const contract = await factory.deploy(...deployArgs);

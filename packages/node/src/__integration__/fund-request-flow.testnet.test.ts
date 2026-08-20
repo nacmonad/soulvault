@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { Contract, JsonRpcProvider, Wallet, parseEther } from 'ethers';
+import { makeTestProvider } from '../../test/helpers/provider.js';
 import { loadForgeArtifact, deployContract } from '../../test/helpers/forge-artifacts.js';
 import { SOULVAULT_SWARM_ABI } from '../swarm-contract.js';
 
@@ -34,7 +35,7 @@ describe.skipIf(!testnetEnabled)('fund request flow (testnet smoke)', () => {
     if (!rpcUrl) throw new Error('SOULVAULT_RPC_URL not set');
     if (!privateKey) throw new Error('SOULVAULT_PRIVATE_KEY not set');
 
-    provider = new JsonRpcProvider(rpcUrl);
+    provider = makeTestProvider(rpcUrl);
     owner = new Wallet(privateKey, provider);
 
     const balance = await provider.getBalance(owner.address);

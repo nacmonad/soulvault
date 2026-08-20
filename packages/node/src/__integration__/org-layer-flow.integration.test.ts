@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import fs from 'fs-extra';
 import path from 'node:path';
 import { Contract, JsonRpcProvider, Wallet, ZeroAddress, parseEther } from 'ethers';
+import { makeTestProvider } from '../../test/helpers/provider.js';
 import { namehash } from 'viem/ens';
 import { createOrganizationProfile, setOrganizationEnsName } from '../organization.js';
 import { createSwarmProfile, archiveSwarmProfile, getSwarmProfile } from '../swarm.js';
@@ -94,7 +95,7 @@ describe('organization layer end-to-end flow', () => {
     if (!rpcUrl) throw new Error('SOULVAULT_RPC_URL not set (global-setup should populate it)');
     if (!privateKey) throw new Error('SOULVAULT_PRIVATE_KEY not set (global-setup should populate it)');
 
-    provider = new JsonRpcProvider(rpcUrl);
+    provider = makeTestProvider(rpcUrl);
     owner = new Wallet(privateKey, provider);
     alice = new Wallet(ALICE_PRIVATE_KEY, provider);
     bob = new Wallet(BOB_PRIVATE_KEY, provider);

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { JsonRpcProvider, Wallet, ZeroAddress, type Contract } from 'ethers';
+import { makeTestProvider } from '../../test/helpers/provider.js';
 import { loadForgeArtifact, deployContract } from '../../test/helpers/forge-artifacts.js';
 
 /**
@@ -26,7 +27,7 @@ describe('integration harness smoke', () => {
     if (!rpcUrl) throw new Error('SOULVAULT_RPC_URL not set (should be populated by globalSetup from .env.test)');
     if (!privateKey) throw new Error('SOULVAULT_PRIVATE_KEY not set (should be populated by globalSetup from .env.test)');
 
-    provider = new JsonRpcProvider(rpcUrl);
+    provider = makeTestProvider(rpcUrl);
     deployer = new Wallet(privateKey, provider);
 
     const swarmArtifact = loadForgeArtifact('SoulVaultSwarm');

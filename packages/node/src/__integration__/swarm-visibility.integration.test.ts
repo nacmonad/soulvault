@@ -1,6 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import fs from 'fs-extra';
 import { Contract, JsonRpcProvider, Wallet, ZeroAddress } from 'ethers';
+import { makeTestProvider } from '../../test/helpers/provider.js';
 import { namehash } from 'viem/ens';
 import { createOrganizationProfile } from '../organization.js';
 import { createSwarmProfile, getSwarmProfile, unpublishSwarm } from '../swarm.js';
@@ -99,7 +100,7 @@ describe('swarm visibility and ENS retraction', () => {
     if (!rpcUrl) throw new Error('SOULVAULT_RPC_URL not set (global-setup should populate it)');
     if (!privateKey) throw new Error('SOULVAULT_PRIVATE_KEY not set (global-setup should populate it)');
 
-    provider = new JsonRpcProvider(rpcUrl);
+    provider = makeTestProvider(rpcUrl);
     owner = new Wallet(privateKey, provider);
     registry = new Contract(process.env.SOULVAULT_ENS_REGISTRY_ADDRESS!, REGISTRY_ABI, provider);
     await fs.ensureDir(resolveCliStateDir());

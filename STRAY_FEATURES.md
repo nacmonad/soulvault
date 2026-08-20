@@ -63,6 +63,33 @@ why *exactly one* test stalls per run and it is a different test each time. A st
 provider view of the head also surfaces as a spurious `nonce too low` on a freshly
 constructed wallet — same mismatch, second symptom.
 
+**Why this surfaced now: the migration hid the suite, it did not break the chain.**
+`org-layer-flow.integration.test.ts` was born at `cli/src/lib/__integration__/`
+(5b8c953). From there `../../../test/helpers/` resolved to `cli/test/helpers/` —
+correct. The monorepo move relocated it to `packages/node/src/__integration__/`, where
+that same path resolves to `packages/test/helpers/`, but the helpers live at
+`packages/node/test/helpers/`. Off by one level, so the imports failed to resolve and
+the files were never collected — the "No test files found" we kept seeing. The whole
+integration lane was dark from the migration until the 15 paths were fixed. These tests
+were not passing before; they were not running. Treat every failure the lane is now
+showing as pre-existing and newly visible, not as a regression.
+
+**The ethers pin is NOT the cause.** The migration also pinned ethers `^6.16.0` ->
+`6.13.1`. Tested head-to-head, 50 sequential transactions each, native anvil:
+`6.13.1 hung=0/50 nonceErr=14` vs `6.16.0 hung=0/50 nonceErr=34`. Zero hangs on both,
+and the *older* pin is the better one for nonces. Ruled out.
+
+**The hang is specific to the dockerized chain.** It reproduces at ~5% against the
+docker anvil on 8545 and not at all against a native `anvil` on another port under an
+identical workload. So it is container networking, not ethers and not our code.
+
+**Unit tests cannot see any of this.** No unit test file references `JsonRpcProvider`;
+`swarm-visibility.test.ts` has zero mocks because `planSwarmEns()` is pure. A green unit
+lane says nothing about the chain lane.
+
+**`cacheTimeout: -1` is confirmed, not inferred.** Same workload, same version:
+`default cache -> nonceErr=14`, `cacheTimeout:-1 -> nonceErr=0`.
+
 **Two hypotheses were tested and disproved**, recorded so they are not retried:
 - *Provider churn / leaked pollers.* Measured at 1.1x, ~1.75ms per call. A single
   undestroyed provider does not hold the event loop open either. Not the cause.

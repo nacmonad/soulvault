@@ -15,9 +15,6 @@ export default defineConfig({
     include: ['src/**/__integration__/**/*.speculos.integration.test.ts'],
     testTimeout: 300_000,
     hookTimeout: 120_000,
-    poolOptions: {
-      threads: { singleThread: true },
-    },
     fileParallelism: false,
     sequence: { concurrent: false },
     globalSetup: ['./test/global-setup-speculos.ts'],

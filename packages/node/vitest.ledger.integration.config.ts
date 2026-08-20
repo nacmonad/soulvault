@@ -13,11 +13,11 @@ export default defineConfig({
     environment: 'node',
     include: ['src/**/__integration__/**/*.ledger.integration.test.ts'],
     testTimeout: 600_000,
-    poolOptions: {
-      threads: {
-        singleThread: true,
-      },
-    },
+    // Vitest 4 removed poolOptions; fileParallelism is the replacement. A shared
+    // signer EOA means concurrent files race on nonces.
+    fileParallelism: false,
+    maxWorkers: 1,
+    minWorkers: 1,
     globalSetup: ['./test/global-setup-ledger.ts'],
   },
 });

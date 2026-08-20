@@ -6,7 +6,12 @@ import { defineConfig } from 'vitest/config';
  * - Requires a running local chain (ens-app-v3 on localhost:8545 by default).
  * - Runs `forge build` via globalSetup so Foundry artifacts are fresh.
  * - Isolates HOME to a temp dir so CLI state writes don't clobber the dev profile.
- * - Single-threaded because global setup mutates process.env.HOME.
+ * - Serialized because global setup mutates process.env.HOME and every test file
+ *   drives the SAME signer EOA against the SAME chain. Two files registering ENS
+ *   concurrently race on that wallet's nonce: one transaction replaces the other, the
+ *   replaced one never gets a receipt, and its tx.wait() blocks until the suite dies.
+ *   Use `fileParallelism`, NOT `poolOptions` — Vitest 4 removed poolOptions and ignores
+ *   it silently, which is exactly how this regressed.
  *
  * Run with: `pnpm test:integration`
  *
@@ -23,11 +28,9 @@ export default defineConfig({
       'src/**/__integration__/**/*.speculos.integration.test.ts',
     ],
     testTimeout: 180_000,
-    poolOptions: {
-      threads: {
-        singleThread: true,
-      },
-    },
+    fileParallelism: false,
+    maxWorkers: 1,
+    minWorkers: 1,
     globalSetup: ['./test/global-setup.ts'],
   },
 });

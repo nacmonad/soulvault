@@ -113,12 +113,48 @@ hitting. The lane was dark from the migration until the 15 paths were fixed, so 
 above were pre-existing and merely invisible. Unit tests could never have caught them:
 no unit test file references `JsonRpcProvider`.
 
-### Still open: the lane takes ~7 minutes
+### Runtime: ~7 minutes -> ~45 seconds
 
-Nothing calls `evm_increaseTime`/`evm_mine`. `ens-name.ts:191` genuinely sleeps
-`minCommitmentAge + 1` seconds in wall-clock, so a single org-layer-flow test burns ~130s.
-On a local chain that wait can be skipped by advancing chain time instead of sleeping,
-which would cut minutes off the run.
+Three changes, all gated on the chain id being a dev node (1337/31337) so live-network
+behaviour is unchanged by construction rather than by convention:
+
+- `ens-name.ts` jumped the commit->register wait with `evm_increaseTime` + `evm_mine`
+  instead of sleeping `minCommitmentAge` in wall-clock. Falls back to the real sleep if
+  the chain id is not a dev node, if the RPC lacks the method, or on any error.
+- `createJsonRpcProvider()` drops `pollingInterval` from ethers' 4000ms default to 100ms.
+  This was the big one and it was hiding in plain sight in the timings — happy path
+  4445ms, reject 4536ms, pause 4612ms were not work, they were one poll interval each.
+- The same factory sets `cacheTimeout: -1` on dev chains. Faster polling immediately
+  surfaced `NONCE_EXPIRED` on deploys: consecutive transactions were landing inside
+  ethers' 250ms request cache and reading each other's nonce. The 4s default had been
+  accidentally spacing them out past it.
+
+swarm-visibility went from 126s of test time to 6.16s; fund-request-flow from ~78s to
+under 9s.
+
+### Still open: an intermittent revert in org-layer-flow's bootstrap
+
+The lane is **not yet reliably green**. Measured over three consecutive full runs at
+~45s each: 21/21, then 2 failed, then 21/21 — roughly two in three clean.
+
+The failure is `transaction execution reverted` (status 0, no logs) inside
+`walks the full bootstrap flow end-to-end`. The `EnsNameUnavailableError` failure that
+accompanies it is a cascade, not a second bug: the bootstrap aborts before the org name
+is registered, so the test that asserts re-registration is refused finds the name free.
+
+What is known:
+- It is order/combination dependent. The file passes alone (3/3) and in every pair tried
+  — with swarm-visibility, with fund-request-flow, with harness-smoke. Only the full
+  four-file run reproduces it.
+- It is not caused by the speed-ups, which are separable from it; runs at ~45s pass
+  outright two thirds of the time.
+
+**Prime suspect, for whoever picks this up:** each integration file builds its own
+provider via `makeTestProvider()` while the lib builds its own via
+`createJsonRpcProvider()`, and both drive the same signer EOA. Two providers means two
+independent views of that account's nonce, which is the same class of bug already fixed
+twice here (the Vitest 4 parallelism regression, and `deployContract` pinning from
+'latest'). Unifying on one provider per EOA is the obvious next move.
 
 
 ## The rest

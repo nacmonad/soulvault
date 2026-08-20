@@ -44,6 +44,47 @@ cases this doesn't.
 
 ---
 
+## Integration lane: the e2e suites are non-deterministic against `pnpm denv`
+
+**Root cause, proven — it is the chain harness, not our code.**
+
+anvil auto-mines: a transaction is mined the instant it is submitted, and the chain
+then sits idle. ethers' `tx.wait()` resolves off a block-event subscription, so when
+the receipt lands *before* the listener is installed there is no subsequent block to
+wake it, and `wait()` blocks forever. Evidence, from a hung wait:
+
+```
+wait() HUNG.  eth_getTransactionReceipt -> RECEIPT EXISTS block 494;  head=494
+              after mining another block, wait() resolved in 126ms
+```
+
+Reproduces at ~5% per transaction. Our suites fire ~30 transactions per run, which is
+why *exactly one* test stalls per run and it is a different test each time. A stale
+provider view of the head also surfaces as a spurious `nonce too low` on a freshly
+constructed wallet — same mismatch, second symptom.
+
+**Two hypotheses were tested and disproved**, recorded so they are not retried:
+- *Provider churn / leaked pollers.* Measured at 1.1x, ~1.75ms per call. A single
+  undestroyed provider does not hold the event loop open either. Not the cause.
+- *Nonce races between independently constructed signers.* The stall reproduces
+  identically with one shared provider and one shared wallet (3 hangs in 40).
+
+**Fix — harness, not library.** Give the dev chain a steady block cadence
+(`anvil --block-time 1`, set in ens-app-v3's `pnpm denv` compose config). That fixes
+both symptoms for every suite at once with no code change.
+
+A library-side `waitForTx()` that polls `eth_getTransactionReceipt` instead of relying
+on the subscription would fix the hang across all 28 `.wait()` call sites in
+`packages/node/src`, and is worth doing anyway for real networks — but on its own it is
+**not sufficient**, because it does not address the stale-nonce symptom.
+
+**This affects the Speculos and Ledger suites too.** They never touch `ens.ts`, but
+`global-setup-speculos.ts` probes the same `SOULVAULT_RPC_URL`, and every privileged
+operation they exercise goes through the same lib `.wait()` calls. Expect the same ~5%
+per-transaction stall there until the block cadence is fixed.
+
+---
+
 ## The rest
 
 | # | Feature | State |

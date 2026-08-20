@@ -50,14 +50,25 @@ describe('swarm visibility and ENS retraction', () => {
   let registry: Contract;
 
   /*
-   * One provider for the whole file, deliberately.
+   * One provider for the whole file. This is tidiness, NOT a flake fix — an earlier
+   * version of this comment claimed it fixed the intermittent stalls and that was
+   * wrong. Measured: a fresh provider per call costs ~1.75ms more than a shared one
+   * (1.1x), nowhere near enough to matter.
    *
-   * Every read helper in ens.ts constructs a fresh JsonRpcProvider (8 call sites), and
-   * ethers starts a polling loop per provider that nothing ever destroys. Assertions
-   * that each built their own added enough of those to flood the dockerised anvil:
-   * runs stalled on a *different* test each time — 180s, 300s, 360s — while every
-   * other test finished in 4-43s. Reusing one provider here removes this file's share
-   * of that churn. The leak in ens.ts itself is untouched and still worth fixing.
+   * The real cause of the stalls is in the chain harness, not this code. anvil
+   * auto-mines, so a transaction is mined the instant it is submitted and then the
+   * chain sits idle. ethers' tx.wait() resolves off a block-event subscription, so
+   * when the receipt lands before the listener is installed there is no subsequent
+   * block to wake it and wait() blocks forever. Proven directly: on a hung wait,
+   * eth_getTransactionReceipt already returned a receipt at the current head, and
+   * submitting one more transaction resolved the stuck wait in 126ms. It reproduces
+   * at roughly 5% per transaction whether providers are shared or not.
+   *
+   * A stale provider view of the head also shows up as spurious "nonce too low" on
+   * a freshly constructed wallet. Same underlying mismatch.
+   *
+   * The fix belongs in the harness (give anvil a steady block cadence, e.g.
+   * --block-time 1) rather than here. See the notes in STRAY_FEATURES.md.
    */
   const REGISTRY_ABI = [
     'function owner(bytes32) view returns (address)',

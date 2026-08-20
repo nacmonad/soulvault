@@ -49,7 +49,21 @@ export default async function globalSetup() {
   }
   // eslint-disable-next-line no-console
   console.log('[global-setup] Running forge build...');
-  execSync('forge build', { cwd: resolveRepoRoot(), stdio: 'inherit' });
+  // Capture rather than inherit. `forge build` emits a page of style lint notes
+  // (screaming-snake-case-immutable, unwrapped-modifier-logic, ...) on every run, which
+  // buries the actual test output — a failing assertion ends up scrolled off behind
+  // advice about modifier code size. Real build failures still surface: execSync throws
+  // on a non-zero exit and we print everything we captured before rethrowing.
+  try {
+    execSync('forge build', { cwd: resolveRepoRoot(), stdio: 'pipe' });
+  } catch (err) {
+    const e = err as { stdout?: Buffer; stderr?: Buffer };
+    // eslint-disable-next-line no-console
+    console.error(e.stdout?.toString() ?? '');
+    // eslint-disable-next-line no-console
+    console.error(e.stderr?.toString() ?? '');
+    throw err;
+  }
 
   // 4. Probe the ENS / ops RPC. In the collapsed single-chain setup they're the
   //    same node, but we probe them independently so a misconfig surfaces early.

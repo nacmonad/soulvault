@@ -1,4 +1,5 @@
 import { Contract, JsonRpcProvider, ZeroAddress, getAddress, getBytes, hexlify } from 'ethers';
+import { createJsonRpcProvider } from './provider.js';
 import { namehash, normalize } from 'viem/ens';
 import { loadEnv } from './config.js';
 import { createSignerForProvider } from './signer.js';
@@ -65,12 +66,12 @@ export function getNameWrapperContract(address: string, withSigner: boolean) {
 
 export async function createEthProvider() {
   const env = loadEnv();
-  return new JsonRpcProvider(env.SOULVAULT_ETH_RPC_URL, env.SOULVAULT_ENS_CHAIN_ID);
+  return createJsonRpcProvider(env.SOULVAULT_ETH_RPC_URL, env.SOULVAULT_ENS_CHAIN_ID);
 }
 
 export async function createEnsProvider() {
   const env = loadEnv();
-  return new JsonRpcProvider(env.SOULVAULT_ENS_RPC_URL, env.SOULVAULT_ENS_CHAIN_ID);
+  return createJsonRpcProvider(env.SOULVAULT_ENS_RPC_URL, env.SOULVAULT_ENS_CHAIN_ID);
 }
 
 export async function createEnsSigner() {

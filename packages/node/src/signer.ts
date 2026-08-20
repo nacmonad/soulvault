@@ -10,6 +10,7 @@ import {
   Wallet,
 } from 'ethers';
 import { createRequire } from 'node:module';
+import { createJsonRpcProvider } from './provider.js';
 import type { ClearSignContextType, ContextModule } from '@ledgerhq/context-module';
 import type { DeviceManagementKit, DeviceSessionId, DiscoveredDevice } from '@ledgerhq/device-management-kit';
 import type { Signature as LedgerSignature, SignerEth } from '@ledgerhq/device-signer-kit-ethereum';
@@ -244,7 +245,7 @@ function inferPrimaryType(types: Record<string, Array<{ name: string; type: stri
 
 export async function createProvider() {
   const env = loadEnv();
-  return new JsonRpcProvider(env.SOULVAULT_RPC_URL, env.SOULVAULT_CHAIN_ID);
+  return createJsonRpcProvider(env.SOULVAULT_RPC_URL, env.SOULVAULT_CHAIN_ID);
 }
 
 export async function createSwarmProvider() {

@@ -1,4 +1,5 @@
 import fs from 'fs-extra';
+import { createJsonRpcProvider } from './provider.js';
 import { Contract, JsonRpcProvider } from 'ethers';
 import type { AgentProfile } from './agent.js';
 import { loadEnv } from './config.js';
@@ -208,7 +209,7 @@ export async function runLedgerStateSync(input: {
     }
   }
 
-  const rpc = new JsonRpcProvider(env.SOULVAULT_RPC_URL, env.SOULVAULT_CHAIN_ID);
+  const rpc = createJsonRpcProvider(env.SOULVAULT_RPC_URL, env.SOULVAULT_CHAIN_ID);
 
   for (const raw of swarmEnsNames) {
     const ens = normalizeEnsName(raw);

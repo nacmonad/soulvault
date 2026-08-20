@@ -1,6 +1,6 @@
 "use client";
 
-import { Monitor, Moon, Sun } from "lucide-react";
+import { Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useSyncExternalStore } from "react";
 
@@ -8,7 +8,6 @@ import { cn } from "@/lib/utils";
 
 const options = [
   { value: "light", label: "Light", icon: Sun },
-  { value: "system", label: "System", icon: Monitor },
   { value: "dark", label: "Dark", icon: Moon },
 ] as const;
 
@@ -28,8 +27,8 @@ function useIsHydrated() {
 }
 
 /**
- * Three-state segmented control. `theme` (not `resolvedTheme`) is the right
- * source here — it distinguishes an explicit choice from following the OS.
+ * Two-state toggle: Light and Dark. Defaults to Dark unless explicitly set.
+ * Uses `theme` (not `resolvedTheme`) to distinguish an explicit choice.
  */
 export function ThemeToggle() {
   const { theme, setTheme } = useTheme();

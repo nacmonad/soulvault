@@ -368,6 +368,12 @@ implemented and tested on 0G Galileo + Sepolia.
 The web app in `apps/web` is currently a landing page and a dashboard scaffold;
 the wallet connector and the panels behind it are not wired up yet.
 
+> **Update:** 0G is no longer a sponsor of ETHOnline 2026, so the confidential
+> collaboration layer no longer targets 0G for storage or prize alignment. The
+> authoritative design — including the post-0G storage/distribution decision and
+> the USE-engine (TEE/zk) breakdown — is
+> [redaction-hydration-spec.md](docs/redaction-hydration-spec.md).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) — it covers the gitleaks pre-commit hook

@@ -5,6 +5,8 @@ import { site } from "@/lib/site";
 export const alt = `${site.name} — ${site.tagline}`;
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
+// Required for `output: export` (GitHub Pages) — the image must be static.
+export const dynamic = "force-static";
 
 /**
  * The mark is inlined rather than imported from `brand/logo.tsx`: Satori

@@ -106,10 +106,15 @@
   - Agents use existing SoulVault secp256k1 identity
   - TEE optional for private computation over sensitive fields (USE without READ)
 
-- **Hackathon angle (ETHOnline 2026)**: 
+- **Hackathon angle (ETHOnline 2026)**:
   - 0G (storage + EVM + TEE)
   - World (proof-of-human for high-risk disclosures)
   - Ledger (clear-signing for human-readable authorization decisions)
+
+> **Update:** 0G is no longer a sponsor of ETHOnline 2026 — the 0G line above is
+> retired. The current target set (Hedera x402 payments, Ledger grants, Chainlink
+> CRE confidential compute) and the full post-0G design live in
+> `docs/redaction-hydration-spec.md`.
   - presidio-web (credible local redaction engine)
   - **Reuses existing SoulVault membership/authorization primitives**
 

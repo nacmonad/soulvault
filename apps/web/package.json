@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "build:export": "SOULVAULT_WEB_EXPORT=1 next build",
+    "deploy:pages": "sh scripts/deploy-pages.sh",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit"

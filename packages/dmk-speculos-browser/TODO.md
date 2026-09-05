@@ -148,6 +148,10 @@ operation; every approval or rejection is an explicit test action.
   context exposes the rejection without an address, then signs in and completes
   the disconnect/reconnect lifecycle. The real Chromium + pinned Speculos run
   passes with failure screenshots, video, trace, and device transcript capture.
+- [x] Documented the reusable package topology, required environment, ELF and
+  security boundaries, CI commands, limitations, and physical WebHID checklist.
+  Added a framework-neutral, typechecked DMK address example that leaves every
+  Speculos approval or rejection to the external test controller.
 
 ### 1. Trace the transport contract
 

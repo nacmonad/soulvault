@@ -111,6 +111,9 @@ operation; every approval or rejection is an explicit test action.
 - [x] Added a real device-action rejection path that navigates to the Nano S
   Plus `Cancel` screen, confirms explicitly through the controller, and asserts
   that DMK surfaces the rejected address action as an error.
+- [x] Added a real disconnect-during-action path that aborts the pending browser
+  APDU, resets the emulated device explicitly, reconnects with a new DMK session,
+  and derives the address successfully afterward.
 
 ### 1. Trace the transport contract
 

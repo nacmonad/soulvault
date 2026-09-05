@@ -122,6 +122,47 @@ run('real DMK browser transport against Speculos', () => {
       dmk.close();
     }
   });
+
+  it('aborts an in-flight device action on disconnect, resets, and reconnects', async () => {
+    const registration = createSpeculosTransport({
+      apduUrl: `${apiUrl}/apdu`,
+      requestTimeoutMs: 60_000,
+    });
+    const controller = createSpeculosController({ apiUrl: apiUrl! });
+    const dmk = new DeviceManagementKitBuilder().addTransport(registration.factory).build();
+
+    try {
+      const device = await firstValueFrom(
+        dmk.startDiscovering({ transport: registration.identifier }),
+      );
+      const sessionId = await dmk.connect({
+        device,
+        sessionRefresherOptions: { isRefresherDisabled: true },
+      });
+      const signer = new SignerEthBuilder({ dmk, sessionId }).build();
+      const resultPromise = completedOutput<{ address: string }>(
+        signer.getAddress("44'/60'/0'/0/0", {
+          checkOnDevice: true,
+          skipOpenApp: true,
+        }),
+      );
+      void resultPromise.catch(() => undefined);
+      await controller.waitForScreen('Address');
+
+      await dmk.disconnect({ sessionId });
+
+      await expect(resultPromise).rejects.toMatchObject({ errorCode: 'ABORTED' });
+      await reviewAndReject(controller);
+      const reconnectedSessionId = await dmk.connect({
+        device,
+        sessionRefresherOptions: { isRefresherDisabled: true },
+      });
+      expect(await deriveAddress(dmk, reconnectedSessionId)).toMatch(/^0x[0-9a-f]{40}$/i);
+      await dmk.disconnect({ sessionId: reconnectedSessionId });
+    } finally {
+      dmk.close();
+    }
+  });
 });
 
 async function reviewAndApprove(controller: ReturnType<typeof createSpeculosController>) {

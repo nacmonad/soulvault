@@ -67,6 +67,18 @@ operation; every approval or rejection is an explicit test action.
 
 ## Implementation sequence
 
+### Verified progress
+
+- [x] Scaffolded the workspace package with a browser-only TypeScript target,
+  DMK 1.8 peer dependency, focused unit tests, and typecheck scripts.
+- [x] Recorded every `Transport` method and the official Speculos transport's
+  discovery, app-version APDU, connection, error, and teardown behavior in
+  [`TRANSPORT-CONTRACT.md`](TRANSPORT-CONTRACT.md).
+- [x] Compiled the public registration API as a real DMK `TransportFactory` and
+  verified its explicit emulation metadata without TypeScript casts.
+- [ ] Complete the stage-one tracer by driving one in-memory Ethereum address
+  action through DMK.
+
 ### 1. Trace the transport contract
 
 - Inspect DMK's registered transport interface and the official Node Speculos
@@ -138,11 +150,36 @@ no production code path capable of selecting Speculos.
 Complete when `pnpm pack --dry-run` is clean and a minimal example outside the package
 can install the tarball and derive the expected Speculos address.
 
+### 7. Record the end-to-end proof of concept
+
+- Add a minimal React example with a plain **Sign in with Ledger** button and a
+  visible signed-in address/state. Keep product-dashboard concerns out of it.
+- Have Playwright click the button through the explicit development-only connector,
+  causing the browser DMK flow to exchange real APDUs with the pinned Ethereum app
+  running in Speculos.
+- Drive each required Speculos approval explicitly from the test controller and
+  assert the expected deterministic Ethereum address in the rendered React UI.
+- Record the passing Playwright run as video and retain the device-screen transcript,
+  browser trace, and version/setup metadata beside it as CI artifacts.
+- Include an on-screen or adjacent evidence label stating that Speculos proves the
+  browser integration and device-action state machine, not WebHID discovery,
+  physical possession, or hardware attestation.
+
+**Final PASS gate:** from a clean checkout with the externally supplied ELF, one
+documented command starts the bridge and Speculos, serves the React example, runs
+Playwright in video-recording mode, clicks **Sign in with Ledger**, explicitly
+approves the device action, and finishes green with the deterministic address visible.
+The retained video, screen transcript, Playwright trace, and exact dependency/image/
+ELF versions are sufficient for another developer to reproduce the proof without
+SoulVault dashboard code.
+
 ## Acceptance suite
 
 - Unit: transport framing, error mapping, abort, cleanup, and controller polling.
 - Integration: DMK + Ethereum Signer Kit + official Speculos + Ethereum ELF.
 - Browser: Chromium + real application context + explicit test connector injection.
+- Proof: recorded React sign-in button → browser DMK → Speculos approval → verified
+  address, reproducible with one documented command from a clean checkout.
 - Regression: existing Node Speculos suite remains green.
 - Manual: physical Ledger/WebHID connect, verify, reject, disconnect, and reconnect
   stays a separate required check.

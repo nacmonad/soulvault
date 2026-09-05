@@ -82,6 +82,10 @@ operation; every approval or rejection is an explicit test action.
   action through DMK.
 - [x] Added stable transport errors for HTTP failures, malformed responses, and
   invalid APDU hex; failed exchanges preserve causes and emit one disconnect.
+- [x] Completed the browser transport lifecycle with bounded APDU requests,
+  explicit abort on disconnect, connection-loss mapping, concurrent-action
+  rejection, cleanup, and reconnect coverage (9 unit tests; package typecheck
+  green).
 
 ### 1. Trace the transport contract
 
@@ -104,6 +108,8 @@ must implement and no method is inferred only from TypeScript casts.
 
 Complete when unit tests cover connect, APDU exchange, abort, disconnect, reconnect,
 and concurrent-action rejection without Docker or a browser.
+
+**PASS:** verified without Docker or a browser by the package unit suite.
 
 ### 3. Add the Speculos controller
 

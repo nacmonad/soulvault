@@ -144,7 +144,97 @@ describe('createSpeculosTransport', () => {
     expect(onDisconnect).toHaveBeenCalledOnce();
     expect(onDisconnect).toHaveBeenCalledWith(discovered.id);
   });
+
+  it('rejects concurrent APDU actions without disrupting the active request', async () => {
+    let releaseRequest: ((response: Response) => void) | undefined;
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(
+      () => new Promise<Response>((resolve) => {
+        releaseRequest = resolve;
+      }),
+    );
+    const { transport, device, onDisconnect } = await connectedTransport(fetchMock);
+
+    const first = device.sendApdu(Uint8Array.from([0xe0, 0x02, 0, 0]));
+    const second = await device.sendApdu(Uint8Array.from([0xe0, 0x02, 0, 0]));
+
+    expect(second.extract()).toMatchObject({ errorCode: 'CONCURRENT_ACTION' });
+    releaseRequest?.(new Response(JSON.stringify({ data: '9000' }), { status: 200 }));
+    expect((await first).isRight()).toBe(true);
+    expect(onDisconnect).not.toHaveBeenCalled();
+    await transport.disconnect({ connectedDevice: device });
+  });
+
+  it('aborts an in-flight APDU request on disconnect and can reconnect', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (_input, init) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+      }),
+    );
+    const { transport, device, discovered, onDisconnect } = await connectedTransport(fetchMock);
+
+    const pending = device.sendApdu(Uint8Array.from([0xe0, 0x02, 0, 0]));
+    await transport.disconnect({ connectedDevice: device });
+
+    expect((await pending).extract()).toMatchObject({ errorCode: 'ABORTED' });
+    expect(onDisconnect).not.toHaveBeenCalled();
+    const reconnected = await transport.connect({ deviceId: discovered.id, onDisconnect: vi.fn() });
+    expect(reconnected.isRight()).toBe(true);
+  });
+
+  it('times out an APDU request and reports one disconnect', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+        }),
+      );
+      const { factory } = createSpeculosTransport({
+        apduUrl: 'http://127.0.0.1:5000/apdu',
+        fetch: fetchMock,
+        requestTimeoutMs: 50,
+      });
+      const transport = factory({} as TransportArgs);
+      const discovered = await firstValueFrom(transport.startDiscovering());
+      const onDisconnect = vi.fn();
+      const connected = await transport.connect({ deviceId: discovered.id, onDisconnect });
+      const request = connected.unsafeCoerce().sendApdu(Uint8Array.from([0xe0, 0x02, 0, 0]));
+
+      await vi.advanceTimersByTimeAsync(50);
+
+      expect((await request).extract()).toMatchObject({ errorCode: 'TIMEOUT' });
+      expect(onDisconnect).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('preserves the cause when the APDU bridge connection is lost', async () => {
+    const cause = new TypeError('fetch failed');
+    const fetchMock = vi.fn<typeof fetch>().mockRejectedValue(cause);
+    const { device, onDisconnect } = await connectedTransport(fetchMock);
+
+    const result = await device.sendApdu(Uint8Array.from([0xe0, 0x02, 0, 0]));
+
+    expect(result.extract()).toMatchObject({
+      errorCode: 'CONNECTION_LOST',
+      originalError: cause,
+    });
+    expect(onDisconnect).toHaveBeenCalledOnce();
+  });
 });
+
+async function connectedTransport(fetchMock: typeof fetch) {
+  const { factory } = createSpeculosTransport({
+    apduUrl: 'http://127.0.0.1:5000/apdu',
+    fetch: fetchMock,
+  });
+  const transport = factory({} as TransportArgs);
+  const discovered = await firstValueFrom(transport.startDiscovering());
+  const onDisconnect = vi.fn();
+  const connected = await transport.connect({ deviceId: discovered.id, onDisconnect });
+  return { transport, discovered, device: connected.unsafeCoerce(), onDisconnect };
+}
 
 function textToHex(value: string): string {
   return Array.from(value, (character) => character.charCodeAt(0).toString(16).padStart(2, '0')).join('');

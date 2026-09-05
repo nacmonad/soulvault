@@ -25,6 +25,7 @@ export type SpeculosBrowserOptions = {
   apduUrl: string;
   apiUrl?: string;
   fetch?: typeof globalThis.fetch;
+  requestTimeoutMs?: number;
 };
 
 export type EmulatedLedgerMetadata = {
@@ -39,9 +40,14 @@ export type SpeculosBrowserTransportRegistration = {
 };
 
 export type SpeculosBrowserTransportErrorCode =
+  | 'ABORTED'
+  | 'CONCURRENT_ACTION'
+  | 'CONNECTION_LOST'
+  | 'DISCONNECTED'
   | 'HTTP_FAILURE'
   | 'MALFORMED_RESPONSE'
-  | 'INVALID_HEX';
+  | 'INVALID_HEX'
+  | 'TIMEOUT';
 
 export class SpeculosBrowserTransportError implements DmkError {
   readonly _tag = 'SpeculosBrowserTransportError';
@@ -57,8 +63,13 @@ const DEVICE_ID = 'SpeculosBrowserDevice';
 
 class SpeculosBrowserTransport implements Transport {
   private connectedDevice?: TransportConnectedDevice;
+  private activeRequest?: AbortController;
 
-  constructor(readonly options: Required<Pick<SpeculosBrowserOptions, 'apduUrl' | 'fetch'>>) {}
+  constructor(
+    readonly options: Required<
+      Pick<SpeculosBrowserOptions, 'apduUrl' | 'fetch' | 'requestTimeoutMs'>
+    >,
+  ) {}
 
   private get deviceModel(): TransportDeviceModel {
     return new TransportDeviceModel({
@@ -114,6 +125,10 @@ class SpeculosBrowserTransport implements Transport {
     connectedDevice: TransportConnectedDevice;
   }): Promise<Either<DmkError, void>> {
     this.connectedDevice = undefined;
+    this.activeRequest?.abort(
+      new SpeculosBrowserTransportError('ABORTED', 'Speculos APDU request was aborted'),
+    );
+    this.activeRequest = undefined;
     return Right(undefined);
   }
 
@@ -130,11 +145,40 @@ class SpeculosBrowserTransport implements Transport {
     apdu: Uint8Array,
     onDisconnect: DisconnectHandler,
   ): Promise<Either<DmkError, ApduResponseType>> {
+    if (!this.connectedDevice) {
+      return Left(
+        new SpeculosBrowserTransportError(
+          'DISCONNECTED',
+          'Speculos transport is not connected',
+        ),
+      );
+    }
+    if (this.activeRequest) {
+      return Left(
+        new SpeculosBrowserTransportError(
+          'CONCURRENT_ACTION',
+          'Speculos transport already has an APDU request in flight',
+        ),
+      );
+    }
+
+    const controller = new AbortController();
+    this.activeRequest = controller;
+    const timeout = setTimeout(() => {
+      controller.abort(
+        new SpeculosBrowserTransportError(
+          'TIMEOUT',
+          `Speculos APDU request timed out after ${this.options.requestTimeoutMs}ms`,
+        ),
+      );
+    }, this.options.requestTimeoutMs);
+
     try {
       const response = await this.options.fetch(this.options.apduUrl, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ data: bytesToHex(apdu) }),
+        signal: controller.signal,
       });
       if (!response.ok) {
         throw new SpeculosBrowserTransportError(
@@ -163,20 +207,26 @@ class SpeculosBrowserTransport implements Transport {
         }),
       );
     } catch (cause) {
+      const requestError = controller.signal.aborted ? controller.signal.reason : cause;
       const connectedDevice = this.connectedDevice;
       if (connectedDevice) {
         this.connectedDevice = undefined;
         onDisconnect(connectedDevice.id);
       }
       return Left(
-        cause instanceof SpeculosBrowserTransportError
-          ? cause
+        requestError instanceof SpeculosBrowserTransportError
+          ? requestError
           : new SpeculosBrowserTransportError(
-              'MALFORMED_RESPONSE',
-              'Speculos APDU bridge returned an unreadable response',
-              cause,
+              'CONNECTION_LOST',
+              'Speculos APDU bridge connection was lost',
+              requestError,
             ),
       );
+    } finally {
+      clearTimeout(timeout);
+      if (this.activeRequest === controller) {
+        this.activeRequest = undefined;
+      }
     }
   }
 }
@@ -203,6 +253,7 @@ export function createSpeculosTransport(
     new SpeculosBrowserTransport({
       apduUrl: options.apduUrl,
       fetch: fetchImplementation,
+      requestTimeoutMs: options.requestTimeoutMs ?? 10_000,
     });
 
   return {

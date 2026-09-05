@@ -23,7 +23,13 @@ export default async function globalSetup() {
   const handle = await startSpeculos({ appElfPath, image });
   process.env.SOULVAULT_SPECULOS_API_URL = handle.apiUrl;
   stopSpeculos = handle.stop;
-  await enableBlindSigning(handle.apiUrl);
+  try {
+    await enableBlindSigning(handle.apiUrl);
+  } catch (error) {
+    await handle.stop();
+    stopSpeculos = undefined;
+    throw error;
+  }
 
   return async () => {
     await stopSpeculos?.();
@@ -49,6 +55,14 @@ async function enableBlindSigning(apiUrl: string): Promise<void> {
         await controller.pressBoth();
         await delay();
       }
+      break;
+    }
+    await controller.pressRight();
+    await delay();
+  }
+  for (let step = 0; step < 16; step += 1) {
+    const text = (await controller.pollScreen()).map((event) => event.text).join(' | ');
+    if (/\bback\b/i.test(text)) {
       await controller.pressLeft();
       await delay();
       return;
@@ -56,7 +70,7 @@ async function enableBlindSigning(apiUrl: string): Promise<void> {
     await controller.pressRight();
     await delay();
   }
-  throw new Error('Could not locate the Ethereum app blind-signing setting');
+  throw new Error('Could not exit the Ethereum app settings after enabling blind signing');
 }
 
 function delay(): Promise<void> {

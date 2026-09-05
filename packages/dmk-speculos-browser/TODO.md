@@ -170,6 +170,11 @@ polling and every REST action are timeout-bounded.
 Complete when the integration suite passes against the pinned official image and
 Ethereum app version from a clean checkout with the ELF supplied by environment path.
 
+**PASS:** the pinned Speculos image and externally supplied official Nano S Plus
+Ethereum ELF pass the six-test real-DMK suite: verified address, stable reconnect,
+user rejection, disconnect/abort recovery, EIP-712 signing, and EIP-1559 transaction
+signing. The tests assert DMK action states/results and explicit controller review.
+
 ### 5. Add browser automation fixtures
 
 - Provide a Playwright fixture that starts/stops the APDU bridge and exposes the

@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type PropsWithChildren } from "react";
-import { DeviceActionStatus, DeviceManagementKitBuilder, type DeviceSessionId, type DeviceSessionState } from "@ledgerhq/device-management-kit";
+import { DeviceActionStatus, DeviceManagementKitBuilder, type DeviceSessionId, type DeviceSessionState, type TransportFactory, type TransportIdentifier } from "@ledgerhq/device-management-kit";
 import { SignerEthBuilder } from "@ledgerhq/device-signer-kit-ethereum";
 import { webHidIdentifier, webHidTransportFactory } from "@ledgerhq/device-transport-kit-web-hid";
 import { firstValueFrom, timeout } from "rxjs";
@@ -11,6 +11,15 @@ import { getBrowserSoulVaultActivityConfig, loadSoulVaultActivity, type SoulVaul
 const DERIVATION_PATH = "44'/60'/0'/0/0";
 const DISCOVERY_TIMEOUT_MS = 15_000;
 const DEVICE_ACTION_TIMEOUT_MS = 60_000;
+export type DevelopmentLedgerTransport = {
+  factory: TransportFactory;
+  identifier: TransportIdentifier;
+  emulated: true;
+};
+type SoulVaultLedgerProviderProps = PropsWithChildren<{
+  /** Test-only transport injection. Production builds reject this prop. */
+  developmentLedgerTransport?: DevelopmentLedgerTransport;
+}>;
 export type LedgerConnectionStatus = "idle" | "connecting" | "connected" | "loading-activity" | "error";
 export type SoulVaultWalletConnector = "ledger" | "browser-wallet";
 type InjectedProvider = {
@@ -27,8 +36,14 @@ type ContextValue = {
 };
 const LedgerContext = createContext<ContextValue | null>(null);
 
-export function SoulVaultLedgerProvider({ children }: PropsWithChildren) {
-  const dmk = useMemo(() => new DeviceManagementKitBuilder().addTransport(webHidTransportFactory).build(), []);
+export function SoulVaultLedgerProvider({ children, developmentLedgerTransport }: SoulVaultLedgerProviderProps) {
+  if (process.env.NODE_ENV === "production" && developmentLedgerTransport) {
+    throw new Error("Development Ledger transports cannot be selected in production.");
+  }
+  const selectedTransport = process.env.NODE_ENV !== "production" && developmentLedgerTransport
+    ? developmentLedgerTransport
+    : { factory: webHidTransportFactory, identifier: webHidIdentifier, emulated: false as const };
+  const dmk = useMemo(() => new DeviceManagementKitBuilder().addTransport(selectedTransport.factory).build(), [selectedTransport.factory]);
   const sessionRef = useRef<DeviceSessionId | undefined>(undefined);
   const subscriptionRef = useRef<{ unsubscribe(): void } | undefined>(undefined);
   const injectedRef = useRef<InjectedProvider | undefined>(undefined);
@@ -58,23 +73,26 @@ export function SoulVaultLedgerProvider({ children }: PropsWithChildren) {
   }, [dmk]);
 
   const connectLedger = useCallback(async () => {
-    if (!dmk.isEnvironmentSupported()) { setStatus("error"); setError("Ledger WebHID requires Chromium on HTTPS or localhost."); return; }
+    if (!dmk.isEnvironmentSupported()) { setStatus("error"); setError(selectedTransport.emulated ? "The development Ledger transport is unavailable." : "Ledger WebHID requires Chromium on HTTPS or localhost."); return; }
     await disconnect(); setStatus("connecting"); setError(undefined);
     try {
-      const device = await firstValueFrom(dmk.startDiscovering({ transport: webHidIdentifier }).pipe(timeout(DISCOVERY_TIMEOUT_MS)));
+      const device = await firstValueFrom(dmk.startDiscovering({ transport: selectedTransport.identifier }).pipe(timeout(DISCOVERY_TIMEOUT_MS)));
       await dmk.stopDiscovering().catch(() => undefined);
       const sessionId = await dmk.connect({ device, sessionRefresherOptions: { isRefresherDisabled: false, pollingInterval: 3_000 } });
       sessionRef.current = sessionId;
       subscriptionRef.current = dmk.getDeviceSessionState({ sessionId }).subscribe(setDeviceState);
       const signer = new SignerEthBuilder({ dmk, sessionId }).build();
-      const account = await runDeviceAction<{ address: Address }>(signer.getAddress(DERIVATION_PATH, { checkOnDevice: true }));
+      const account = await runDeviceAction<{ address: Address }>(signer.getAddress(DERIVATION_PATH, {
+        checkOnDevice: true,
+        skipOpenApp: selectedTransport.emulated,
+      }));
       setAddress(account.address); setConnector("ledger"); setStatus("connected");
       await refreshForAddress(account.address);
     } catch (cause) {
       await dmk.stopDiscovering().catch(() => undefined);
       setStatus("error"); setError(toUserMessage(cause));
     }
-  }, [disconnect, dmk, refreshForAddress]);
+  }, [disconnect, dmk, refreshForAddress, selectedTransport.emulated, selectedTransport.identifier]);
 
   const connectBrowserWallet = useCallback(async () => {
     const provider = getInjectedProvider();

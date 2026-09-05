@@ -122,6 +122,12 @@ operation; every approval or rejection is an explicit test action.
   starts a loopback CORS APDU bridge, exposes the explicit test controller, and
   guarantees bridge/container teardown. The bridge forwarding/preflight test,
   package suite (15 passing), and full package/test typecheck are green.
+- [x] Added a narrowly typed development-only DMK transport injection prop to
+  SoulVault's wallet provider. It selects the injected identifier/factory for
+  the existing wallet context, enables the emulator's already-open-app flow,
+  and rejects injection in production. Focused provider lint and package tests/
+  typecheck pass; the full web typecheck remains blocked by the pre-existing
+  missing `LayoutProps` type in `src/app/layout.tsx`.
 
 ### 1. Trace the transport contract
 

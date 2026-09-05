@@ -25,6 +25,7 @@ describe('APDU browser bridge', () => {
     const preflight = await fetch(bridge.apduUrl, { method: 'OPTIONS' });
     expect(preflight.status).toBe(204);
     expect(preflight.headers.get('access-control-allow-origin')).toBe('*');
+    expect(preflight.headers.get('access-control-allow-private-network')).toBe('true');
     const response = await fetch(bridge.apduUrl, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

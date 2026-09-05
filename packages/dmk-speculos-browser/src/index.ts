@@ -248,7 +248,9 @@ function hexToBytes(hex: string): Uint8Array {
 export function createSpeculosTransport(
   options: SpeculosBrowserOptions,
 ): SpeculosBrowserTransportRegistration {
-  const fetchImplementation = options.fetch ?? globalThis.fetch;
+  // Browser-native fetch performs a receiver check; keep it bound when the
+  // transport stores it as a callable dependency.
+  const fetchImplementation = options.fetch ?? globalThis.fetch.bind(globalThis);
   const factory: TransportFactory = (_args: TransportArgs) =>
     new SpeculosBrowserTransport({
       apduUrl: options.apduUrl,

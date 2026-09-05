@@ -133,6 +133,12 @@ operation; every approval or rejection is an explicit test action.
   explicit emulation evidence label. The route consumes the real SoulVault
   wallet context and package transport, compiles under Next development mode,
   returns HTTP 200, and is guarded unavailable in production.
+- [x] Added the first real Chromium vertical slice: Playwright clicks **Sign in
+  with Ledger**, waits without disturbing the emulated app home, explicitly
+  approves the address on Speculos, and asserts the rendered connected address.
+  Passing runs record WebM video and a trace. This also caught and fixed the
+  browser-native `fetch` receiver binding at the transport boundary and added
+  Private Network Access CORS support to the loopback bridge.
 
 ### 1. Trace the transport contract
 

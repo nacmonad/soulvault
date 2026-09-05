@@ -11,6 +11,7 @@ export async function startApduBridge(speculosApiUrl: string): Promise<ApduBridg
     response.setHeader('access-control-allow-origin', '*');
     response.setHeader('access-control-allow-methods', 'POST, OPTIONS');
     response.setHeader('access-control-allow-headers', 'content-type');
+    response.setHeader('access-control-allow-private-network', 'true');
     if (request.method === 'OPTIONS') {
       response.writeHead(204).end();
       return;

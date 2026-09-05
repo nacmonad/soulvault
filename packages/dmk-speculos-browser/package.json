@@ -12,6 +12,7 @@
   },
   "scripts": {
     "test": "vitest run",
+    "test:browser": "playwright test --config playwright.config.ts",
     "test:speculos": "vitest run --config vitest.speculos.integration.config.ts",
     "typecheck": "tsc --noEmit"
   },

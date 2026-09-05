@@ -80,6 +80,8 @@ operation; every approval or rejection is an explicit test action.
   browser `fetch` APDU exchange with DMK `Either` results and response framing.
 - [x] Completed the stage-one tracer by driving one in-memory Ethereum address
   action through DMK.
+- [x] Added stable transport errors for HTTP failures, malformed responses, and
+  invalid APDU hex; failed exchanges preserve causes and emit one disconnect.
 
 ### 1. Trace the transport contract
 

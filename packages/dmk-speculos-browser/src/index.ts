@@ -1,7 +1,6 @@
 import {
   ApduResponse,
   DeviceModelId,
-  GeneralDmkError,
   OpeningConnectionError,
   TransportConnectedDevice,
   TransportDeviceModel,
@@ -38,6 +37,21 @@ export type SpeculosBrowserTransportRegistration = {
   factory: TransportFactory;
   metadata: EmulatedLedgerMetadata;
 };
+
+export type SpeculosBrowserTransportErrorCode =
+  | 'HTTP_FAILURE'
+  | 'MALFORMED_RESPONSE'
+  | 'INVALID_HEX';
+
+export class SpeculosBrowserTransportError implements DmkError {
+  readonly _tag = 'SpeculosBrowserTransportError';
+
+  constructor(
+    readonly errorCode: SpeculosBrowserTransportErrorCode,
+    readonly message: string,
+    readonly originalError?: unknown,
+  ) {}
+}
 
 const DEVICE_ID = 'SpeculosBrowserDevice';
 
@@ -122,11 +136,26 @@ class SpeculosBrowserTransport implements Transport {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ data: bytesToHex(apdu) }),
       });
-      if (!response.ok) throw new Error(`Speculos APDU bridge returned HTTP ${response.status}`);
+      if (!response.ok) {
+        throw new SpeculosBrowserTransportError(
+          'HTTP_FAILURE',
+          `Speculos APDU bridge returned HTTP ${response.status}`,
+        );
+      }
       const payload = (await response.json()) as { data?: unknown };
-      if (typeof payload.data !== 'string') throw new Error('Speculos APDU response has no hex data');
+      if (typeof payload.data !== 'string') {
+        throw new SpeculosBrowserTransportError(
+          'MALFORMED_RESPONSE',
+          'Speculos APDU response has no hex data',
+        );
+      }
       const bytes = hexToBytes(payload.data);
-      if (bytes.length < 2) throw new Error('Speculos APDU response has no status word');
+      if (bytes.length < 2) {
+        throw new SpeculosBrowserTransportError(
+          'MALFORMED_RESPONSE',
+          'Speculos APDU response has no status word',
+        );
+      }
       return Right(
         new ApduResponse({
           data: bytes.slice(0, -2),
@@ -134,11 +163,20 @@ class SpeculosBrowserTransport implements Transport {
         }),
       );
     } catch (cause) {
-      if (this.connectedDevice) {
+      const connectedDevice = this.connectedDevice;
+      if (connectedDevice) {
         this.connectedDevice = undefined;
-        onDisconnect(DEVICE_ID);
+        onDisconnect(connectedDevice.id);
       }
-      return Left(new GeneralDmkError(cause));
+      return Left(
+        cause instanceof SpeculosBrowserTransportError
+          ? cause
+          : new SpeculosBrowserTransportError(
+              'MALFORMED_RESPONSE',
+              'Speculos APDU bridge returned an unreadable response',
+              cause,
+            ),
+      );
     }
   }
 }
@@ -148,7 +186,12 @@ function bytesToHex(bytes: Uint8Array): string {
 }
 
 function hexToBytes(hex: string): Uint8Array {
-  if (hex.length % 2 !== 0 || !/^[0-9a-f]*$/i.test(hex)) throw new Error('Invalid APDU hex');
+  if (hex.length % 2 !== 0 || !/^[0-9a-f]*$/i.test(hex)) {
+    throw new SpeculosBrowserTransportError(
+      'INVALID_HEX',
+      'Speculos APDU response contains invalid hex',
+    );
+  }
   return Uint8Array.from(hex.match(/.{2}/g)?.map((byte) => Number.parseInt(byte, 16)) ?? []);
 }
 

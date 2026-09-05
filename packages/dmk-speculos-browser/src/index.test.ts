@@ -9,7 +9,11 @@ import { SignerEthBuilder } from '@ledgerhq/device-signer-kit-ethereum';
 import { firstValueFrom } from 'rxjs';
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 
-import { SPECULOS_BROWSER_IDENTIFIER, createSpeculosTransport } from './index.js';
+import {
+  SPECULOS_BROWSER_IDENTIFIER,
+  SpeculosBrowserTransportError,
+  createSpeculosTransport,
+} from './index.js';
 
 describe('createSpeculosTransport', () => {
   it('returns an explicitly emulated, DMK-compatible transport factory', () => {
@@ -112,6 +116,33 @@ describe('createSpeculosTransport', () => {
     ]);
     await dmk.disconnect({ sessionId });
     dmk.close();
+  });
+
+  it('maps malformed bridge replies to a stable error and disconnects once', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () =>
+      new Response(JSON.stringify({ data: 'not-hex' }), { status: 200 }),
+    );
+    const onDisconnect = vi.fn();
+    const { factory } = createSpeculosTransport({
+      apduUrl: 'http://127.0.0.1:5000/apdu',
+      fetch: fetchMock,
+    });
+    const transport = factory({} as TransportArgs);
+    const discovered = await firstValueFrom(transport.startDiscovering());
+    const connected = await transport.connect({ deviceId: discovered.id, onDisconnect });
+    const device = connected.unsafeCoerce();
+
+    const first = await device.sendApdu(Uint8Array.from([0xe0, 0x02, 0, 0]));
+    const second = await device.sendApdu(Uint8Array.from([0xe0, 0x02, 0, 0]));
+
+    expect(first.extract()).toBeInstanceOf(SpeculosBrowserTransportError);
+    expect(first.extract()).toMatchObject({
+      _tag: 'SpeculosBrowserTransportError',
+      errorCode: 'INVALID_HEX',
+    });
+    expect(second.isLeft()).toBe(true);
+    expect(onDisconnect).toHaveBeenCalledOnce();
+    expect(onDisconnect).toHaveBeenCalledWith(discovered.id);
   });
 });
 

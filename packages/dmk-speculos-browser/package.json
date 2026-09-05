@@ -5,14 +5,28 @@
   "type": "module",
   "description": "Development-only DMK transport for browser tests against Speculos.",
   "sideEffects": false,
+  "files": [
+    "README.md",
+    "TRANSPORT-CONTRACT.md",
+    "examples/vanilla.ts",
+    "src/index.ts",
+    "src/test.ts",
+    "test/apdu-bridge.ts",
+    "test/playwright-fixture.ts",
+    "test/speculos-lifecycle.ts"
+  ],
   "exports": {
     ".": "./src/index.ts",
     "./test": "./src/test.ts",
     "./playwright": "./test/playwright-fixture.ts"
   },
   "scripts": {
+    "build": "tsc --noEmit",
+    "example": "tsc --noEmit",
+    "lint": "tsc --noEmit",
     "test": "vitest run",
     "test:browser": "playwright test --config playwright.config.ts",
+    "test:integration": "vitest run --config vitest.speculos.integration.config.ts",
     "test:speculos": "vitest run --config vitest.speculos.integration.config.ts",
     "typecheck": "tsc --noEmit"
   },

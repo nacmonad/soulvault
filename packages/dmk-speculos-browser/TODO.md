@@ -152,6 +152,10 @@ operation; every approval or rejection is an explicit test action.
   security boundaries, CI commands, limitations, and physical WebHID checklist.
   Added a framework-neutral, typechecked DMK address example that leaves every
   Speculos approval or rejection to the external test controller.
+- [x] Added the package build/lint/example/integration script surface and a
+  strict tarball allowlist. A dry-run pack contains only the typed runtime,
+  reusable fixture/controller support, example, and documentation—no ELF,
+  seed, environment, generated evidence, test cases, or SoulVault app code.
 
 ### 1. Trace the transport contract
 

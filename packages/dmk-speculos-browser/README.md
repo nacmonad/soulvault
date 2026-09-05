@@ -49,13 +49,21 @@ reachable Speculos instance.
 
 ```sh
 pnpm --filter @soulvault/dmk-speculos-browser test
+pnpm --filter @soulvault/dmk-speculos-browser lint
+pnpm --filter @soulvault/dmk-speculos-browser build
+pnpm --filter @soulvault/dmk-speculos-browser example
 pnpm --filter @soulvault/dmk-speculos-browser typecheck
-pnpm --filter @soulvault/dmk-speculos-browser test:speculos
+pnpm --filter @soulvault/dmk-speculos-browser test:integration
 pnpm --filter @soulvault/dmk-speculos-browser test:browser
+pnpm --filter @soulvault/dmk-speculos-browser pack --dry-run
 ```
 
 The real integration and browser commands require Speculos plus the external
 ELF. Unit tests and typechecking do not.
+
+The package currently distributes typed TypeScript source, matching the other
+private workspace packages. Its `files` allowlist excludes test cases, generated
+artifacts, configuration, and application-specific code from a packed tarball.
 
 ## Security and licensing boundaries
 

@@ -8,9 +8,10 @@
  * constructor-injected dependencies so it is chain-agnostic and usable from
  * React contexts.
  */
-import { decodeEventLog, isAddressEqual, type Address, type Hex, type Log, type PublicClient } from 'viem';
+import { decodeEventLog, type Address, type Hex, type Log, type PublicClient } from 'viem';
 import { SECP_WRAP_ALGORITHM, type SecpWrappedKey } from '@soulvault/protocol';
 import { SOULVAULT_EVENT_ABIS } from './abis';
+import { orderEvents, resolveActiveGrants } from './reducers';
 import type {
   ActiveGrant,
   EventMeta,
@@ -18,6 +19,8 @@ import type {
   SoulVaultDocumentEvent,
   SoulVaultEvent,
 } from './types';
+
+export { orderEvents } from './reducers';
 
 export type WatchLiveOptions = {
   pollSeconds?: number;
@@ -30,12 +33,6 @@ export type SoulVaultWatcherConfig = {
   publicClient: PublicClient;
   sources: readonly SoulVaultDeployment[];
 };
-
-export function orderEvents(events: readonly SoulVaultEvent[]): SoulVaultEvent[] {
-  return [...events].sort(
-    (a, b) => Number(a.blockNumber - b.blockNumber) || a.logIndex - b.logIndex,
-  );
-}
 
 /** Dedupe key for merged batches across scans (tx + log position is unique). */
 export function eventKey(event: SoulVaultEvent): string {
@@ -187,12 +184,8 @@ export class SoulVaultEventWatcher {
   }
 
   /**
-   * Active grants for (docHash, recipient): grants in event order, last grant
-   * wins per slot; a SlotRevoked clears the slot; a later re-grant
-   * reactivates; expired grants drop out.
-   *
-   * Honest READ-mode semantics: this only stops future unwraps. Plaintext
-   * already decrypted is unrecoverable (spec §3).
+   * Active grants for (docHash, recipient), scanned from the document
+   * sources. Semantics live in resolveActiveGrants (reducers.ts).
    */
   async resolveGrants(
     docHash: Hex,
@@ -205,33 +198,12 @@ export class SoulVaultEventWatcher {
       docSources.map((source) => this.scanRange(source.fromBlock, 'latest')),
     );
     const target = docHash.toLowerCase();
-    const slots = new Map<string, ActiveGrant | null>();
-    for (const event of orderEvents(perSource.flat())) {
-      const docEvent = parseDocumentEvent(event);
-      if (!docEvent || docEvent.eventName === 'DocumentPublished') continue;
-      if (docEvent.docHash.toLowerCase() !== target) continue;
-      if (!isAddressEqual(docEvent.recipient, recipient)) continue;
-      if (docEvent.eventName === 'SlotKeyGranted') {
-        slots.set(docEvent.slotId, {
-          docHash: docEvent.docHash,
-          slotId: docEvent.slotId,
-          recipient: docEvent.recipient,
-          wrap: docEvent.wrap,
-          expiry: docEvent.expiry,
-          grantedAt: { blockNumber: docEvent.blockNumber, txHash: docEvent.txHash },
-        });
-      } else {
-        slots.set(docEvent.slotId, null);
-      }
-    }
-    const now = options?.now ?? BigInt(Math.floor(Date.now() / 1000));
-    const active: ActiveGrant[] = [];
-    for (const grant of slots.values()) {
-      if (grant === null) continue;
-      if (grant.expiry !== null && grant.expiry <= now) continue;
-      active.push(grant);
-    }
-    return active;
+    const docEvents = perSource
+      .flat()
+      .map(parseDocumentEvent)
+      .filter((e): e is SoulVaultDocumentEvent => e !== null)
+      .filter((e) => e.docHash.toLowerCase() === target);
+    return resolveActiveGrants(docEvents, recipient, options);
   }
 
   /**

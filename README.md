@@ -370,6 +370,11 @@ the core use case.
 - Proposed the reusable, test-only
   [`@soulvault/dmk-speculos-browser`](packages/dmk-speculos-browser/TODO.md)
   package so browser applications can exercise DMK device-action flows in CI.
+- Evaluated Ledger Wallet CLI Key Ring support as an optional owner-recovery
+  backend for hydration bundles. The proposed integration ring-encrypts an
+  owner escrow of per-slot keys while preserving recipient-specific grants;
+  it does not replace browser hydration, onchain authorization, or revocation.
+  See the [Key Ring fit analysis](docs/research/ledger-key-ring-cli.md).
 
 ### Ledger developer challenge notes
 
@@ -384,6 +389,7 @@ for the Ledger developer tooling challenge.
 | Speculos fixtures | Current official Speculos images do not bundle application ELFs at the path older extraction helpers expect. | Provision the official application ELF separately, verify its published digest, and never redistribute it in the package tarball. Documentation should make this version boundary explicit. |
 | Local RPC deployment | Ethers' short-lived RPC cache can reuse a stale funder nonce during back-to-back hardware-test deployments. | Disable provider caching in the Speculos test lane. This is test-harness behavior, not a signer workaround. |
 | ENS v3 integration | Current ENS v3 registrar calls use a `Registration` tuple and return tuple pricing, unlike the older flat argument/result shape. | Updated the local integration fixture and deployment calls to the current ABI. |
+| Key Ring CLI | `wallet-cli ring` provisions through a Ledger once, then performs named-key AES-256-GCM encryption/decryption from an enrolled host using a local protected credential and Ledger's network trustchain; routine decrypt is not a fresh device approval. | Use it as an additive, seed-recoverable owner-escrow or CLI continuity backend. Keep independent slot keys, recipient wrapping, and onchain grant/revoke checks as SoulVault's authorization layer. |
 
 ### Evidence and honest limits
 

@@ -114,6 +114,10 @@ operation; every approval or rejection is an explicit test action.
 - [x] Added a real disconnect-during-action path that aborts the pending browser
   APDU, resets the emulated device explicitly, reconnects with a new DMK session,
   and derives the address successfully afterward.
+- [x] Added deterministic Ethereum-app setup for blind signing and passed a real
+  EIP-712 `Rehydrate` signature through DMK, the browser transport, explicit
+  Speculos review/approval, and the pinned Nano S Plus app (5/5 real integration
+  tests green).
 
 ### 1. Trace the transport contract
 

@@ -89,6 +89,9 @@ operation; every approval or rejection is an explicit test action.
 - [x] Added the separate `@soulvault/dmk-speculos-browser/test` controller API
   with bounded screen polling, explicit button/approve/reject operations, and
   immutable timestamped transcripts.
+- [x] Proved controller approval, rejection, and timeout behavior against the
+  checked-in Speculos screen/button protocol fixtures (13 package tests green;
+  package typecheck green).
 
 ### 1. Trace the transport contract
 
@@ -124,6 +127,9 @@ and concurrent-action rejection without Docker or a browser.
 
 Complete when controller tests drive the checked-in test fixture protocol and prove
 both approval and rejection paths deterministically.
+
+**PASS:** checked-in protocol fixtures deterministically cover approval and rejection;
+polling and every REST action are timeout-bounded.
 
 ### 4. Prove real DMK compatibility
 

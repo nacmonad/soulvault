@@ -118,6 +118,10 @@ operation; every approval or rejection is an explicit test action.
   EIP-712 `Rehydrate` signature through DMK, the browser transport, explicit
   Speculos review/approval, and the pinned Nano S Plus app (5/5 real integration
   tests green).
+- [x] Added a typed Playwright worker fixture that provisions/reuses Speculos,
+  starts a loopback CORS APDU bridge, exposes the explicit test controller, and
+  guarantees bridge/container teardown. The bridge forwarding/preflight test,
+  package suite (15 passing), and full package/test typecheck are green.
 
 ### 1. Trace the transport contract
 

@@ -78,7 +78,7 @@ operation; every approval or rejection is an explicit test action.
   verified its explicit emulation metadata without TypeScript casts.
 - [x] Implemented deterministic discovery, connection, disconnection, and
   browser `fetch` APDU exchange with DMK `Either` results and response framing.
-- [ ] Complete the stage-one tracer by driving one in-memory Ethereum address
+- [x] Completed the stage-one tracer by driving one in-memory Ethereum address
   action through DMK.
 
 ### 1. Trace the transport contract

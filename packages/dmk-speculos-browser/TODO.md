@@ -92,6 +92,10 @@ operation; every approval or rejection is an explicit test action.
 - [x] Proved controller approval, rejection, and timeout behavior against the
   checked-in Speculos screen/button protocol fixtures (13 package tests green;
   package typecheck green).
+- [x] Added an opt-in real-Speculos integration entry point that derives and
+  verifies an Ethereum address through DMK, asserts intermediate/final action
+  states, and records the explicit controller approval. It skips cleanly until
+  `SOULVAULT_SPECULOS_API_URL` is provisioned.
 
 ### 1. Trace the transport contract
 

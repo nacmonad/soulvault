@@ -102,7 +102,12 @@ operation; every approval or rejection is an explicit test action.
   ELF directory read-only.
 - [x] Added the real-transport disconnect/reconnect assertion: DMK creates a new
   session after teardown while the same derivation path returns the same
-  identity. The opt-in suite compiles and remains ELF-gated for execution.
+  identity.
+- [x] Built Ledger's official Nano S Plus Ethereum 1.22.3 source at commit
+  `d6d699bcdaf5dc4d99722f38cbbbfb466c0f3163` with the official builder image
+  (`sha256:414ebf2c...65eee4`), verified the local ELF hash
+  (`sha256:48ebe0ae...fb3952`), and passed both real DMK address verification and
+  disconnect/reconnect tests against the pinned official Speculos image.
 
 ### 1. Trace the transport contract
 

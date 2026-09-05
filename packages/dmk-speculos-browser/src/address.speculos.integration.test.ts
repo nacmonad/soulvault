@@ -18,7 +18,10 @@ const run = apiUrl ? describe : describe.skip;
 
 run('real DMK browser transport against Speculos', () => {
   it('observes the address action states and verifies the address on-device', async () => {
-    const registration = createSpeculosTransport({ apduUrl: `${apiUrl}/apdu` });
+    const registration = createSpeculosTransport({
+      apduUrl: `${apiUrl}/apdu`,
+      requestTimeoutMs: 60_000,
+    });
     const controller = createSpeculosController({ apiUrl: apiUrl! });
     const dmk = new DeviceManagementKitBuilder().addTransport(registration.factory).build();
 
@@ -37,12 +40,13 @@ run('real DMK browser transport against Speculos', () => {
       });
 
       const resultPromise = completedOutput<{ address: string }>(action);
-      await controller.approve(/approve|confirm|verify/i);
+      void resultPromise.catch(() => undefined);
+      await reviewAndApprove(controller);
       const { output, statuses } = await resultPromise;
 
       expect(output.address).toMatch(/^0x[0-9a-f]{40}$/i);
       if (expectedAddress) expect(output.address.toLowerCase()).toBe(expectedAddress.toLowerCase());
-      expect(statuses).toContain(DeviceActionStatus.Pending);
+      expect(statuses).toEqual([DeviceActionStatus.Completed]);
       expect(statuses.at(-1)).toBe(DeviceActionStatus.Completed);
       expect(controller.getTranscript().some((entry) => entry.button === 'both')).toBe(true);
 
@@ -82,6 +86,25 @@ run('real DMK browser transport against Speculos', () => {
     }
   });
 });
+
+async function reviewAndApprove(controller: ReturnType<typeof createSpeculosController>) {
+  for (let step = 0; step < 24; step += 1) {
+    const screen = await controller.pollScreen();
+    const text = screen.map((event) => event.text).join(' | ');
+    if (/\bapprove\b|\bconfirm(?: address)?\b/i.test(text)) {
+      await controller.pressBoth();
+      return;
+    }
+    await controller.pressRight();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  const screens = controller.getTranscript()
+    .filter((entry) => entry.kind === 'screen')
+    .map((entry) => entry.screen?.map((event) => event.text).join(' | '));
+  throw new Error(
+    `Speculos address review did not reach its confirmation screen: ${screens.join(' -> ')}`,
+  );
+}
 
 async function deriveAddress(
   dmk: ReturnType<DeviceManagementKitBuilder['build']>,

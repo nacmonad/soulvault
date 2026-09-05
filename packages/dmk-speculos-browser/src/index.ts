@@ -1,17 +1,23 @@
-import type {
+import {
+  ApduResponse,
+  DeviceModelId,
+  GeneralDmkError,
+  OpeningConnectionError,
+  TransportConnectedDevice,
+  TransportDeviceModel,
+  type ApduResponse as ApduResponseType,
   ConnectError,
   DeviceId,
   DisconnectHandler,
   DmkError,
   Transport,
   TransportArgs,
-  TransportConnectedDevice,
   TransportDiscoveredDevice,
   TransportFactory,
   TransportIdentifier,
 } from '@ledgerhq/device-management-kit';
-import type { Either } from 'purify-ts';
-import { EMPTY, type Observable, of } from 'rxjs';
+import { Left, Right, type Either } from 'purify-ts';
+import { type Observable, of } from 'rxjs';
 
 export const SPECULOS_BROWSER_IDENTIFIER =
   'SOULVAULT_SPECULOS_BROWSER_TRANSPORT' as TransportIdentifier;
@@ -33,8 +39,25 @@ export type SpeculosBrowserTransportRegistration = {
   metadata: EmulatedLedgerMetadata;
 };
 
-class ContractTracerTransport implements Transport {
+const DEVICE_ID = 'SpeculosBrowserDevice';
+
+class SpeculosBrowserTransport implements Transport {
+  private connectedDevice?: TransportConnectedDevice;
+
   constructor(readonly options: Required<Pick<SpeculosBrowserOptions, 'apduUrl' | 'fetch'>>) {}
+
+  private get deviceModel(): TransportDeviceModel {
+    return new TransportDeviceModel({
+      id: DeviceModelId.NANO_SP,
+      productName: 'Speculos - Ethereum',
+      usbProductId: 0x5000,
+      bootloaderUsbProductId: 0x0001,
+      usbOnly: true,
+      memorySize: 1.5 * 1024 * 1024,
+      getBlockSize: () => 32,
+      masks: [0x33100000],
+    });
+  }
 
   getIdentifier(): TransportIdentifier {
     return SPECULOS_BROWSER_IDENTIFIER;
@@ -45,27 +68,88 @@ class ContractTracerTransport implements Transport {
   }
 
   startDiscovering(): Observable<TransportDiscoveredDevice> {
-    return EMPTY;
+    return of(this.getDiscoveredDevice());
   }
 
   stopDiscovering(): void {}
 
   listenToAvailableDevices(): Observable<TransportDiscoveredDevice[]> {
-    return of([]);
+    return of([this.getDiscoveredDevice()]);
   }
 
-  async connect(_params: {
+  async connect(params: {
     deviceId: DeviceId;
     onDisconnect: DisconnectHandler;
   }): Promise<Either<ConnectError, TransportConnectedDevice>> {
-    throw new Error('Speculos browser connection is not implemented');
+    try {
+      const device = new TransportConnectedDevice({
+        id: params.deviceId,
+        deviceModel: this.deviceModel,
+        type: 'USB',
+        transport: SPECULOS_BROWSER_IDENTIFIER,
+        sendApdu: (apdu) => this.exchange(apdu, params.onDisconnect),
+      });
+      this.connectedDevice = device;
+      return Right(device);
+    } catch (cause) {
+      return Left(new OpeningConnectionError(cause));
+    }
   }
 
   async disconnect(_params: {
     connectedDevice: TransportConnectedDevice;
   }): Promise<Either<DmkError, void>> {
-    throw new Error('Speculos browser disconnection is not implemented');
+    this.connectedDevice = undefined;
+    return Right(undefined);
   }
+
+  private getDiscoveredDevice(): TransportDiscoveredDevice {
+    return {
+      id: DEVICE_ID,
+      deviceModel: this.deviceModel,
+      transport: SPECULOS_BROWSER_IDENTIFIER,
+      name: 'Speculos browser emulator',
+    };
+  }
+
+  private async exchange(
+    apdu: Uint8Array,
+    onDisconnect: DisconnectHandler,
+  ): Promise<Either<DmkError, ApduResponseType>> {
+    try {
+      const response = await this.options.fetch(this.options.apduUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ data: bytesToHex(apdu) }),
+      });
+      if (!response.ok) throw new Error(`Speculos APDU bridge returned HTTP ${response.status}`);
+      const payload = (await response.json()) as { data?: unknown };
+      if (typeof payload.data !== 'string') throw new Error('Speculos APDU response has no hex data');
+      const bytes = hexToBytes(payload.data);
+      if (bytes.length < 2) throw new Error('Speculos APDU response has no status word');
+      return Right(
+        new ApduResponse({
+          data: bytes.slice(0, -2),
+          statusCode: bytes.slice(-2),
+        }),
+      );
+    } catch (cause) {
+      if (this.connectedDevice) {
+        this.connectedDevice = undefined;
+        onDisconnect(DEVICE_ID);
+      }
+      return Left(new GeneralDmkError(cause));
+    }
+  }
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  if (hex.length % 2 !== 0 || !/^[0-9a-f]*$/i.test(hex)) throw new Error('Invalid APDU hex');
+  return Uint8Array.from(hex.match(/.{2}/g)?.map((byte) => Number.parseInt(byte, 16)) ?? []);
 }
 
 export function createSpeculosTransport(
@@ -73,7 +157,7 @@ export function createSpeculosTransport(
 ): SpeculosBrowserTransportRegistration {
   const fetchImplementation = options.fetch ?? globalThis.fetch;
   const factory: TransportFactory = (_args: TransportArgs) =>
-    new ContractTracerTransport({
+    new SpeculosBrowserTransport({
       apduUrl: options.apduUrl,
       fetch: fetchImplementation,
     });

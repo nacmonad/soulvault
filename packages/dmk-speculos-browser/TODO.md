@@ -76,6 +76,8 @@ operation; every approval or rejection is an explicit test action.
   [`TRANSPORT-CONTRACT.md`](TRANSPORT-CONTRACT.md).
 - [x] Compiled the public registration API as a real DMK `TransportFactory` and
   verified its explicit emulation metadata without TypeScript casts.
+- [x] Implemented deterministic discovery, connection, disconnection, and
+  browser `fetch` APDU exchange with DMK `Either` results and response framing.
 - [ ] Complete the stage-one tracer by driving one in-memory Ethereum address
   action through DMK.
 

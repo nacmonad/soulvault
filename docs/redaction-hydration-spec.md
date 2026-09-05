@@ -49,35 +49,44 @@ Per document:
 
 - The provider runs presidio-web locally, producing N **slots** (removed fields).
 - Each slot `i` gets a fresh symmetric key `K_i` (AES-256-GCM).
-  - `ciphertext_i = AES-256-GCM(K_i, plaintext_i, aad = {docId, slotId})`
-  - `commitment_i = HMAC-SHA256(salt, canonical(plaintext_i))` — **salted** with a
-    per-document secret salt stored inside the hydration bundle, never onchain.
-    Unsalted hashes of PII are dictionary-attackable (SSNs, dates of birth); the
-    "no guessable hashes" rule exists for this reason.
-- The **hydration bundle** is the unit of storage/distribution:
-  `{ docId, salt, slots[]: { slotId, aad, ciphertext, wrappedKeys[] } }`
-- `wrappedKeys` are per-recipient: ephemeral secp256k1 ECDH + AES-256-GCM to the
-  recipient's public key — the **same wrapping machinery as epoch bundles and
-  DMs**. A bundle addressed to one recipient never helps another. In the
-  backend-free flow (§7), wrapped keys ride **grant events** rather than living
-  inside the stored bundle; the `wrappedKeys[]` field stays for CLI/bundle-file
-  use.
-
-Per-key addressing falls out of this: unwrap one slot, a subset, or the whole
-document. Grant and revoke per slot.
+  - `ciphertext_i = AES-256-GCM(K_i, plaintext_i, aad = {docHash, slotId})`
+  - The slot commitments and secret salt from earlier drafts are **dropped for
+    v0**: with bundles published in public event data, a published salt defeats
+    salting, and no verifier exists yet (deferred to the USE/zk phase, §3b).
+- The redacted artifact carries a **self-describing manifest**, signed by the
+  author: `{docHash, author, slots[]: {slotId, entityType, occurrences,
+  ciphertext}}` with an EIP-712 signature over `{docHash, slots[]}`. The file is
+  the registry: Charlie hashes the dropped file, verifies the author signature,
+  and has everything needed to resolve slots — no central docId allocation, no
+  lookup service.
+- `docId` (in the deferred sections below) refers to
+  **docHash = SHA-256 of the redacted artifact bytes** (deterministic from the
+  file); deferred-event schemas may still show `docId` in their signatures.
+- **The addressable bundle is the wrap set**, constructed per recipient at
+  grant time:
+  `{docHash, recipient, wraps[]: {slotId, wrappedKey, ephemeralPublicKey,
+  nonce, expiresAt}}`
+  Each `wraps[]` entry is exactly a `SecpWrappedKey` (see
+  `packages/protocol/src/crypto.ts`) plus the slot reference. This is the
+  "key-by-key addressing" property: the bundle's atomic unit is the field, not
+  the document.
 
 ## 3. Grant model
 
-A grant is `(docId, slotId, recipient, expiry, mode ∈ {READ, USE})`.
+A grant is `(docHash, slotId, recipient, expiry, mode ∈ {READ, USE})`.
 
 **v0 (narrowed scope):** grants are **contract events**:
-`SlotKeyGranted(docId, slotId, recipient, wrappedKey, expiry)` — the grant event
-*is* the key delivery. Revocation is a `SlotRevoked(docId, slotId, recipient)`
-event that consumers' clients honor when filtering.
+`SlotKeyGranted(docHash, slotId, recipient, wrappedKey, expiry)` — the grant
+event *is* the key delivery. The publish and grant txs are authenticated by the
+author's wallet signature (the tx `from`), so the onchain record already carries
+"Alice said so"; the artifact's embedded author signature (§2) extends that
+tamper-evidence to the file itself, the one input that travels over
+unauthenticated channels. Revocation is a `SlotRevoked(docHash, slotId,
+recipient)` event that consumers' clients honor when filtering.
 
 **Optional policy tier — verified-human grants (World ID):** a document may
 declare a `verified-human` policy instead of an explicit allowlist. The requester
-presents a World ID proof with a **nullifier scoped to `hash(appId, docId,
+presents a World ID proof with a **nullifier scoped to `hash(appId, docHash,
 slotId)`**, verified against World's onchain verifier (or by Alice's client).
 Nullifier uniqueness gives one grant per human — sybil-resistant, privacy
 preserving (Alice never learns who), and still backend-free. Risk-tiering
@@ -137,7 +146,7 @@ Avoid SoulVault backend calls as a design default.
 The chain carries everything:
 
 - **Primary: contract events as transport.** Slot ciphertexts are small (PII
-  fields — tens of bytes), so `DocumentPublished(docId, slots[]: {slotId, aad,
+  fields — tens of bytes), so `DocumentPublished(docHash, slots[]: {slotId, aad,
   ciphertext})` fits in event logs, and wrapped keys ride `SlotKeyGranted`
   events (§3). Consumers read events over RPC — stateless, no server-held
   state, works from browser or CLI.
@@ -231,9 +240,9 @@ wallet-attested browser keypair**, not an ephemeral session key:
 2. **Alice's client** (browser or CLI agent — identical code paths) verifies the
    attestation, wraps `K_i` to Charlie's pubkey with the standard
    epoch-bundle/DM encoding, and posts the grant event
-   `SlotKeyGranted(docId, slotId, charlie, wrappedKey, expiry)`.
+   `SlotKeyGranted(docHash, slotId, charlie, wrappedKey, expiry)`.
 3. **Charlie's browser** filters events for his pubkey, unwraps with his private
-   key, decrypts the slot ciphertext (AAD-bound to docId/slotId), splices the
+   key, decrypts the slot ciphertext (AAD-bound to docHash/slotId), splices the
    plaintext into the redacted artifact. Plaintext exists only in his tab.
 
 Key-loss story: lost browser storage = lost keypair = grant re-issued wrapped to

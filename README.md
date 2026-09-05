@@ -346,6 +346,56 @@ references for [commands](skills/soulvault/references/commands.md),
 [env](skills/soulvault/references/env.md), and
 [workflows](skills/soulvault/references/workflows.md).
 
+## #ethglobalonline2026 notes
+
+SoulVault's hackathon submission is the private redaction/rehydration service:
+documents are redacted locally, encrypted disclosure slots are stored offchain,
+and wallet-authorized recipients can rehydrate only the fields they are permitted
+to see. Sponsor integrations support that product; they are not substitutes for
+the core use case.
+
+### Ledger track progress
+
+- Migrated the Ledger signing path to Device Management Kit (DMK) 1.8 and the
+  Ethereum Signer Kit while retaining browser-wallet sign-in as an equal option.
+- Added a shared wallet-session boundary for browser wallets and direct Ledger
+  devices, including connection, verification, rejection, teardown, and reconnect
+  states.
+- Added wallet-scoped discovery so a signed-in address can reconstruct its
+  SoulVault context from contract events and onchain state.
+- Added deterministic integration coverage against Ledger's official Speculos
+  image and Ethereum 1.22.3 Nano S Plus application.
+- Verified the local ENS v3/Anvil lane and DMK + Speculos lane: 21 standard
+  integration tests and 12 hardware-emulation integration tests pass.
+- Proposed the reusable, test-only
+  [`@soulvault/dmk-speculos-browser`](packages/dmk-speculos-browser/TODO.md)
+  package so browser applications can exercise DMK device-action flows in CI.
+
+### Ledger developer challenge notes
+
+These notes are a running record of integration friction, solutions, and feedback
+for the Ledger developer tooling challenge.
+
+| Area | Finding | Resolution / feedback |
+|------|---------|-----------------------|
+| Browser CI | Speculos exposes APDU over TCP/HTTP and therefore does not appear in Chromium's WebHID device picker. | Build an explicitly emulated, test-only DMK transport over the Speculos APDU bridge. Keep one physical Ledger/WebHID check as separate release evidence. |
+| DMK lifecycle | Context Module 2.5 requires the chain to be selected before the module is built. | Call `setChain(Ethereum)` before `build()`. A focused migration example or earlier runtime error would reduce integration time. |
+| Device approvals | Thirty seconds is tight for reviewing and approving device prompts in integration environments. | Use a 60-second Ledger approval timeout and poll observable device state rather than relying on fixed sleeps. |
+| Speculos fixtures | Current official Speculos images do not bundle application ELFs at the path older extraction helpers expect. | Provision the official application ELF separately, verify its published digest, and never redistribute it in the package tarball. Documentation should make this version boundary explicit. |
+| Local RPC deployment | Ethers' short-lived RPC cache can reuse a stale funder nonce during back-to-back hardware-test deployments. | Disable provider caching in the Speculos test lane. This is test-harness behavior, not a signer workaround. |
+| ENS v3 integration | Current ENS v3 registrar calls use a `Registration` tuple and return tuple pricing, unlike the older flat argument/result shape. | Updated the local integration fixture and deployment calls to the current ABI. |
+
+### Evidence and honest limits
+
+- Automated coverage proves DMK session behavior, Ethereum address derivation,
+  signing approval/rejection, disconnect/reconnect, and SoulVault context loading.
+- Speculos coverage is hardware-app emulation; it does **not** prove browser USB
+  discovery, physical possession, hardware attestation, or the WebHID permission UI.
+- Final sponsor evidence should include CI logs and device-screen transcripts from
+  the emulated lane plus one concise manual run using a physical Ledger over WebHID.
+- Package implementation status and acceptance criteria live in
+  [`packages/dmk-speculos-browser/TODO.md`](packages/dmk-speculos-browser/TODO.md).
+
 ## Roadmap
 
 **Working today.** The CLI, swarm contract, treasury contract, fund-request flow,

@@ -3,6 +3,7 @@ import { IBM_Plex_Mono, Inter } from "next/font/google";
 
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
+import { AppProviders } from "@/components/providers/app-providers";
 import { ThemeProvider } from "@/components/theme-provider";
 import { site } from "@/lib/site";
 import "./globals.css";
@@ -50,9 +51,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           defaultTheme="dark"
           disableTransitionOnChange
         >
-          <SiteHeader />
-          <main className="flex flex-1 flex-col">{children}</main>
-          <SiteFooter />
+          <AppProviders>
+            <SiteHeader />
+            <main className="flex flex-1 flex-col">{children}</main>
+            <SiteFooter />
+          </AppProviders>
         </ThemeProvider>
       </body>
     </html>

@@ -202,10 +202,8 @@ export async function registerOrganizationEns(nameOrSlug: string) {
   const signer = await createEnsSigner();
   const controller = await getEthRegistrarController(true);
   const minCommitmentAge = BigInt(await controller.minCommitmentAge());
-  // Flat uint256 base price (not a tuple). Bump 10% to absorb any premium the pricer
-  // might tack on, since we pay with an exact-amount `value` on the register tx.
-  const basePriceWei = BigInt(await controller.rentPrice(availability.label, ONE_YEAR_SECONDS));
-  const value = (basePriceWei * 110n) / 100n;
+  const price = await controller.rentPrice(availability.label, ONE_YEAR_SECONDS);
+  const value = ((BigInt(price.base) + BigInt(price.premium)) * 110n) / 100n;
   const secret = hexlify(randomBytes(32));
 
   registerEnsLog('Signer address:', signer.address);
@@ -219,18 +217,18 @@ export async function registerOrganizationEns(nameOrSlug: string) {
   // writes happen in separate txs after registration via `writeOrgMetadata` and the
   // treasury / swarm create flows.
   const publicResolver = getEnsContracts().publicResolver;
-  const registerArgs = [
-    availability.label,
-    signer.address,
-    ONE_YEAR_SECONDS,
+  const registration = {
+    label: availability.label,
+    owner: signer.address,
+    duration: ONE_YEAR_SECONDS,
     secret,
-    publicResolver,
-    [], // bytes[] data — no inline resolver calls
-    false, // reverseRecord
-    0, // ownerControlledFuses
-  ] as const;
+    resolver: publicResolver,
+    data: [] as string[],
+    reverseRecord: 0,
+    referrer: ZeroHash,
+  };
 
-  const commitment = await controller.makeCommitment(...registerArgs);
+  const commitment = await controller.makeCommitment(registration);
   registerEnsLog('Approve COMMIT transaction on your wallet (tx 1/2)…');
   const commitTx = await controller.commit(commitment);
   registerEnsLog('Commit tx submitted:', commitTx.hash);
@@ -241,7 +239,7 @@ export async function registerOrganizationEns(nameOrSlug: string) {
   await awaitCommitmentMaturation(signer.provider, Number(minCommitmentAge + 1n));
 
   registerEnsLog('Approve REGISTER transaction on your wallet (tx 2/2, pays rent)…');
-  const registerTx = await controller.register(...registerArgs, { value });
+  const registerTx = await controller.register(registration, { value });
   registerEnsLog('Register tx submitted:', registerTx.hash);
   registerEnsLog('Waiting for register receipt…');
   const registerReceipt = await registerTx.wait();

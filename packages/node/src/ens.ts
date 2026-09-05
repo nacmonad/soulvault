@@ -20,30 +20,16 @@ const PUBLIC_RESOLVER_ABI = [
 /** EIP-634 text records on the ENS resolver for a name. */
 const EXTENDED_RESOLVER_TEXT_ABI = ['function text(bytes32 node, string key) view returns (string)'] as const;
 
-// ETHRegistrarController ABI — the NameWrapper-aware flat 8-argument variant used by
-// both ens-app-v3's local deployment and most mainstream ENS controller deployments.
-// `rentPrice` returns a flat `uint256` (the base price in wei) rather than the
-// `(base, premium)` tuple used by the newest Sepolia controller — the older flat form
-// is what the ens-contracts repo actually publishes and what our local test harness
-// uses, so we standardize on it. If you need the newer tuple-returning controller,
-// add a separate `rentPrice(string,uint256)(uint256,uint256)` overload here and detect
-// at runtime via a probe.
-// ETHRegistrarController ABI — the NameWrapper-aware flat 8-argument variant used by
-// both ens-app-v3's local deployment and most mainstream ENS controller deployments.
-// `rentPrice` returns a flat `uint256` (the base price in wei) rather than the
-// `(base, premium)` tuple used by the newest Sepolia controller — the older flat form
-// is what the ens-contracts repo actually publishes and what our local test harness
-// uses, so we standardize on it. If you need the newer tuple-returning controller,
-// add a separate `rentPrice(string,uint256)(uint256,uint256)` overload here and detect
-// at runtime via a probe.
+// Current ENS controller ABI. Registration is passed as a struct so the commitment
+// and registration transaction are guaranteed to encode exactly the same intent.
 const ETH_REGISTRAR_CONTROLLER_ABI = [
   'function available(string label) view returns (bool)',
   'function valid(string label) view returns (bool)',
   'function minCommitmentAge() view returns (uint256)',
-  'function rentPrice(string label, uint256 duration) view returns (uint256)',
-  'function makeCommitment(string label, address owner, uint256 duration, bytes32 secret, address resolver, bytes[] data, bool reverseRecord, uint16 ownerControlledFuses) pure returns (bytes32 commitment)',
+  'function rentPrice(string label, uint256 duration) view returns (tuple(uint256 base, uint256 premium))',
+  'function makeCommitment(tuple(string label, address owner, uint256 duration, bytes32 secret, address resolver, bytes[] data, uint8 reverseRecord, bytes32 referrer) registration) pure returns (bytes32 commitment)',
   'function commit(bytes32 commitment)',
-  'function register(string label, address owner, uint256 duration, bytes32 secret, address resolver, bytes[] data, bool reverseRecord, uint16 ownerControlledFuses) payable',
+  'function register(tuple(string label, address owner, uint256 duration, bytes32 secret, address resolver, bytes[] data, uint8 reverseRecord, bytes32 referrer) registration) payable',
   'function nameWrapper() view returns (address)',
 ] as const;
 

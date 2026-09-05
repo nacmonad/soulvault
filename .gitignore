@@ -22,4 +22,4 @@ coverage/
 
 # Speculos — Ledger app ELFs are proprietary; operator drops them locally
 cli/test/speculos/apps/*.elf
-
+packages/node/test/speculos/apps/*.elf

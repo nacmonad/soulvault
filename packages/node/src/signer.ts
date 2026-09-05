@@ -28,7 +28,7 @@ import {
  * CJS builds work; load them explicitly.
  */
 const requireLedger = createRequire(import.meta.url);
-const { ContextModuleBuilder } = requireLedger('@ledgerhq/context-module');
+const { ContextModuleBuilder, ContextModuleChainID } = requireLedger('@ledgerhq/context-module');
 const { DeviceManagementKitBuilder } = requireLedger('@ledgerhq/device-management-kit');
 const { SignerEthBuilder } = requireLedger('@ledgerhq/device-signer-kit-ethereum');
 const { nodeHidIdentifier, nodeHidTransportFactory } = requireLedger('@ledgerhq/device-transport-kit-node-hid');
@@ -43,7 +43,7 @@ function loadSpeculosTransport(): { speculosTransportFactory: Function; speculos
 }
 
 const LEDGER_DISCOVERY_TIMEOUT_MS = 15_000;
-const LEDGER_ACTION_TIMEOUT_MS = 30_000;
+const LEDGER_ACTION_TIMEOUT_MS = 60_000;
 
 type SoftwareSigner = HDNodeWallet | Wallet;
 export type SoulVaultSigner = SoftwareSigner | LedgerEthersSigner;
@@ -397,7 +397,9 @@ function buildLedgerSignerEth(dmk: DeviceManagementKit, sessionId: DeviceSession
   const innerModule = new ContextModuleBuilder({
     originToken: undefined,
     loggerFactory: (tag: string) => dmk.getLoggerFactory()(['ContextModule', tag]),
-  }).build();
+  })
+    .setChain(ContextModuleChainID.Ethereum)
+    .build();
   const contextModule = wrapContextModuleClearSignAware(innerModule);
   return new SignerEthBuilder({ dmk, sessionId }).withContextModule(contextModule).build();
 }

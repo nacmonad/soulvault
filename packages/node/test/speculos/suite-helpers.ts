@@ -169,7 +169,10 @@ export async function setupFundedEnv(opts: {
 }) {
   const rpcUrl = process.env.SOULVAULT_RPC_URL!;
   if (!rpcUrl) throw new Error('SOULVAULT_RPC_URL not set');
-  const provider = new JsonRpcProvider(rpcUrl);
+  // Hardware suites perform several back-to-back sends through fresh Wallet
+  // instances. Disable ethers' short-lived RPC cache so pending nonce reads cannot
+  // reuse a value that was valid before the previous deployment mined.
+  const provider = new JsonRpcProvider(rpcUrl, undefined, { cacheTimeout: -1 });
   const pk = process.env.SOULVAULT_PRIVATE_KEY;
   if (!pk) throw new Error('SOULVAULT_PRIVATE_KEY not set — required as funder key.');
   const funder = new Wallet(pk, provider);

@@ -12,6 +12,14 @@ test('signs into the React wallet context through DMK and Speculos', async ({
   await expect(page.getByTestId('wallet-status')).toHaveText('connecting');
   await page.waitForTimeout(1_000);
 
+  await reviewAndRejectAddress(speculos.controller);
+  await expect(page.getByTestId('wallet-status')).toHaveText('error');
+  await expect(page.locator('p[role="alert"]')).toHaveText('Action cancelled on device.');
+  await expect(page.getByTestId('wallet-address')).toHaveCount(0);
+  await page.waitForTimeout(1_000);
+
+  await page.getByRole('button', { name: 'Sign in with Ledger' }).click();
+  await expect(page.getByTestId('wallet-status')).toHaveText('connecting');
   await reviewAndApproveAddress(speculos.controller);
   await expect(page.getByTestId('wallet-status')).toHaveText('connected');
   const address = await page.getByTestId('wallet-address').innerText();
@@ -42,6 +50,26 @@ test('signs into the React wallet context through DMK and Speculos', async ({
     contentType: 'text/plain',
   });
 });
+
+async function reviewAndRejectAddress(controller: {
+  pollScreen(): Promise<ReadonlyArray<{ text: string }>>;
+  waitForScreen(matcher: RegExp): Promise<ReadonlyArray<{ text: string }>>;
+  pressRight(): Promise<void>;
+  pressBoth(): Promise<void>;
+}) {
+  await controller.waitForScreen(/\bAddress\b/i);
+  for (let step = 0; step < 24; step += 1) {
+    const screen = await controller.pollScreen();
+    const text = screen.map((event) => event.text).join(' | ');
+    if (/\bcancel\b|\breject\b/i.test(text)) {
+      await controller.pressBoth();
+      return;
+    }
+    await controller.pressRight();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  throw new Error('Speculos address review did not reach its rejection screen');
+}
 
 async function reviewAndApproveAddress(controller: {
   pollScreen(): Promise<ReadonlyArray<{ text: string }>>;

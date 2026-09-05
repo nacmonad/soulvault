@@ -143,6 +143,11 @@ operation; every approval or rejection is an explicit test action.
   states and mirroring live Speculos screen events beside the React wallet UI.
   The browser test now also disconnects, reconnects through a new device review,
   and proves the same rendered address survives the session lifecycle.
+- [x] Completed the rendered-browser rejection path: Playwright explicitly
+  navigates to and confirms the device's `Cancel` screen, asserts the wallet
+  context exposes the rejection without an address, then signs in and completes
+  the disconnect/reconnect lifecycle. The real Chromium + pinned Speculos run
+  passes with failure screenshots, video, trace, and device transcript capture.
 
 ### 1. Trace the transport contract
 
@@ -211,6 +216,11 @@ signing. The tests assert DMK action states/results and explicit controller revi
 
 Complete when a headless Chromium test exercises SoulVault's real wallet context with
 no production code path capable of selecting Speculos.
+
+**PASS:** a real Chromium run now covers explicit rejection, successful verified
+address connection, disconnect, and stable-address reconnect through SoulVault's
+development-only transport injection. Playwright retains screenshots on failure plus
+video, trace, address, and device transcript evidence.
 
 ### 6. Package for reuse
 

@@ -21,6 +21,18 @@ test('signs into the React wallet context through DMK and Speculos', async ({
   }
   await page.waitForTimeout(2_000);
 
+  await page.getByRole('button', { name: 'Disconnect' }).click();
+  await expect(page.getByTestId('wallet-status')).toHaveText('idle');
+  await expect(page.getByTestId('wallet-address')).toHaveCount(0);
+  await page.waitForTimeout(1_000);
+
+  await page.getByRole('button', { name: 'Sign in with Ledger' }).click();
+  await expect(page.getByTestId('wallet-status')).toHaveText('connecting');
+  await reviewAndApproveAddress(speculos.controller);
+  await expect(page.getByTestId('wallet-status')).toHaveText('connected');
+  await expect(page.getByTestId('wallet-address')).toHaveText(address);
+  await page.waitForTimeout(2_000);
+
   await testInfo.attach('speculos-screen-transcript', {
     body: Buffer.from(JSON.stringify(speculos.controller.getTranscript(), null, 2)),
     contentType: 'application/json',

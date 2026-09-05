@@ -139,6 +139,10 @@ operation; every approval or rejection is an explicit test action.
   Passing runs record WebM video and a trace. This also caught and fixed the
   browser-native `fetch` receiver binding at the transport boundary and added
   Private Network Access CORS support to the loopback bridge.
+- [x] Made the recorded proof legible by holding on the sign-in and connected
+  states and mirroring live Speculos screen events beside the React wallet UI.
+  The browser test now also disconnects, reconnects through a new device review,
+  and proves the same rendered address survives the session lifecycle.
 
 ### 1. Trace the transport contract
 

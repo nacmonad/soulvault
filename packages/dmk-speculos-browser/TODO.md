@@ -100,6 +100,9 @@ operation; every approval or rejection is an explicit test action.
   Speculos API or starts a headless container from an externally supplied ELF;
   new containers require an official image pinned by digest and mount only the
   ELF directory read-only.
+- [x] Added the real-transport disconnect/reconnect assertion: DMK creates a new
+  session after teardown while the same derivation path returns the same
+  identity. The opt-in suite compiles and remains ELF-gated for execution.
 
 ### 1. Trace the transport contract
 

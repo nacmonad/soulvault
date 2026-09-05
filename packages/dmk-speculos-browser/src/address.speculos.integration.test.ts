@@ -51,7 +51,52 @@ run('real DMK browser transport against Speculos', () => {
       dmk.close();
     }
   });
+
+  it('disconnects and reconnects without changing the derived identity', async () => {
+    const registration = createSpeculosTransport({ apduUrl: `${apiUrl}/apdu` });
+    const dmk = new DeviceManagementKitBuilder().addTransport(registration.factory).build();
+
+    try {
+      const device = await firstValueFrom(
+        dmk.startDiscovering({ transport: registration.identifier }),
+      );
+      const firstSessionId = await dmk.connect({
+        device,
+        sessionRefresherOptions: { isRefresherDisabled: true },
+      });
+      const firstAddress = await deriveAddress(dmk, firstSessionId);
+      await dmk.disconnect({ sessionId: firstSessionId });
+
+      const secondSessionId = await dmk.connect({
+        device,
+        sessionRefresherOptions: { isRefresherDisabled: true },
+      });
+      const secondAddress = await deriveAddress(dmk, secondSessionId);
+
+      expect(secondSessionId).not.toBe(firstSessionId);
+      expect(secondAddress).toBe(firstAddress);
+      if (expectedAddress) expect(secondAddress.toLowerCase()).toBe(expectedAddress.toLowerCase());
+      await dmk.disconnect({ sessionId: secondSessionId });
+    } finally {
+      dmk.close();
+    }
+  });
 });
+
+async function deriveAddress(
+  dmk: ReturnType<DeviceManagementKitBuilder['build']>,
+  sessionId: string,
+): Promise<string> {
+  const signer = new SignerEthBuilder({ dmk, sessionId }).build();
+  const { output, statuses } = await completedOutput<{ address: string }>(
+    signer.getAddress("44'/60'/0'/0/0", {
+      checkOnDevice: false,
+      skipOpenApp: true,
+    }),
+  );
+  expect(statuses.at(-1)).toBe(DeviceActionStatus.Completed);
+  return output.address;
+}
 
 function completedOutput<T>(action: {
   observable: {

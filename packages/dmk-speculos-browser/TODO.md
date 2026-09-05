@@ -96,6 +96,10 @@ operation; every approval or rejection is an explicit test action.
   verifies an Ethereum address through DMK, asserts intermediate/final action
   states, and records the explicit controller approval. It skips cleanly until
   `SOULVAULT_SPECULOS_API_URL` is provisioned.
+- [x] Added a package-local test lifecycle runner that either reuses a reachable
+  Speculos API or starts a headless container from an externally supplied ELF;
+  new containers require an official image pinned by digest and mount only the
+  ELF directory read-only.
 
 ### 1. Trace the transport contract
 

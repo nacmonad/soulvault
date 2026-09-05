@@ -4,9 +4,13 @@ test('signs into the React wallet context through DMK and Speculos', async ({
   page,
   speculos,
 }, testInfo) => {
-  await page.goto(`/ledger-speculos-proof?apduUrl=${encodeURIComponent(speculos.apduUrl)}`);
+  await page.goto(`/ledger-speculos-proof?apduUrl=${encodeURIComponent(speculos.apduUrl)}&eventsUrl=${encodeURIComponent(speculos.eventsUrl)}`);
   await expect(page.getByTestId('evidence-label')).toContainText('Speculos emulation');
+  await expect(page.getByRole('button', { name: 'Sign in with Ledger' })).toBeVisible();
+  await page.waitForTimeout(1_500);
   await page.getByRole('button', { name: 'Sign in with Ledger' }).click();
+  await expect(page.getByTestId('wallet-status')).toHaveText('connecting');
+  await page.waitForTimeout(1_000);
 
   await reviewAndApproveAddress(speculos.controller);
   await expect(page.getByTestId('wallet-status')).toHaveText('connected');
@@ -15,6 +19,7 @@ test('signs into the React wallet context through DMK and Speculos', async ({
   if (process.env.SOULVAULT_SPECULOS_EXPECTED_ADDRESS) {
     expect(address.toLowerCase()).toBe(process.env.SOULVAULT_SPECULOS_EXPECTED_ADDRESS.toLowerCase());
   }
+  await page.waitForTimeout(2_000);
 
   await testInfo.attach('speculos-screen-transcript', {
     body: Buffer.from(JSON.stringify(speculos.controller.getTranscript(), null, 2)),

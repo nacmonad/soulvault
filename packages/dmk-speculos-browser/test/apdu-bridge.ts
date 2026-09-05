@@ -2,6 +2,7 @@ import { createServer, type Server } from 'node:http';
 
 export type ApduBridge = {
   apduUrl: string;
+  eventsUrl: string;
   stop(): Promise<void>;
 };
 
@@ -14,6 +15,19 @@ export async function startApduBridge(speculosApiUrl: string): Promise<ApduBridg
     response.setHeader('access-control-allow-private-network', 'true');
     if (request.method === 'OPTIONS') {
       response.writeHead(204).end();
+      return;
+    }
+    if (request.method === 'GET' && request.url === '/events') {
+      try {
+        const upstreamResponse = await fetch(`${speculosApiUrl.replace(/\/$/, '')}/events?currentscreenonly=true`);
+        response.writeHead(upstreamResponse.status, {
+          'content-type': upstreamResponse.headers.get('content-type') ?? 'application/json',
+        });
+        response.end(Buffer.from(await upstreamResponse.arrayBuffer()));
+      } catch (error) {
+        response.writeHead(502, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+      }
       return;
     }
     if (request.method !== 'POST' || request.url !== '/apdu') {
@@ -41,6 +55,7 @@ export async function startApduBridge(speculosApiUrl: string): Promise<ApduBridg
   if (!address || typeof address === 'string') throw new Error('APDU bridge did not bind a TCP port');
   return {
     apduUrl: `http://127.0.0.1:${address.port}/apdu`,
+    eventsUrl: `http://127.0.0.1:${address.port}/events`,
     stop: () => close(server),
   };
 }

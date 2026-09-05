@@ -6,6 +6,7 @@ import { isSpeculosReachable, startSpeculos } from './speculos-lifecycle.js';
 export type SpeculosPlaywrightFixture = {
   apiUrl: string;
   apduUrl: string;
+  eventsUrl: string;
   controller: SpeculosController;
   emulated: true;
 };
@@ -31,6 +32,7 @@ export const test = base.extend<{}, { speculos: SpeculosPlaywrightFixture }>({
       await use({
         apiUrl,
         apduUrl: bridge.apduUrl,
+        eventsUrl: bridge.eventsUrl,
         controller: createSpeculosController({ apiUrl, timeoutMs: 120_000 }),
         emulated: true,
       });

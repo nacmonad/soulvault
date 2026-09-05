@@ -86,6 +86,9 @@ operation; every approval or rejection is an explicit test action.
   explicit abort on disconnect, connection-loss mapping, concurrent-action
   rejection, cleanup, and reconnect coverage (9 unit tests; package typecheck
   green).
+- [x] Added the separate `@soulvault/dmk-speculos-browser/test` controller API
+  with bounded screen polling, explicit button/approve/reject operations, and
+  immutable timestamped transcripts.
 
 ### 1. Trace the transport contract
 

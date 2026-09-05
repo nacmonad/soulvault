@@ -6,7 +6,8 @@
   "description": "Development-only DMK transport for browser tests against Speculos.",
   "sideEffects": false,
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./test": "./src/test.ts"
   },
   "scripts": {
     "test": "vitest run",

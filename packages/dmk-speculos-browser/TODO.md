@@ -128,6 +128,11 @@ operation; every approval or rejection is an explicit test action.
   and rejects injection in production. Focused provider lint and package tests/
   typecheck pass; the full web typecheck remains blocked by the pre-existing
   missing `LayoutProps` type in `src/app/layout.tsx`.
+- [x] Added a development-only React proof route with a plain **Sign in with
+  Ledger** button, visible wallet status/address, disconnect control, and an
+  explicit emulation evidence label. The route consumes the real SoulVault
+  wallet context and package transport, compiles under Next development mode,
+  returns HTTP 200, and is guarded unavailable in production.
 
 ### 1. Trace the transport contract
 

@@ -85,6 +85,43 @@ run('real DMK browser transport against Speculos', () => {
       dmk.close();
     }
   });
+
+  it('surfaces an explicit on-device address rejection as a DMK action error', async () => {
+    const registration = createSpeculosTransport({
+      apduUrl: `${apiUrl}/apdu`,
+      requestTimeoutMs: 60_000,
+    });
+    const controller = createSpeculosController({ apiUrl: apiUrl! });
+    const dmk = new DeviceManagementKitBuilder().addTransport(registration.factory).build();
+
+    try {
+      const device = await firstValueFrom(
+        dmk.startDiscovering({ transport: registration.identifier }),
+      );
+      const sessionId = await dmk.connect({
+        device,
+        sessionRefresherOptions: { isRefresherDisabled: true },
+      });
+      const signer = new SignerEthBuilder({ dmk, sessionId }).build();
+      const action = signer.getAddress("44'/60'/0'/0/0", {
+        checkOnDevice: true,
+        skipOpenApp: true,
+      });
+      const resultPromise = completedOutput<{ address: string }>(action);
+      void resultPromise.catch(() => undefined);
+
+      await reviewAndReject(controller);
+
+      await expect(resultPromise).rejects.toBeDefined();
+      expect(controller.getTranscript().at(-1)).toMatchObject({
+        kind: 'button',
+        button: 'both',
+      });
+      await dmk.disconnect({ sessionId });
+    } finally {
+      dmk.close();
+    }
+  });
 });
 
 async function reviewAndApprove(controller: ReturnType<typeof createSpeculosController>) {
@@ -104,6 +141,20 @@ async function reviewAndApprove(controller: ReturnType<typeof createSpeculosCont
   throw new Error(
     `Speculos address review did not reach its confirmation screen: ${screens.join(' -> ')}`,
   );
+}
+
+async function reviewAndReject(controller: ReturnType<typeof createSpeculosController>) {
+  for (let step = 0; step < 24; step += 1) {
+    const screen = await controller.pollScreen();
+    const text = screen.map((event) => event.text).join(' | ');
+    if (/\bcancel\b|\breject\b/i.test(text)) {
+      await controller.pressBoth();
+      return;
+    }
+    await controller.pressRight();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  throw new Error('Speculos address review did not reach its rejection screen');
 }
 
 async function deriveAddress(

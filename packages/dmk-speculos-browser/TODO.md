@@ -108,6 +108,9 @@ operation; every approval or rejection is an explicit test action.
   (`sha256:414ebf2c...65eee4`), verified the local ELF hash
   (`sha256:48ebe0ae...fb3952`), and passed both real DMK address verification and
   disconnect/reconnect tests against the pinned official Speculos image.
+- [x] Added a real device-action rejection path that navigates to the Nano S
+  Plus `Cancel` screen, confirms explicitly through the controller, and asserts
+  that DMK surfaces the rejected address action as an error.
 
 ### 1. Trace the transport contract
 

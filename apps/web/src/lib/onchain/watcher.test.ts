@@ -8,27 +8,13 @@
  * no chain or network is needed.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { encodeAbiParameters, encodeEventTopics, getAddress, getAbiItem, type AbiEvent, type Address, type Hex, type Log, type PublicClient } from 'viem';
+import { type Address, type Hex, type Log, type PublicClient } from 'viem';
 import { SECP_WRAP_ALGORITHM } from '@soulvault/protocol';
-import { SOULVAULT_EVENT_ABIS } from './abis';
 import { mergeEventBatches, parseDocumentEvent, SoulVaultEventWatcher, type SoulVaultWatcherConfig } from './watcher';
-import type { SoulVaultContractKind, SoulVaultDeployment, SoulVaultEvent } from './types';
+import { ALICE, BOB, CHARLIE, DOC_ADDRESS, DOC_HASH, HASH, IDENTITY_ADDRESS, makeRawLog, SWARM, TREASURY, TREASURY_ADDRESS } from './test-utils';
+import type { SoulVaultDeployment, SoulVaultContractKind, SoulVaultEvent } from './types';
 
 // --- fixtures ---------------------------------------------------------------
-
-// viem decodes addresses checksummed, so normalize the fixtures the same way
-const ALICE = getAddress('0x00000000000000000000000000000000000000a1');
-const BOB = getAddress('0x00000000000000000000000000000000000000b2');
-const CHARLIE = getAddress('0x00000000000000000000000000000000000000c3');
-const TREASURY = getAddress('0x00000000000000000000000000000000000000d4');
-const SWARM = getAddress('0x00000000000000000000000000000000000000e5');
-
-const DOC_ADDRESS = '0x000000000000000000000000000000000001d0c1' as Address;
-const TREASURY_ADDRESS = '0x000000000000000000000000000000000001d0c3' as Address;
-const IDENTITY_ADDRESS = '0x000000000000000000000000000000000001d0c4' as Address;
-
-const DOC_HASH = ('0x' + 'aa'.repeat(32)) as Hex;
-const HASH = (seed: string) => ('0x' + seed.repeat(32)) as Hex;
 
 const SOURCES: SoulVaultDeployment[] = [
   { address: DOC_ADDRESS, kind: 'document', fromBlock: 0n },
@@ -36,32 +22,6 @@ const SOURCES: SoulVaultDeployment[] = [
   { address: TREASURY_ADDRESS, kind: 'treasury', fromBlock: 0n },
   { address: IDENTITY_ADDRESS, kind: 'identity', fromBlock: 0n },
 ];
-
-function makeRawLog(input: {
-  kind: SoulVaultContractKind;
-  address: Address;
-  eventName: string;
-  args: Record<string, unknown>;
-  blockNumber: bigint;
-  logIndex: number;
-  txHash?: Hex;
-}): Log {
-  const abi = SOULVAULT_EVENT_ABIS[input.kind];
-  const event = getAbiItem({ abi, name: input.eventName as never }) as AbiEvent;
-  const topics = encodeEventTopics({ abi, eventName: input.eventName as never, args: input.args as never });
-  const nonIndexed = event.inputs.filter((i) => !i.indexed);
-  const values = nonIndexed.map((i) => input.args[i.name!]);
-  const data = nonIndexed.length > 0 ? encodeAbiParameters(nonIndexed, values as never) : ('0x' as Hex);
-  return {
-    address: input.address,
-    topics,
-    data,
-    blockNumber: input.blockNumber,
-    logIndex: input.logIndex,
-    transactionHash: input.txHash ?? HASH('ab'),
-    removed: false,
-  } as unknown as Log;
-}
 
 function mockClient(logs: Log[], latest = 100n) {
   const getLogs = vi.fn(

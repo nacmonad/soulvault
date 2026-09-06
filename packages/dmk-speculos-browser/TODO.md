@@ -279,6 +279,16 @@ The retained video, screen transcript, Playwright trace, and exact dependency/im
 ELF versions are sufficient for another developer to reproduce the proof without
 SoulVault dashboard code.
 
+**FINAL PASS:** `pnpm --filter @soulvault/dmk-speculos-browser proof:browser`
+passed against Chromium, DMK 1.8.0, Ethereum Signer Kit 1.16.0, the pinned
+official Speculos image, and the externally supplied official Nano S Plus
+Ethereum ELF. Playwright recorded the visible sign-in/rejection/approval/
+disconnect/reconnect flow and retained the WebM (368,299 bytes), trace
+(1,107,826 bytes), standalone 6,717-byte screen transcript, deterministic
+`0xDad77910DbDFdE764fC21FCD4E74D71bBACA6D8D` address, and exact proof metadata.
+The terminal browser-emulation target is complete; physical WebHID validation
+remains the explicitly separate manual gate.
+
 ## Acceptance suite
 
 - Unit: transport framing, error mapping, abort, cleanup, and controller polling.

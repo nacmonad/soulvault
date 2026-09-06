@@ -53,8 +53,7 @@ export function parseDocumentEvent(event: SoulVaultEvent): SoulVaultDocumentEven
 function isDocumentEvent(event: SoulVaultEvent): event is SoulVaultDocumentEvent {
   return (
     event.eventName === 'DocumentPublished' ||
-    event.eventName === 'SlotKeyGranted' ||
-    event.eventName === 'SlotRevoked'
+    event.eventName === 'SlotKeyGranted'
   );
 }
 
@@ -86,7 +85,6 @@ function decodeDocumentEvent(
       if (algorithm !== SECP_WRAP_ALGORITHM) {
         throw new Error(`unexpected slot wrap algorithm: ${algorithm}`);
       }
-      const expiry = args.expiry as bigint;
       return {
         ...meta,
         eventName: 'SlotKeyGranted',
@@ -99,18 +97,8 @@ function decodeDocumentEvent(
           ephemeralPublicKey: args.ephemeralPublicKey as string,
           nonce: args.nonce as string,
         } satisfies SecpWrappedKey,
-        expiry: expiry === BigInt(0) ? null : expiry,
       };
     }
-    case 'SlotRevoked':
-      return {
-        ...meta,
-        eventName: 'SlotRevoked',
-        docHash: args.docHash as Hex,
-        slotId: args.slotId as string,
-        recipient: args.recipient as Address,
-        by: args.by as Address,
-      };
     default:
       return null;
   }
@@ -187,11 +175,7 @@ export class SoulVaultEventWatcher {
    * Active grants for (docHash, recipient), scanned from the document
    * sources. Semantics live in resolveActiveGrants (reducers.ts).
    */
-  async resolveGrants(
-    docHash: Hex,
-    recipient: Address,
-    options?: { now?: bigint },
-  ): Promise<ActiveGrant[]> {
+  async resolveGrants(docHash: Hex, recipient: Address): Promise<ActiveGrant[]> {
     const docSources = this.sources.filter((s) => s.kind === 'document');
     if (docSources.length === 0) return [];
     const perSource = await Promise.all(
@@ -203,7 +187,7 @@ export class SoulVaultEventWatcher {
       .map(parseDocumentEvent)
       .filter((e): e is SoulVaultDocumentEvent => e !== null)
       .filter((e) => e.docHash.toLowerCase() === target);
-    return resolveActiveGrants(docEvents, recipient, options);
+    return resolveActiveGrants(docEvents, recipient);
   }
 
   /**

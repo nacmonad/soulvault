@@ -43,24 +43,14 @@ export type SlotKeyGrantedEvent = EventMeta & {
   docHash: Hex;
   slotId: string;
   recipient: Address;
-  /** The grant event IS the key delivery (spec §3, v0). */
+  /** The grant event IS the key delivery (spec §3, v0). A delivered READ
+   * grant is a permanent capability — no revocation, no expiry. */
   wrap: SecpWrappedKey;
-  /** Unix seconds. null = no expiry (contract emits 0 for "never"). */
-  expiry: bigint | null;
-};
-
-export type SlotRevokedEvent = EventMeta & {
-  eventName: 'SlotRevoked';
-  docHash: Hex;
-  slotId: string;
-  recipient: Address;
-  by: Address;
 };
 
 export type SoulVaultDocumentEvent =
   | DocumentPublishedEvent
-  | SlotKeyGrantedEvent
-  | SlotRevokedEvent;
+  | SlotKeyGrantedEvent;
 
 export type SoulVaultEvent = GenericContractEvent | SoulVaultDocumentEvent;
 
@@ -69,6 +59,5 @@ export type ActiveGrant = {
   slotId: string;
   recipient: Address;
   wrap: SecpWrappedKey;
-  expiry: bigint | null;
   grantedAt: { blockNumber: bigint; txHash: Hex };
 };

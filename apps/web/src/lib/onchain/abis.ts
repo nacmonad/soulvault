@@ -9,15 +9,15 @@
  * Document events are the redaction/rehydration v0 surface
  * (docs/redaction-hydration-spec.md §3): the grant event carries the
  * SecpWrappedKey fields flattened into data, so the event IS the key delivery.
- * `expiry = 0` means "no expiry".
+ * A delivered READ grant is a permanent capability: no revocation, no expiry
+ * (spec §3).
  */
 import { parseAbi, type Abi } from 'viem';
 import type { SoulVaultContractKind } from './types';
 
 export const DOCUMENT_EVENT_ABI = parseAbi([
   'event DocumentPublished(bytes32 indexed docHash, address indexed author, string[] slotIds)',
-  'event SlotKeyGranted(bytes32 indexed docHash, string slotId, address indexed recipient, string wrappedKey, string algorithm, string ephemeralPublicKey, string nonce, uint64 expiry)',
-  'event SlotRevoked(bytes32 indexed docHash, string slotId, address indexed recipient, address indexed by)',
+  'event SlotKeyGranted(bytes32 indexed docHash, string slotId, address indexed recipient, string wrappedKey, string algorithm, string ephemeralPublicKey, string nonce)',
 ]);
 
 export const SWARM_EVENT_ABI = parseAbi([

@@ -8,19 +8,18 @@ import { parseDocumentEvent } from '@/lib/onchain/watcher';
 import type { SoulVaultDocumentEvent } from '@/lib/onchain/types';
 
 export type UseDocumentEventsOptions = Omit<UseEventsOptions, 'kinds'> & {
-  /** When set, also derives the active grants for this wallet. */
+  /** When set, also derives the delivered grants for this wallet. */
   recipient?: Address;
-  /** Clock override for expiry checks (unix seconds); defaults to now. */
-  now?: bigint;
 };
 
 /**
  * Document redaction/rehydration events, reduced into a registry
- * (docHash → author/slots) and — when `recipient` is passed — the active
- * grants that wallet may unwrap right now.
+ * (docHash → author/slots) and — when `recipient` is passed — the grants
+ * delivered to that wallet. A delivered READ grant is a permanent capability
+ * (spec §3).
  */
 export function useDocumentEvents(options: UseDocumentEventsOptions = {}) {
-  const { recipient, now, ...rest } = options;
+  const { recipient, ...rest } = options;
   const base = useEvents({ ...rest, kinds: ['document'] });
   const documents = useMemo(() => reduceDocumentState(base.events), [base.events]);
   const activeGrants = useMemo(() => {
@@ -28,7 +27,7 @@ export function useDocumentEvents(options: UseDocumentEventsOptions = {}) {
     const docEvents = base.events
       .map(parseDocumentEvent)
       .filter((e): e is SoulVaultDocumentEvent => e !== null);
-    return resolveActiveGrants(docEvents, recipient, now === undefined ? undefined : { now });
-  }, [base.events, recipient, now]);
+    return resolveActiveGrants(docEvents, recipient);
+  }, [base.events, recipient]);
   return { ...base, documents, activeGrants };
 }

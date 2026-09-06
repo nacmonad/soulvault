@@ -54,8 +54,7 @@ function makeWatcher(logs: Log[], latest?: bigint, sources = SOURCES) {
 
 const FIXTURES: Array<{ kind: SoulVaultContractKind; address: Address; eventName: string; args: Record<string, unknown> }> = [
   { kind: 'document', address: DOC_ADDRESS, eventName: 'DocumentPublished', args: { docHash: DOC_HASH, author: ALICE, slotIds: ['sv_name_1', 'sv_salary_1'] } },
-  { kind: 'document', address: DOC_ADDRESS, eventName: 'SlotKeyGranted', args: { docHash: DOC_HASH, slotId: 'sv_salary_1', recipient: CHARLIE, wrappedKey: 'AAECAw==', algorithm: SECP_WRAP_ALGORITHM, ephemeralPublicKey: '04' + 'ee'.repeat(32), nonce: '11'.repeat(12), expiry: 0n } },
-  { kind: 'document', address: DOC_ADDRESS, eventName: 'SlotRevoked', args: { docHash: DOC_HASH, slotId: 'sv_salary_1', recipient: CHARLIE, by: ALICE } },
+  { kind: 'document', address: DOC_ADDRESS, eventName: 'SlotKeyGranted', args: { docHash: DOC_HASH, slotId: 'sv_salary_1', recipient: CHARLIE, wrappedKey: 'AAECAw==', algorithm: SECP_WRAP_ALGORITHM, ephemeralPublicKey: '04' + 'ee'.repeat(32), nonce: '11'.repeat(12) } },
   // swarm (19) — membership, epochs, backups, messaging, funds
   { kind: 'swarm', address: SWARM, eventName: 'JoinRequested', args: { requestId: 1n, requester: ALICE, pubkey: '0x1234', pubkeyRef: 'k.json', metadataRef: 'm.json' } },
   { kind: 'swarm', address: SWARM, eventName: 'JoinApproved', args: { requestId: 1n, requester: ALICE, approver: BOB, epoch: 3n } },
@@ -114,7 +113,7 @@ describe('decode roundtrip — every event in the catalog', () => {
     expect(events.map((e) => e.eventName)).toEqual(['JoinApproved', 'FundsReleased', 'JoinRequested']);
   });
 
-  it('decodes SlotKeyGranted into a typed SecpWrappedKey grant (expiry 0 → null)', async () => {
+  it('decodes SlotKeyGranted into a typed SecpWrappedKey grant', async () => {
     const { watcher } = makeWatcher([
       makeRawLog({ kind: 'document', address: DOC_ADDRESS, eventName: 'SlotKeyGranted', args: FIXTURES.find((f) => f.eventName === 'SlotKeyGranted')!.args, blockNumber: 1n, logIndex: 0 }),
     ]);
@@ -131,7 +130,6 @@ describe('decode roundtrip — every event in the catalog', () => {
       ephemeralPublicKey: '04' + 'ee'.repeat(32),
       nonce: '11'.repeat(12),
     });
-    expect(grant.expiry).toBeNull();
   });
 
   it('decodes DocumentPublished with slot list', async () => {
@@ -198,12 +196,10 @@ describe('resolveGrants', () => {
       kind: 'document',
       address: DOC_ADDRESS,
       eventName: 'SlotKeyGranted',
-      args: { docHash: DOC_HASH, slotId, recipient: CHARLIE, wrappedKey: 'AAECAw==', algorithm: SECP_WRAP_ALGORITHM, ephemeralPublicKey: '04' + 'ee'.repeat(32), nonce: '11'.repeat(12), expiry: 0n, ...overrides },
+      args: { docHash: DOC_HASH, slotId, recipient: CHARLIE, wrappedKey: 'AAECAw==', algorithm: SECP_WRAP_ALGORITHM, ephemeralPublicKey: '04' + 'ee'.repeat(32), nonce: '11'.repeat(12), ...overrides },
       blockNumber,
       logIndex: 0,
     });
-  const revoke = (slotId: string, blockNumber: bigint, recipient = CHARLIE) =>
-    makeRawLog({ kind: 'document', address: DOC_ADDRESS, eventName: 'SlotRevoked', args: { docHash: DOC_HASH, slotId, recipient, by: ALICE }, blockNumber, logIndex: 1 });
 
   it('returns active grants for the recipient and docHash', async () => {
     const { watcher } = makeWatcher([grant('sv_a_1', 1n), grant('sv_b_1', 2n)]);
@@ -223,36 +219,18 @@ describe('resolveGrants', () => {
     expect(await watcher.resolveGrants(other, CHARLIE)).toHaveLength(0);
   });
 
-  it('revocation clears a slot; re-grant reactivates with the new wrap', async () => {
+  it('last grant wins per slot and carries the newest wrap', async () => {
     const { watcher } = makeWatcher([
       grant('sv_a_1', 1n, { wrappedKey: 'first==' }),
-      revoke('sv_a_1', 2n),
-      grant('sv_a_1', 3n, { wrappedKey: 'second==' }),
+      grant('sv_a_1', 2n, { wrappedKey: 'second==' }),
     ]);
     const grants = await watcher.resolveGrants(DOC_HASH, CHARLIE);
     expect(grants).toHaveLength(1);
     expect(grants[0].wrap.wrappedKey).toBe('second==');
-    expect(grants[0].grantedAt.blockNumber).toBe(3n);
+    expect(grants[0].grantedAt.blockNumber).toBe(2n);
   });
 
-  it('last grant wins when a slot is granted twice', async () => {
-    const { watcher } = makeWatcher([grant('sv_a_1', 1n, { expiry: 100n }), grant('sv_a_1', 2n, { expiry: 500n })]);
-    const grants = await watcher.resolveGrants(DOC_HASH, CHARLIE, { now: 200n });
-    expect(grants).toHaveLength(1);
-    expect(grants[0].expiry).toBe(500n);
-  });
 
-  it('drops expired grants but keeps future-dated and non-expiring ones', async () => {
-    const { watcher } = makeWatcher([
-      grant('sv_expired', 1n, { expiry: 100n }),
-      grant('sv_future', 2n, { expiry: 500n }),
-      grant('sv_forever', 3n, { expiry: 0n }),
-    ]);
-    const grants = await watcher.resolveGrants(DOC_HASH, CHARLIE, { now: 200n });
-    expect(grants.map((g) => g.slotId).sort()).toEqual(['sv_forever', 'sv_future']);
-    const forever = grants.find((g) => g.slotId === 'sv_forever');
-    expect(forever?.expiry).toBeNull();
-  });
 
   it('returns empty (not throwing) when no document source is configured', async () => {
     const { watcher } = makeWatcher([], undefined, [SOURCES[1], SOURCES[2], SOURCES[3]]);
@@ -314,10 +292,10 @@ describe('watchLive', () => {
       await vi.advanceTimersByTimeAsync(0); // first tick
       expect(batches).toEqual([['DocumentPublished']]);
 
-      logs.push(makeRawLog({ kind: 'document', address: DOC_ADDRESS, eventName: 'SlotRevoked', args: { docHash: DOC_HASH, slotId: 'sv_salary_1', recipient: CHARLIE, by: ALICE }, blockNumber: 12n, logIndex: 0 }));
+      logs.push(makeRawLog({ kind: 'document', address: DOC_ADDRESS, eventName: 'SlotKeyGranted', args: { docHash: DOC_HASH, slotId: 'sv_salary_1', recipient: CHARLIE, wrappedKey: 'AAECAw==', algorithm: SECP_WRAP_ALGORITHM, ephemeralPublicKey: '04' + 'ee'.repeat(32), nonce: '11'.repeat(12) }, blockNumber: 12n, logIndex: 0 }));
       latest = 12n;
       await vi.advanceTimersByTimeAsync(2000); // second tick
-      expect(batches).toEqual([['DocumentPublished'], ['SlotRevoked']]);
+      expect(batches).toEqual([['DocumentPublished'], ['SlotKeyGranted']]);
 
       stop();
       await vi.advanceTimersByTimeAsync(6000);

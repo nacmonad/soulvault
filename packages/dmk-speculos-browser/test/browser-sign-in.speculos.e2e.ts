@@ -1,3 +1,8 @@
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { createRequire } from 'node:module';
 import { test, expect } from './playwright-fixture.js';
 
 test('signs into the React wallet context through DMK and Speculos', async ({
@@ -41,15 +46,46 @@ test('signs into the React wallet context through DMK and Speculos', async ({
   await expect(page.getByTestId('wallet-address')).toHaveText(address);
   await page.waitForTimeout(2_000);
 
-  await testInfo.attach('speculos-screen-transcript', {
-    body: Buffer.from(JSON.stringify(speculos.controller.getTranscript(), null, 2)),
-    contentType: 'application/json',
-  });
-  await testInfo.attach('derived-address', {
-    body: Buffer.from(`${address}\n`),
-    contentType: 'text/plain',
-  });
+  const transcriptPath = testInfo.outputPath('speculos-screen-transcript.json');
+  const addressPath = testInfo.outputPath('derived-address.txt');
+  const metadataPath = testInfo.outputPath('proof-metadata.json');
+  await writeFile(transcriptPath, `${JSON.stringify(speculos.controller.getTranscript(), null, 2)}\n`);
+  await writeFile(addressPath, `${address}\n`);
+  await writeFile(metadataPath, `${JSON.stringify(await proofMetadata(address), null, 2)}\n`);
+  await testInfo.attach('speculos-screen-transcript', { path: transcriptPath });
+  await testInfo.attach('derived-address', { path: addressPath });
+  await testInfo.attach('proof-metadata', { path: metadataPath });
 });
+
+async function proofMetadata(address: string) {
+  const elfPath = process.env.SOULVAULT_SPECULOS_APP_ELF;
+  return {
+    address,
+    node: process.version,
+    packages: {
+      '@ledgerhq/device-management-kit': packageVersion('@ledgerhq/device-management-kit'),
+      '@ledgerhq/device-signer-kit-ethereum': packageVersion('@ledgerhq/device-signer-kit-ethereum'),
+      '@playwright/test': packageVersion('@playwright/test'),
+    },
+    speculosImage: process.env.SOULVAULT_SPECULOS_IMAGE,
+    appElfSha256: elfPath
+      ? createHash('sha256').update(await readFile(elfPath)).digest('hex')
+      : undefined,
+  };
+}
+
+function packageVersion(name: string): string {
+  const require = createRequire(import.meta.url);
+  let current = dirname(require.resolve(name));
+  while (current !== dirname(current)) {
+    try {
+      return (JSON.parse(readFileSync(join(current, 'package.json'), 'utf8')) as { version: string }).version;
+    } catch {
+      current = dirname(current);
+    }
+  }
+  throw new Error(`Could not resolve package version for ${name}`);
+}
 
 async function reviewAndRejectAddress(controller: {
   pollScreen(): Promise<ReadonlyArray<{ text: string }>>;

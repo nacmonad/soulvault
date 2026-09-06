@@ -156,6 +156,11 @@ operation; every approval or rejection is an explicit test action.
   strict tarball allowlist. A dry-run pack contains only the typed runtime,
   reusable fixture/controller support, example, and documentation—no ELF,
   seed, environment, generated evidence, test cases, or SoulVault app code.
+- [x] Added a clean-checkout `proof:browser` command and retained proof metadata:
+  exact DMK, Ethereum Signer Kit, Playwright, Node, pinned Speculos image, ELF
+  SHA-256, and derived address now accompany the video, trace, and screen
+  transcript in the Playwright result. The address, metadata, and transcript are
+  also retained as obvious standalone files beside the video and trace.
 
 ### 1. Trace the transport contract
 

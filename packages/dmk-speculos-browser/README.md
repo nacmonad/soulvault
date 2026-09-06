@@ -61,6 +61,21 @@ pnpm --filter @soulvault/dmk-speculos-browser pack --dry-run
 The real integration and browser commands require Speculos plus the external
 ELF. Unit tests and typechecking do not.
 
+From a clean checkout, the complete recorded proof is one command once the two
+external artifact variables are supplied:
+
+```sh
+SOULVAULT_SPECULOS_APP_ELF=/absolute/path/to/app.elf \
+SOULVAULT_SPECULOS_IMAGE=ghcr.io/ledgerhq/speculos@sha256:<digest> \
+SOULVAULT_SPECULOS_EXPECTED_ADDRESS=0x... \
+pnpm --filter @soulvault/dmk-speculos-browser proof:browser
+```
+
+The fixture starts Speculos and the APDU bridge, serves the React proof, and
+runs Chromium. Playwright retains video and trace plus attachments containing
+the device transcript, derived address, exact package versions, pinned image,
+Node version, and ELF SHA-256 under `artifacts/playwright/`.
+
 The package currently distributes typed TypeScript source, matching the other
 private workspace packages. Its `files` allowlist excludes test cases, generated
 artifacts, configuration, and application-specific code from a packed tarball.

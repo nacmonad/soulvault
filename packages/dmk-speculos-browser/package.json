@@ -24,6 +24,7 @@
     "build": "tsc --noEmit",
     "example": "tsc --noEmit",
     "lint": "tsc --noEmit",
+    "proof:browser": "playwright test --config playwright.config.ts",
     "test": "vitest run",
     "test:browser": "playwright test --config playwright.config.ts",
     "test:integration": "vitest run --config vitest.speculos.integration.config.ts",

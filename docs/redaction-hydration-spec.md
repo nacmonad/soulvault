@@ -7,8 +7,9 @@ design source of truth going forward.
 
 > **Current build scope (narrowed):** the minimum loop, **fully backend-free** —
 > presidio-web + bundle creation in the author's browser (§2), grants as
-> contract events carrying wrapped keys (§3), chain events / 0G as transport
-> (§4), and fetch-and-decrypt in the consumer's browser (§7). The agentic x402
+> contract events carrying wrapped keys (§3), the chain as a key-distribution
+> and integrity-anchor ledger while the document travels as a JSON bundle file
+> (§4), and hydration in the consumer's browser (§7). The agentic x402
 > payment rail, the `DocumentViewTask` state machine, commitments, and the USE
 > engines are **deferred** — captured in `TODO_2.md` (§3b, §5–6 describe
 > deferred designs).
@@ -65,7 +66,7 @@ Per document:
 - **The addressable bundle is the wrap set**, constructed per recipient at
   grant time:
   `{docHash, recipient, wraps[]: {slotId, wrappedKey, ephemeralPublicKey,
-  nonce, expiresAt}}`
+  nonce}}`
   Each `wraps[]` entry is exactly a `SecpWrappedKey` (see
   `packages/protocol/src/crypto.ts`) plus the slot reference. This is the
   "key-by-key addressing" property: the bundle's atomic unit is the field, not
@@ -73,16 +74,44 @@ Per document:
 
 ## 3. Grant model
 
-A grant is `(docHash, slotId, recipient, expiry, mode ∈ {READ, USE})`.
+A grant is `(docHash, slotId, recipient, mode ∈ {READ, USE})`.
+
+**READ grants are permanent capabilities.** A wrapped key that has been
+delivered to a recipient — via a `SlotKeyGranted` event or inside a bundle
+file — is in that recipient's possession forever. There is no revocation,
+there is no expiry enforcement, and no conforming-client convention changes
+this. Any mechanism that looks like revocation without live key custody
+(backend, TEE, MPC) is theater; the USE lane is where enforceable access
+control lives (§3b), because nothing is ever disclosed and policy is checked
+live per call.
 
 **v0 (narrowed scope):** grants are **contract events**:
-`SlotKeyGranted(docHash, slotId, recipient, wrappedKey, expiry)` — the grant
-event *is* the key delivery. The publish and grant txs are authenticated by the
-author's wallet signature (the tx `from`), so the onchain record already carries
-"Alice said so"; the artifact's embedded author signature (§2) extends that
-tamper-evidence to the file itself, the one input that travels over
-unauthenticated channels. Revocation is a `SlotRevoked(docHash, slotId,
-recipient)` event that consumers' clients honor when filtering.
+`SlotKeyGranted(docHash, slotId, recipient, wrappedKey, ephemeralPublicKey,
+nonce)` — the grant event *is* the key delivery. The publish and grant txs are
+authenticated by the author's wallet signature (the tx `from`), so the onchain
+record already carries "Alice said so"; the artifact's embedded author
+signature (§2) extends that tamper-evidence to the file itself, the one input
+that travels over unauthenticated channels.
+
+**The author's real controls are operational, and v0 documents them as such:**
+
+- **The file lane is the gate.** The redacted artifact + encrypted slots live
+  in a JSON bundle that Alice hands to Charlie by whatever channel she chooses.
+  A wrapped key without the bundle is useless — Alice's dwell time before
+  sharing the file is the only genuine time-based control that exists.
+- **Rotate-and-republish** changes who can read *future* content: fresh
+  `docHash`, fresh slot keys, grants to a new allowlist. Old grants die only
+  because the old artifact is abandoned; anything already decrypted stays
+  decrypted.
+
+**Future primitive — SoulVaultBundleFactory (noted, not promised in v0).** The
+one honest shape of a time-limited READ grant is control *before delivery*: a
+contract that accepts a grant **commitment** (hash of the wrapped key), holds
+a cancellable cool-off window, then releases the wrapped key as a normal
+`SlotKeyGranted` event once the window passes. Before release the recipient
+holds a promise, not a possession — cancellation has real teeth there, and
+nowhere else. This deserves its own design pass and is recorded as a follow-up
+primitive, not part of the v0 registry surface.
 
 **Optional policy tier — verified-human grants (World ID):** a document may
 declare a `verified-human` policy instead of an explicit allowlist. The requester
@@ -99,12 +128,15 @@ dictionary-attack-resistant while the salt stays secret; once the whole bundle
 lives in public event data, a published salt defeats the salting. Commitments
 earn their place when there is a verifier (USE engines, §3b) — not before.
 
-**Honest revocation semantics:**
+**Honest possession semantics (READ):**
 
-| Mode | Revocation strength |
-|------|--------------------|
-| READ | Weak against copies — once a wallet unwrapped the plaintext, revocation only stops *future* wrapping. State this plainly in docs and judging materials. |
-| USE | Strong — nothing was ever disclosed; policy is checked live per call, and rotating the epoch nonce kills all stale computation rights. |
+- A delivered wrapped key is a **permanent capability**. There is no
+  revocation, no expiry enforcement, and no mechanism that can claw back key
+  material without live key custody.
+- Enforcement against copies is impossible by construction; enforcement
+  against *future content* is possible only via rotate-and-republish.
+- State this plainly in docs and judging materials. Never imply that
+  previously disclosed plaintext is recoverable or erasable.
 
 ## 3b. USE engines
 
@@ -240,24 +272,27 @@ wallet-attested browser keypair**, not an ephemeral session key:
 2. **Alice's client** (browser or CLI agent — identical code paths) verifies the
    attestation, wraps `K_i` to Charlie's pubkey with the standard
    epoch-bundle/DM encoding, and posts the grant event
-   `SlotKeyGranted(docHash, slotId, charlie, wrappedKey, expiry)`.
+   `SlotKeyGranted(docHash, slotId, charlie, wrappedKey, ephemeralPublicKey,
+   nonce)`.
 3. **Charlie's browser** filters events for his pubkey, unwraps with his private
    key, decrypts the slot ciphertext (AAD-bound to docHash/slotId), splices the
    plaintext into the redacted artifact. Plaintext exists only in his tab.
 
 Key-loss story: lost browser storage = lost keypair = grant re-issued wrapped to
-the newly attested key. Revocation (§3) stops future unwraps by honoring
-`SlotRevoked` during filtering; already-decrypted plaintext is unrecoverable —
-the known READ weakness.
+the newly attested key. There is no revocation: a delivered wrapped key is a
+permanent capability (§3) — Alice's control lives entirely in the file lane and
+in rotate-and-republish for future content.
 
 **End-to-end flow summary (backend-free):**
 
 - *Alice, client-side only:* presidio-web detects slots → fresh `K_i` per slot →
   AES-256-GCM ciphertexts → redacted artifact to Charlie via any channel →
-  publish ciphertexts (`DocumentPublished` event, or 0G blob + root hash in the
-  event) → grant = wrap + `SlotKeyGranted` event.
-- *Charlie, client-side only:* receive redacted artifact → attest browser
-  keypair with wallet → read chain events → unwrap → decrypt → render.
+  publish the integrity anchor (`DocumentPublished` event: docHash, author,
+  slotIds) → hand the JSON bundle file to Charlie → grant = wrap +
+  `SlotKeyGranted` event.
+- *Charlie, client-side only:* receive redacted artifact file → verify its
+  `docHash` against the registry → attest browser keypair with wallet → read
+  chain events → unwrap → decrypt → render.
 
 No SoulVault server participates in the redaction or hydration path; the web app
 is effectively a static UI + wallet + RPC reads. The CLI agent path reuses the
@@ -271,7 +306,7 @@ end.
 |----------|-------|
 | Redacted artifact | Ordinary channels (email/Slack/HTTP) |
 | Hydration bundle (ciphertext) | Provider x402 service (hackathon); durable store (roadmap) |
-| Slot commitments, epoch nonce, grant/revoke events | SoulVault-style contract (references + commitments only) |
+| Slot grants (wrapped key delivery) | SoulVault-style contract (grant events only) |
 | Deposit escrow | Treasury contract pattern |
 | Audit trail | Contract events; optional HCS mirror (roadmap) |
 | PII / plaintext / unsalted hashes | **Never onchain, never in logs** |
@@ -304,9 +339,9 @@ allows only **three prize selections per submission** — final pick:
    remote testing plus a feedback document. Keep it a policy tier, never a hard
    requirement, so the Ledger demo survives sandbox issues.
 3. **The Graph** (Continuity AI track): a Subgraph Studio subgraph indexing
-   `DocumentPublished` / `SlotKeyGranted` / `SlotRevoked` — turns public event
+   `DocumentPublished` / `SlotKeyGranted` — turns public event
    transport into one GraphQL query for the browser UI ("docs granting slot-2
-   to verified humans, unexpired") and gives agents a live structured source.
+   to verified humans") and gives agents a live structured source.
    Requires the document contract on a Studio-supported chain → **deploy the
    document contract on Sepolia** (see below).
 

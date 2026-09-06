@@ -8,8 +8,9 @@
  * never mutate their input.
  *
  * The watcher's resolveGrants uses resolveActiveGrants, so grant semantics
- * (last-grant-wins, revoke clears, re-grant reactivates, expiry) are defined
- * in exactly one place.
+ * are defined in exactly one place. A delivered READ grant is a permanent
+ * capability: last grant wins per (docHash, slotId); there is no revocation
+ * and no expiry (spec §3).
  */
 import { isAddressEqual, type Address, type Hex } from 'viem';
 import type { ActiveGrant, SoulVaultDocumentEvent, SoulVaultEvent } from './types';
@@ -278,16 +279,13 @@ export function reduceDocumentState(events: readonly SoulVaultEvent[]): Document
 
 /**
  * Active grants for a recipient across all documents, from already-narrowed
- * document events. Semantics: last grant wins per (docHash, slotId);
- * SlotRevoked clears; a later re-grant reactivates; expired grants drop out.
- *
- * Honest READ-mode semantics: this only stops future unwraps — plaintext
- * already decrypted is unrecoverable (spec §3).
+ * document events. Semantics: last grant wins per (docHash, slotId). A
+ * delivered READ grant is a permanent capability — no revocation, no expiry
+ * enforcement (spec §3).
  */
 export function resolveActiveGrants(
   docEvents: readonly SoulVaultDocumentEvent[],
   recipient: Address,
-  options?: { now?: bigint },
 ): ActiveGrant[] {
   const slots = new Map<string, ActiveGrant | null>();
   for (const event of orderEvents(docEvents)) {
@@ -299,18 +297,13 @@ export function resolveActiveGrants(
         slotId: event.slotId,
         recipient: event.recipient,
         wrap: event.wrap,
-        expiry: event.expiry,
         grantedAt: { blockNumber: event.blockNumber, txHash: event.txHash },
       });
-    } else {
-      slots.set(`${event.docHash}:${event.slotId}`, null);
     }
   }
-  const now = options?.now ?? BigInt(Math.floor(Date.now() / 1000));
   const active: ActiveGrant[] = [];
   for (const grant of slots.values()) {
     if (grant === null) continue;
-    if (grant.expiry !== null && grant.expiry <= now) continue;
     active.push(grant);
   }
   return active;

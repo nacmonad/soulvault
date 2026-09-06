@@ -1,0 +1,10 @@
+{
+  "name": "@soulvault/presidio-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts", "./worker": "./src/analyzer.worker.ts" },
+  "scripts": { "test": "vitest run", "typecheck": "tsc --noEmit && tsc --noEmit -p test" },
+  "dependencies": { "@soulvault/protocol": "workspace:*", "presidio-web": "0.1.0" },
+  "devDependencies": { "typescript": "^6.0.2", "vitest": "^4.1.2" }
+}

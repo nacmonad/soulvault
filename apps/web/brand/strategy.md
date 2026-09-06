@@ -10,7 +10,7 @@
 
 SoulVault was born from a single insight: agent sessions are ephemeral, but their coordination shouldn't be. When autonomous systems need to share state, preserve skills across deployments, and coordinate across membership changes, they face the same problem humans do—how to maintain continuity and trust without a central authority. The original core addresses this with encrypted backup/restore, epoch rotation, and event-driven membership governance. It's infrastructure for agent swarms the way databases are infrastructure for traditional systems, except with privacy and decentralization built in from the foundation.
 
-What SoulVault actually does is provide encrypted continuity for autonomous systems that need to coordinate reliably, and confidential collaboration for humans and agents who need to share sensitive information without leaking it during transport. It combines a cryptographic foundation (secp256k1 ECDH + AES-256-GCM) that works identically in browsers and Node.js, a dual-lane blockchain architecture (0G for coordination, Sepolia for identity), and a wallet-native authorization model that treats agents and humans symmetrically. The experience it creates is: your agent swarm state survives across deployments, your team can share documents safely through ordinary email because only authorized wallets can reveal the sensitive fields, and revocation is meaningful (you can actually deny access, not just rotate passwords).
+What SoulVault actually does is provide encrypted continuity for autonomous systems that need to coordinate reliably, and confidential collaboration for humans and agents who need to share sensitive information without leaking it during transport. It combines a cryptographic foundation (secp256k1 ECDH + AES-256-GCM) that works identically in browsers and Node.js, a dual-lane blockchain architecture (0G for coordination, Sepolia for identity), and a wallet-native authorization model that treats agents and humans symmetrically. The experience it creates is: your agent swarm state survives across deployments, and your team can share documents safely through ordinary email because only authorized wallets can reveal the sensitive fields. Disclosure is selective and explicit — a grant is deliberate, per-field, and visible on-chain, not a password someone can leak or guess.
 
 ---
 
@@ -25,7 +25,7 @@ Encrypted · Autonomous · Decentralized · Human-Centric
 
 ## 03 — BRAND MISSION
 
-SoulVault enables agent swarms and collaborative teams to coordinate securely, revoke access meaningfully, and share sensitive information without distributing plaintext—doing this through open cryptographic standards, wallet-native identity, and architecture that works in browsers as cleanly as it works in server deployments.
+SoulVault enables agent swarms and collaborative teams to coordinate securely and share sensitive information without distributing plaintext—doing this through open cryptographic standards, wallet-native identity, and architecture that works in browsers as cleanly as it works in server deployments.
 
 **Pillars:**
 Privacy · Continuity · Accessibility · Trust
@@ -38,7 +38,7 @@ Privacy · Continuity · Accessibility · Trust
 User data and agent state remain encrypted end-to-end, never in plaintext during transport or on untrusted servers. No central authority holds decryption keys. This is non-negotiable.
 
 **Simplicity**
-Distributed systems are complex. SoulVault's job is to hide that complexity behind clean APIs and intuitive wallet-based authorization. A professional should be able to share a confidential document and revoke access without understanding the cryptography underneath.
+Distributed systems are complex. SoulVault's job is to hide that complexity behind clean APIs and intuitive wallet-based authorization. A professional should be able to share a confidential document, field by field, with exactly the wallets they choose—without understanding the cryptography underneath.
 
 **Decentralization**
 Coordination shouldn't require a company in the middle. SoulVault uses smart contracts for policy, 0G for encrypted storage, and wallets for identity. The architecture doesn't collapse if SoulVault's maintainers disappear.
@@ -65,7 +65,7 @@ Win or place strongly in ETHOnline 2026 with a working demo that shows the full 
 Create a thriving ecosystem of CLI users, API integrations, and SDK implementations. Developers should reach for SoulVault the way they reach for any foundational infrastructure.
 
 **Achieve Dual-Market Credibility**
-Be trusted by both crypto-native teams (who understand decentralization) and risk-averse professionals (lawyers, healthcare, research) who care primarily about security and revocation semantics.
+Be trusted by both crypto-native teams (who understand decentralization) and risk-averse professionals (lawyers, healthcare, research) who care primarily about security and selective-disclosure semantics.
 
 **Create Sustainable Economics**
 Establish a path where the core protocol is open-source and decentralized, while premium services (hosted rehydration, semantic PII analysis, TEE compute) create sustainable revenue without centralizing trust.
@@ -110,12 +110,12 @@ Autonomous systems and teams that prioritize continuity over convenience, and pr
 
 *Manages sensitive document workflows between lawyers, paralegals, and outside counsel. Currently sends documents via Gmail with passwords via text. Paranoid about leaks.*
 
-> "I have to send confidential filings through Gmail. It's a nightmare. I need a way to send the document safely and actually revoke access if opposing counsel doesn't need it anymore."
+> "I have to send confidential filings through Gmail. It's a nightmare. I need a way to send the document safely and decide precisely who can see which fields."
 
-- **Goals:** Confidential document sharing, fine-grained access control, auditable revocation, compliance-friendly
-- **Challenges:** Staff is not technical; needs something that works with ordinary email; can't require everyone to learn crypto; needs clear revocation semantics
-- **Needs:** Browser-based interface, wallet authentication (not passwords), clear "you can see these fields" UI, revocation that actually prevents future access
-- **How SoulVault solves it:** Redacted documents safe to email, wallet-based access control, READ/USE distinction (fields are revealed only to authorized wallets), revocation blocks future hydration
+- **Goals:** Confidential document sharing, fine-grained access control, auditable on-chain grants, compliance-friendly
+- **Challenges:** Staff is not technical; needs something that works with ordinary email; can't require everyone to learn crypto; needs clear disclosure semantics
+- **Needs:** Browser-based interface, wallet authentication (not passwords), clear "you can see these fields" UI, grants that are deliberate and per-field
+- **How SoulVault solves it:** Redacted documents safe to email, wallet-based access control, READ/USE distinction (fields are revealed only to authorized wallets), and documented operational controls (the bundle gate and rotate-and-republish) instead of overpromised revocation
 
 ---
 
@@ -146,7 +146,7 @@ SoulVault is architect-grade. It doesn't apologize for complexity because it sol
 
 **SoulVault speaks with architect's precision—technical, grounded, uncompromising on security.**
 
-The brand voice is clear before it's clever. Every sentence earns its space. When explaining complex ideas (cryptography, event-driven coordination, TEE compute), the voice breaks them into intuitive parts without oversimplifying. It cites specifics (secp256k1, AES-256-GCM, EIP-712) because specificity builds trust. It avoids marketing language ("revolutionary," "game-changing," "blockchain-based") and prefers operational language ("encrypted by default," "wallet-scoped authorization," "revocation prevents future access").
+The brand voice is clear before it's clever. Every sentence earns its space. When explaining complex ideas (cryptography, event-driven coordination, TEE compute), the voice breaks them into intuitive parts without oversimplifying. It cites specifics (secp256k1, AES-256-GCM, EIP-712) because specificity builds trust. It avoids marketing language ("revolutionary," "game-changing," "blockchain-based") and prefers operational language ("encrypted by default," "wallet-scoped authorization," "grants are deliberate and per-field").
 
 ### Voice Qualities
 
@@ -157,7 +157,7 @@ Every term means something specific. "Encrypted" doesn't mean "we use cryptograp
 Explanations start from why the problem exists, not from the solution. "Agent sessions end—so we need backup/restore" rather than "our backup system is innovative." This makes the brand feel trustworthy and non-promotional.
 
 **Transparent About Trade-offs**
-SoulVault doesn't claim to solve everything. It acknowledges constraints (e.g., "revocation prevents future access but cannot force recipients to forget plaintext they've already seen") because honesty builds trust in the places where claims do hold.
+SoulVault doesn't claim to solve everything. It acknowledges constraints (e.g., "a delivered READ grant is a permanent capability — there is no revocation, and plaintext already disclosed cannot be unrevealed") because honesty builds trust in the places where claims do hold.
 
 **Peer-to-Peer**
 Speaks to operators and developers as colleagues, not as audiences needing persuasion. Assumes technical literacy. Uses terminology precisely (not "smart contracts" when "SoulVaultSwarm contract" is more accurate).
@@ -193,7 +193,7 @@ The confidential coordination + agent continuity market is genuinely nascent. Th
 
 **Blockchain Storage** (Arweave, Filecoin, etc.)
 - Focus on permanent, replicated storage
-- Don't address: authorization granularity, selective disclosure, revocation semantics
+- Don't address: authorization granularity, selective disclosure
 - Treat all data as equally sensitive; no per-field access control
 - How SoulVault differs: Storage is a substrate; authorization and selective disclosure are the product
 
@@ -228,7 +228,7 @@ Most confidential systems choose: humans or machines. SoulVault treats both as f
 
 The second differentiator is architectural composability. The same secp256k1 ECDH + AES-256-GCM layer that backs up agent state also powers document hydration. The same membership governance that manages swarms also governs document access. This isn't efficiency—it's elegance. Fewer primitives means fewer security surfaces and stronger validation across use cases.
 
-Third: SoulVault refuses to put sensitive data on-chain. Contracts hold commitments, nonces, revocation roots—never plaintext. This is operationally simple (what's on-chain is lean and auditable) and philosophically sound (public blockchains shouldn't hold secrets).
+Third: SoulVault refuses to put sensitive data on-chain. Contracts hold integrity anchors, wrapped keys, and grant records—never plaintext or raw keys. This is operationally simple (what's on-chain is lean and auditable) and philosophically sound (public blockchains shouldn't hold secrets).
 
 ---
 

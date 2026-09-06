@@ -61,6 +61,10 @@ pnpm --filter @soulvault/dmk-speculos-browser pack --dry-run
 The real integration and browser commands require Speculos plus the external
 ELF. Unit tests and typechecking do not.
 
+The integration suite also packs the package, installs that tarball into a
+temporary project outside the workspace, imports only its public exports, and
+derives the expected Speculos address with an explicit controller approval.
+
 From a clean checkout, the complete recorded proof is one command once the two
 external artifact variables are supplied:
 

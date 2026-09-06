@@ -161,6 +161,10 @@ operation; every approval or rejection is an explicit test action.
   SHA-256, and derived address now accompany the video, trace, and screen
   transcript in the Playwright result. The address, metadata, and transcript are
   also retained as obvious standalone files beside the video and trace.
+- [x] Verified the reuse boundary end to end: the real-Speculos integration suite
+  packs the allowlisted tarball, installs it into a temporary project outside
+  the workspace, imports only public package exports, explicitly approves the
+  address review, and derives the expected deterministic address.
 
 ### 1. Trace the transport contract
 
@@ -247,6 +251,10 @@ video, trace, address, and device transcript evidence.
 
 Complete when `pnpm pack --dry-run` is clean and a minimal example outside the package
 can install the tarball and derive the expected Speculos address.
+
+**PASS:** the allowlisted dry-run pack is clean, and the external temporary
+consumer installs the real tarball and derives the expected address against the
+pinned official Speculos/Ethereum app stack using only public exports.
 
 ### 7. Record the end-to-end proof of concept
 

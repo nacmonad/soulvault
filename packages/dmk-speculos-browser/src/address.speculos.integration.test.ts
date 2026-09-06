@@ -1,0 +1,240 @@
+import {
+  DeviceActionStatus,
+  DeviceManagementKitBuilder,
+} from '@ledgerhq/device-management-kit';
+import { SignerEthBuilder } from '@ledgerhq/device-signer-kit-ethereum';
+import { firstValueFrom } from 'rxjs';
+import { describe, expect, it } from 'vitest';
+
+import { createSpeculosTransport } from './index.js';
+import { createSpeculosController } from './test.js';
+
+const environment = (globalThis as {
+  process?: { env?: Record<string, string | undefined> };
+}).process?.env;
+const apiUrl = environment?.SOULVAULT_SPECULOS_API_URL;
+const expectedAddress = environment?.SOULVAULT_SPECULOS_EXPECTED_ADDRESS;
+const run = apiUrl ? describe : describe.skip;
+
+run('real DMK browser transport against Speculos', () => {
+  it('observes the address action states and verifies the address on-device', async () => {
+    const registration = createSpeculosTransport({
+      apduUrl: `${apiUrl}/apdu`,
+      requestTimeoutMs: 60_000,
+    });
+    const controller = createSpeculosController({ apiUrl: apiUrl! });
+    const dmk = new DeviceManagementKitBuilder().addTransport(registration.factory).build();
+
+    try {
+      const device = await firstValueFrom(
+        dmk.startDiscovering({ transport: registration.identifier }),
+      );
+      const sessionId = await dmk.connect({
+        device,
+        sessionRefresherOptions: { isRefresherDisabled: true },
+      });
+      const signer = new SignerEthBuilder({ dmk, sessionId }).build();
+      const action = signer.getAddress("44'/60'/0'/0/0", {
+        checkOnDevice: true,
+        skipOpenApp: true,
+      });
+
+      const resultPromise = completedOutput<{ address: string }>(action);
+      void resultPromise.catch(() => undefined);
+      await reviewAndApprove(controller);
+      const { output, statuses } = await resultPromise;
+
+      expect(output.address).toMatch(/^0x[0-9a-f]{40}$/i);
+      if (expectedAddress) expect(output.address.toLowerCase()).toBe(expectedAddress.toLowerCase());
+      expect(statuses).toEqual([DeviceActionStatus.Completed]);
+      expect(statuses.at(-1)).toBe(DeviceActionStatus.Completed);
+      expect(controller.getTranscript().some((entry) => entry.button === 'both')).toBe(true);
+
+      await dmk.disconnect({ sessionId });
+    } finally {
+      dmk.close();
+    }
+  });
+
+  it('disconnects and reconnects without changing the derived identity', async () => {
+    const registration = createSpeculosTransport({ apduUrl: `${apiUrl}/apdu` });
+    const dmk = new DeviceManagementKitBuilder().addTransport(registration.factory).build();
+
+    try {
+      const device = await firstValueFrom(
+        dmk.startDiscovering({ transport: registration.identifier }),
+      );
+      const firstSessionId = await dmk.connect({
+        device,
+        sessionRefresherOptions: { isRefresherDisabled: true },
+      });
+      const firstAddress = await deriveAddress(dmk, firstSessionId);
+      await dmk.disconnect({ sessionId: firstSessionId });
+
+      const secondSessionId = await dmk.connect({
+        device,
+        sessionRefresherOptions: { isRefresherDisabled: true },
+      });
+      const secondAddress = await deriveAddress(dmk, secondSessionId);
+
+      expect(secondSessionId).not.toBe(firstSessionId);
+      expect(secondAddress).toBe(firstAddress);
+      if (expectedAddress) expect(secondAddress.toLowerCase()).toBe(expectedAddress.toLowerCase());
+      await dmk.disconnect({ sessionId: secondSessionId });
+    } finally {
+      dmk.close();
+    }
+  });
+
+  it('surfaces an explicit on-device address rejection as a DMK action error', async () => {
+    const registration = createSpeculosTransport({
+      apduUrl: `${apiUrl}/apdu`,
+      requestTimeoutMs: 60_000,
+    });
+    const controller = createSpeculosController({ apiUrl: apiUrl! });
+    const dmk = new DeviceManagementKitBuilder().addTransport(registration.factory).build();
+
+    try {
+      const device = await firstValueFrom(
+        dmk.startDiscovering({ transport: registration.identifier }),
+      );
+      const sessionId = await dmk.connect({
+        device,
+        sessionRefresherOptions: { isRefresherDisabled: true },
+      });
+      const signer = new SignerEthBuilder({ dmk, sessionId }).build();
+      const action = signer.getAddress("44'/60'/0'/0/0", {
+        checkOnDevice: true,
+        skipOpenApp: true,
+      });
+      const resultPromise = completedOutput<{ address: string }>(action);
+      void resultPromise.catch(() => undefined);
+
+      await reviewAndReject(controller);
+
+      await expect(resultPromise).rejects.toBeDefined();
+      expect(controller.getTranscript().at(-1)).toMatchObject({
+        kind: 'button',
+        button: 'both',
+      });
+      await dmk.disconnect({ sessionId });
+    } finally {
+      dmk.close();
+    }
+  });
+
+  it('aborts an in-flight device action on disconnect, resets, and reconnects', async () => {
+    const registration = createSpeculosTransport({
+      apduUrl: `${apiUrl}/apdu`,
+      requestTimeoutMs: 60_000,
+    });
+    const controller = createSpeculosController({ apiUrl: apiUrl! });
+    const dmk = new DeviceManagementKitBuilder().addTransport(registration.factory).build();
+
+    try {
+      const device = await firstValueFrom(
+        dmk.startDiscovering({ transport: registration.identifier }),
+      );
+      const sessionId = await dmk.connect({
+        device,
+        sessionRefresherOptions: { isRefresherDisabled: true },
+      });
+      const signer = new SignerEthBuilder({ dmk, sessionId }).build();
+      const resultPromise = completedOutput<{ address: string }>(
+        signer.getAddress("44'/60'/0'/0/0", {
+          checkOnDevice: true,
+          skipOpenApp: true,
+        }),
+      );
+      void resultPromise.catch(() => undefined);
+      await controller.waitForScreen('Address');
+
+      await dmk.disconnect({ sessionId });
+
+      await expect(resultPromise).rejects.toMatchObject({ errorCode: 'ABORTED' });
+      await reviewAndReject(controller);
+      const reconnectedSessionId = await dmk.connect({
+        device,
+        sessionRefresherOptions: { isRefresherDisabled: true },
+      });
+      expect(await deriveAddress(dmk, reconnectedSessionId)).toMatch(/^0x[0-9a-f]{40}$/i);
+      await dmk.disconnect({ sessionId: reconnectedSessionId });
+    } finally {
+      dmk.close();
+    }
+  });
+});
+
+async function reviewAndApprove(controller: ReturnType<typeof createSpeculosController>) {
+  for (let step = 0; step < 24; step += 1) {
+    const screen = await controller.pollScreen();
+    const text = screen.map((event) => event.text).join(' | ');
+    if (/\bapprove\b|\bconfirm(?: address)?\b/i.test(text)) {
+      await controller.pressBoth();
+      return;
+    }
+    await controller.pressRight();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  const screens = controller.getTranscript()
+    .filter((entry) => entry.kind === 'screen')
+    .map((entry) => entry.screen?.map((event) => event.text).join(' | '));
+  throw new Error(
+    `Speculos address review did not reach its confirmation screen: ${screens.join(' -> ')}`,
+  );
+}
+
+async function reviewAndReject(controller: ReturnType<typeof createSpeculosController>) {
+  for (let step = 0; step < 24; step += 1) {
+    const screen = await controller.pollScreen();
+    const text = screen.map((event) => event.text).join(' | ');
+    if (/\bcancel\b|\breject\b/i.test(text)) {
+      await controller.pressBoth();
+      return;
+    }
+    await controller.pressRight();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  throw new Error('Speculos address review did not reach its rejection screen');
+}
+
+async function deriveAddress(
+  dmk: ReturnType<DeviceManagementKitBuilder['build']>,
+  sessionId: string,
+): Promise<string> {
+  const signer = new SignerEthBuilder({ dmk, sessionId }).build();
+  const { output, statuses } = await completedOutput<{ address: string }>(
+    signer.getAddress("44'/60'/0'/0/0", {
+      checkOnDevice: false,
+      skipOpenApp: true,
+    }),
+  );
+  expect(statuses.at(-1)).toBe(DeviceActionStatus.Completed);
+  return output.address;
+}
+
+function completedOutput<T>(action: {
+  observable: {
+    subscribe(observer: {
+      next(state: { status: DeviceActionStatus; output?: T; error?: unknown }): void;
+      error(cause: unknown): void;
+    }): { unsubscribe(): void };
+  };
+}): Promise<{ output: T; statuses: DeviceActionStatus[] }> {
+  return new Promise((resolve, reject) => {
+    const statuses: DeviceActionStatus[] = [];
+    const subscription = action.observable.subscribe({
+      next(state) {
+        statuses.push(state.status);
+        if (state.status === DeviceActionStatus.Completed) {
+          subscription.unsubscribe();
+          resolve({ output: state.output as T, statuses });
+        } else if (state.status === DeviceActionStatus.Error) {
+          subscription.unsubscribe();
+          reject(state.error);
+        }
+      },
+      error: reject,
+    });
+  });
+}

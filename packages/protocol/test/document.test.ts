@@ -102,6 +102,9 @@ describe('structured-text document redaction and rehydration', () => {
   it('produces ciphertext that Node can authenticate and decrypt with the canonical AAD', () => {
     const result = redactAndEncryptDocument({ text: source, spans, random: deterministicRandom() });
     const encrypted = result.encryptedSlots[0];
+    if (encrypted.storage === 'located' || typeof encrypted.ciphertext !== 'string') {
+      throw new Error('expected an inline slot');
+    }
     const key = result.slotKeys.find((item) => item.slotId === encrypted.slotId)!;
     const decipher = nodeCrypto.createDecipheriv(
       'aes-256-gcm',

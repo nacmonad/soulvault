@@ -61,7 +61,10 @@ export type RedactedDocumentArtifact = {
   slots: RedactedSlotReference[];
 };
 
-export type EncryptedDocumentSlot = {
+export const EXTERNAL_SLOT_PROTOCOL_VERSION = 'soulvault-external-slot-v0' as const;
+export const DEFAULT_EXTERNAL_SLOT_THRESHOLD_BYTES = 64 * 1024;
+
+export type InlineDocumentSlot = {
   version: typeof DOCUMENT_PROTOCOL_VERSION;
   documentId: string;
   slotId: string;
@@ -69,7 +72,60 @@ export type EncryptedDocumentSlot = {
   nonce: string;
   ciphertext: string;
   tag: string;
+  /** Inline payloads ride inside the public bundle file. */
+  storage?: 'inline';
 };
+
+export type ExternalSlotLocator = {
+  /** Fixed kind tag; discriminates external references from inline payloads. */
+  readonly kind: 'external';
+  readonly protocolVersion: typeof EXTERNAL_SLOT_PROTOCOL_VERSION;
+  /** Opaque store-specific address (e.g. a 0G root hash). Contains no secrets. */
+  readonly locator: string;
+  /** Sha256 hex of the exact bytes stored at the locator. */
+  readonly contentHash: string;
+  readonly byteLength: number;
+};
+
+export type LocatedDocumentSlot = {
+  version: typeof DOCUMENT_PROTOCOL_VERSION;
+  documentId: string;
+  slotId: string;
+  algorithm: typeof DOCUMENT_CIPHER_ALGORITHM;
+  nonce: string;
+  /** Never present on located slots; the payload lives behind `external`. */
+  ciphertext?: undefined;
+  tag: string;
+  storage: 'located';
+  /** Integrity-bound pointer; resolve it via an ExternalSlotStore before hydration. */
+  external: ExternalSlotLocator;
+};
+
+/**
+ * A slot payload, either inline in the bundle file or referenced through an
+ * integrity-bound external locator (see docs/adr/0001-external-slot-overflow-storage.md).
+ */
+export type EncryptedDocumentSlot = InlineDocumentSlot | LocatedDocumentSlot;
+
+export type ExternalSlotRecord = {
+  readonly version: typeof EXTERNAL_SLOT_PROTOCOL_VERSION;
+  readonly slotId: string;
+  readonly algorithm: typeof DOCUMENT_CIPHER_ALGORITHM;
+  readonly nonce: string;
+  readonly tag: string;
+  /** Base64-encoded ciphertext; lives only in external storage, never in the bundle. */
+  readonly ciphertext: string;
+};
+
+/**
+ * Minimal storage port for oversized slot payloads. Implementations keep the
+ * protocol package isomorphic: bytes in, bytes out, no fetch, no Node built-ins.
+ * `put` returns the store-assigned locator address for the stored bytes.
+ */
+export interface ExternalSlotStore {
+  put(bytes: Uint8Array): Promise<string>;
+  get(locator: string): Promise<Uint8Array>;
+}
 
 export type DocumentSlotKey = {
   slotId: string;
@@ -185,6 +241,14 @@ export function rehydrateDocument(input: {
       throw new DocumentProtocolError('MISSING_SLOT', `Missing encrypted data or key for ${reference.slotId}`);
     }
     validateEncryptedSlot(encrypted, input.artifact.documentId, reference.slotId);
+    if (encrypted.storage === 'located') {
+      // Unresolved external payload: treat exactly like an unavailable slot.
+      if (input.allowPartial) continue;
+      throw new DocumentProtocolError(
+        'MISSING_SLOT',
+        `External payload for ${reference.slotId} has not been resolved; call resolveExternalSlots first`,
+      );
+    }
     let plaintext: string;
     try {
       plaintext = bytesToUtf8(aesGcmOpen({
@@ -314,13 +378,28 @@ function validateEncryptedSlot(slot: EncryptedDocumentSlot, documentId: string, 
   if (slot.version !== DOCUMENT_PROTOCOL_VERSION) {
     throw new DocumentProtocolError('UNSUPPORTED_VERSION', `Unsupported encrypted slot version ${String(slot.version)}`);
   }
-  if (
+  const commonBinding =
     slot.documentId !== documentId || slot.slotId !== slotId ||
     slot.algorithm !== DOCUMENT_CIPHER_ALGORITHM ||
-    !/^[0-9a-f]{24}$/i.test(slot.nonce) || !/^[0-9a-f]{32}$/i.test(slot.tag) ||
-    typeof slot.ciphertext !== 'string'
-  ) {
+    !/^[0-9a-f]{24}$/i.test(slot.nonce) || !/^[0-9a-f]{32}$/i.test(slot.tag);
+  if (commonBinding) {
     throw new DocumentProtocolError('INVALID_ARTIFACT', `Encrypted slot ${slotId} has an invalid shape or binding`);
+  }
+  if (slot.storage === 'located') {
+    if (
+      slot.ciphertext !== undefined || !isRecord(slot.external) ||
+      slot.external.kind !== 'external' ||
+      slot.external.protocolVersion !== EXTERNAL_SLOT_PROTOCOL_VERSION ||
+      typeof slot.external.locator !== 'string' || slot.external.locator.trim() === '' ||
+      typeof slot.external.contentHash !== 'string' || !/^[0-9a-f]{64}$/i.test(slot.external.contentHash) ||
+      !Number.isSafeInteger(slot.external.byteLength) || slot.external.byteLength < 1
+    ) {
+      throw new DocumentProtocolError('INVALID_ARTIFACT', `Located slot ${slotId} has an invalid external locator`);
+    }
+    return;
+  }
+  if (typeof slot.ciphertext !== 'string') {
+    throw new DocumentProtocolError('INVALID_ARTIFACT', `Encrypted slot ${slotId} has invalid ciphertext`);
   }
   try {
     base64ToBytes(slot.ciphertext);

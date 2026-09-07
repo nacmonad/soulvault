@@ -107,5 +107,11 @@ User runs their own infrastructure components (e.g., relay/control-plane, option
 ## Managed Mode / SaaS Path
 Hosted service provides operational components (e.g., relay/control-plane, storage indexing/mirroring) while the protocol remains open-source and portable.
 
+## Rehydration Key
+A secp256k1 keypair generated client-side via `@soulvault/protocol`, persistent in the recipient's browser storage, and bound to the recipient's wallet by an EIP-712 attestation. Slot keys are wrapped to the rehydration public key at grant time. If the recipient loses browser storage, they attest a NEW rehydration key with the same wallet and the author re-issues grants wrapped to the new key; the old private key is never needed again. Wrong or superseded keys cannot unwrap grants issued to other keys (fingerprint binding fails closed).
+
+## READ Grant (document)
+A wallet-attested, per-slot wrapped key delivered as a `SlotKeyGranted` event. **A delivered READ grant is a permanent capability** (spec §3): there is no revocation, no expiry enforcement, and no erasure mechanism in v0. Re-granting a slot only re-wraps the key for a newly attested recipient key — the `(docHash, slotId)` recipient keeps access forever. An author's only controls are the bundle-file gate and rotate-and-republish for future content.
+
 ## RekeyRequested
 A post-MVP event emitted by the public `requestRekey()` contract function, typically triggered by Chainlink Automation, signaling the owner that a rekey is overdue. The owner CLI responds by initiating the actual rekey.

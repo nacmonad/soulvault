@@ -1,3 +1,16 @@
+/**
+ * Wallet-attested rehydration keys and selective slot-key grants.
+ *
+ * Key-loss story: a recipient who loses browser storage attests a NEW
+ * rehydration key with the same wallet (loadOrCreateRehydrationKey with
+ * `replace: true`); the author verifies the new attestation and re-issues
+ * grants wrapped to the new key. The old private key is never needed again,
+ * and wrong or superseded keys cannot unwrap grants issued to other keys
+ * (the recipient-key fingerprint binding fails closed).
+ *
+ * A delivered READ grant is a permanent capability (spec §3): there is no
+ * revocation and no expiry enforcement in v0.
+ */
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { keccak_256 } from '@noble/hashes/sha3';
 import {

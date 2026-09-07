@@ -256,6 +256,56 @@ describe('resolveActiveGrants', () => {
     expect(grants[0].wrap.wrappedKey).toBe('second==');
   });
 
+  it('is deterministic under same-block logs: (blockNumber, logIndex) ordering decides the winner', async () => {
+    // Two grants in the SAME block, emitted in reverse input order. The
+    // reducer must sort by (blockNumber, logIndex) itself, so the higher
+    // logIndex wins regardless of the order events arrive in.
+    const sameBlock = [
+      grant('sv_a_1', 5n, { wrappedKey: 'logIndex-1==' }),
+      grant('sv_a_1', 5n, { wrappedKey: 'logIndex-2==' }),
+    ];
+    const asGiven = resolveActiveGrants(await decodeDocEvents(sameBlock), CHARLIE);
+    const reversed = resolveActiveGrants(
+      await decodeDocEvents([
+        { ...sameBlock[1], logIndex: 1 },
+        { ...sameBlock[0], logIndex: 0 },
+      ]),
+      CHARLIE,
+    );
+    expect(asGiven).toHaveLength(1);
+    expect(asGiven[0].wrap.wrappedKey).toBe('logIndex-2==');
+    expect(reversed[0].wrap.wrappedKey).toBe(asGiven[0].wrap.wrappedKey);
+  });
+
+  it('is idempotent: duplicate scans and repeated identical grants collapse to the same state', async () => {
+    const logs = [
+      publish(DOC_HASH, 1n),
+      grant('sv_a_1', 2n),
+      grant('sv_a_1', 2n), // duplicate scan of the same log
+      grant('sv_b_1', 3n),
+    ];
+    const once = await decodeDocEvents(logs);
+    // Watcher re-scans append the same events; reducers must be idempotent.
+    const rescanned = [...once, ...once];
+    expect(resolveActiveGrants(once, CHARLIE)).toEqual(resolveActiveGrants(rescanned, CHARLIE));
+    expect(reduceDocumentState(await decode(logs)).documents.size).toBe(
+      reduceDocumentState([...(await decode(logs)), ...(await decode(logs))]).documents.size,
+    );
+  });
+
+  it('treats READ grants as permanent capabilities: repeated grants never remove access', async () => {
+    // No revocation or expiry exists in v0 (spec §3): re-granting a slot
+    // re-wraps the key but the (docHash, slotId) stays granted forever.
+    const events = await decodeDocEvents([
+      grant('sv_a_1', 1n, { wrappedKey: 'original==' }),
+      grant('sv_a_1', 2n, { wrappedKey: 'rewrapped==' }),
+      grant('sv_a_1', 3n, { wrappedKey: 'final==' }),
+    ]);
+    const grants = resolveActiveGrants(events, CHARLIE);
+    expect(grants).toHaveLength(1);
+    expect(grants[0].wrap.wrappedKey).toBe('final==');
+  });
+
   it('grants are scoped per document: same slot id in two docs yields two grants', async () => {
     const other = HASH('cc') as Hex;
     const events = await decodeDocEvents([

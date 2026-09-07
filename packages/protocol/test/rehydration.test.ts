@@ -129,6 +129,73 @@ describe('wallet-attested rehydration keys and selective grants', () => {
     }
   });
 
+  it('replaces a lost key end to end without recovering the old private key', async () => {
+    const document = redactAndEncryptDocument({ text: source, spans });
+    const store = new MemoryRehydrationKeyStore();
+    const originalKey = await loadOrCreateRehydrationKey({ store, keyId: 'charlie' });
+    const walletKey = secp256k1.utils.randomPrivateKey();
+    const wallet = ethereumAddressFromPrivateKey(bytesToHex(walletKey));
+
+    // Original grant, wrapped to the key Charlie has since lost. A delivered
+    // READ grant is a permanent capability: the original wrap still hydrates
+    // for whoever still holds that key, and nothing revokes it.
+    const originalGrants = createSlotKeyGrants({
+      slotKeys: document.slotKeys,
+      slotIds: ['person-1', 'phone-1'],
+      attestation: signAttestation(walletKey, originalKey.publicKey),
+      expectedChainId: chainId,
+      expectedVerifyingContract: registry,
+      now,
+    });
+    expect(rehydrateGrantedDocument({
+      artifact: document.artifact,
+      encryptedSlots: document.encryptedSlots,
+      grants: originalGrants,
+      recipientWallet: wallet,
+      rehydrationKey: originalKey,
+    })).toBe(source);
+
+    // Lost browser storage: Charlie attests a NEW key; the old private key is
+    // never recovered. The author verifies the new attestation and re-wraps.
+    const replacementKey = await loadOrCreateRehydrationKey({ store, keyId: 'charlie', replace: true });
+    expect(replacementKey.publicKey).not.toBe(originalKey.publicKey);
+    const replacementGrants = createSlotKeyGrants({
+      slotKeys: document.slotKeys,
+      slotIds: ['person-1', 'phone-1'],
+      attestation: signAttestation(walletKey, replacementKey.publicKey),
+      expectedChainId: chainId,
+      expectedVerifyingContract: registry,
+      now,
+    });
+    expect(rehydrateGrantedDocument({
+      artifact: document.artifact,
+      encryptedSlots: document.encryptedSlots,
+      grants: replacementGrants,
+      recipientWallet: wallet,
+      rehydrationKey: replacementKey,
+    })).toBe(source);
+
+    // Superseded keys cannot unwrap newly issued grants: the recipient-key
+    // fingerprint binding fails closed with a typed error.
+    expect(() => rehydrateGrantedDocument({
+      artifact: document.artifact,
+      encryptedSlots: document.encryptedSlots,
+      grants: replacementGrants,
+      recipientWallet: wallet,
+      rehydrationKey: originalKey,
+    })).toThrow(expect.objectContaining({ code: 'UNAUTHORIZED_RECIPIENT' }));
+
+    // An unrelated key from a different wallet gets nothing either.
+    const malloryKey = await loadOrCreateRehydrationKey({ store, keyId: 'mallory' });
+    expect(() => rehydrateGrantedDocument({
+      artifact: document.artifact,
+      encryptedSlots: document.encryptedSlots,
+      grants: replacementGrants,
+      recipientWallet: ethereumAddressFromPrivateKey(bytesToHex(secp256k1.utils.randomPrivateKey())),
+      rehydrationKey: malloryKey,
+    })).toThrow(expect.objectContaining({ code: 'UNAUTHORIZED_RECIPIENT' }));
+  });
+
   it('fails cryptographically when a wallet has the grant but not the attested private key', async () => {
     const document = redactAndEncryptDocument({ text: source, spans });
     const charlieKey = await loadOrCreateRehydrationKey({ store: new MemoryRehydrationKeyStore() });

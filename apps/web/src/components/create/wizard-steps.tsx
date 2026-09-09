@@ -7,18 +7,16 @@ import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-prov
 import type { WizardStep } from "@/lib/create-flows";
 
 /**
- * Browser deploys submit eth_sendTransaction via the injected wallet — a DMK
- * Ledger session can't do that, so warn before the wizard is run.
+ * Ledger sessions sign every wizard transaction on the device (no injected
+ * wallet needed) — show an informational note so the user knows what to expect.
  */
 export function ConnectorGate() {
   const { connector, address } = useSoulVaultWallet();
   if (connector !== "ledger") return null;
   return (
-    <p className="border-l-2 border-amber-500 pl-3 text-sm">
-      The dashboard is connected to a Ledger device session, which can't submit
-      transactions from the browser. Connect a browser wallet (MetaMask etc.) holding
-      {address ? <span className="font-mono"> {shortAddress(address)}</span> : " the org owner address"} to run
-      this wizard.
+    <p className="border-l-2 border-primary pl-3 text-sm">
+      Signing with your Ledger{address ? <span className="font-mono"> ({shortAddress(address)})</span> : null} — confirm
+      each transaction on the device. No browser wallet is needed; transactions are broadcast via the configured RPC.
     </p>
   );
 }

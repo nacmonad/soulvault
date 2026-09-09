@@ -5,8 +5,12 @@ import { DeviceActionStatus, DeviceManagementKitBuilder, type DeviceSessionId, t
 import { SignerEthBuilder } from "@ledgerhq/device-signer-kit-ethereum";
 import { webHidIdentifier, webHidTransportFactory } from "@ledgerhq/device-transport-kit-web-hid";
 import { firstValueFrom, timeout } from "rxjs";
-import type { Address } from "viem";
+import { hexToBytes, type Address, type Hex } from "viem";
+import type { SignerEth } from "@ledgerhq/device-signer-kit-ethereum";
 import { getBrowserSoulVaultActivityConfig, loadSoulVaultActivity, type SoulVaultActivity } from "@/lib/onchain/soulvault-activity";
+import { createLedgerTxChannel, type DeviceTransactionSignature } from "@/lib/ledger-tx";
+import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
+import { setTxChannel } from "@/lib/wallet-tx";
 
 const DERIVATION_PATH = "44'/60'/0'/0/0";
 const DISCOVERY_TIMEOUT_MS = 15_000;
@@ -45,6 +49,7 @@ export function SoulVaultLedgerProvider({ children, developmentLedgerTransport }
     : { factory: webHidTransportFactory, identifier: webHidIdentifier, emulated: false as const };
   const dmk = useMemo(() => new DeviceManagementKitBuilder().addTransport(selectedTransport.factory).build(), [selectedTransport.factory]);
   const sessionRef = useRef<DeviceSessionId | undefined>(undefined);
+  const signerRef = useRef<SignerEth | undefined>(undefined);
   const subscriptionRef = useRef<{ unsubscribe(): void } | undefined>(undefined);
   const injectedRef = useRef<InjectedProvider | undefined>(undefined);
   const injectedListenersRef = useRef<Array<{ event: string; listener: (...args: unknown[]) => void }>>([]);
@@ -63,12 +68,36 @@ export function SoulVaultLedgerProvider({ children, developmentLedgerTransport }
     setStatus("connected");
   }, []);
 
+  const requireSigner = useCallback((): SignerEth => {
+    const signer = signerRef.current;
+    if (!signer) throw new Error("No Ledger session. Connect your Ledger first.");
+    return signer;
+  }, []);
+
+  const ledgerSignTransaction = useCallback(async (unsignedSerialized: Hex): Promise<DeviceTransactionSignature> => {
+    return runDeviceAction<DeviceTransactionSignature>(
+      requireSigner().signTransaction(DERIVATION_PATH, hexToBytes(unsignedSerialized)),
+    );
+  }, []);
+
+  const ledgerSignTypedData = useCallback(async (payload: string): Promise<string> => {
+    const sig = await runDeviceAction<{ r: string; s: string; v: number }>(
+      requireSigner().signTypedData(DERIVATION_PATH, JSON.parse(payload) as Parameters<SignerEth["signTypedData"]>[1]),
+    );
+    // Match the eth_signTypedData_v4 shape the browser channel returns: 65-byte
+    // r||s||v hex. Device v is a single byte — normalize to 27/28 via parity.
+    const yParity = Number(sig.v) & 1;
+    return ("0x" + sig.r.slice(2) + sig.s.slice(2) + (27 + yParity).toString(16).padStart(2, "0")) as Hex;
+  }, []);
+
   const disconnect = useCallback(async () => {
     subscriptionRef.current?.unsubscribe(); subscriptionRef.current = undefined;
     for (const { event, listener } of injectedListenersRef.current) injectedRef.current?.removeListener?.(event, listener);
     injectedListenersRef.current = []; injectedRef.current = undefined;
     const sessionId = sessionRef.current; sessionRef.current = undefined;
     if (sessionId) await dmk.disconnect({ sessionId }).catch(() => undefined);
+    signerRef.current = undefined;
+    setTxChannel(undefined);
     setAddress(undefined); setConnector(undefined); setActivity([]); setDeviceState(undefined); setError(undefined); setStatus("idle");
   }, [dmk]);
 
@@ -82,17 +111,23 @@ export function SoulVaultLedgerProvider({ children, developmentLedgerTransport }
       sessionRef.current = sessionId;
       subscriptionRef.current = dmk.getDeviceSessionState({ sessionId }).subscribe(setDeviceState);
       const signer = new SignerEthBuilder({ dmk, sessionId }).build();
+      signerRef.current = signer;
       const account = await runDeviceAction<{ address: Address }>(signer.getAddress(DERIVATION_PATH, {
         checkOnDevice: true,
         skipOpenApp: selectedTransport.emulated,
       }));
       setAddress(account.address); setConnector("ledger"); setStatus("connected");
+      // Swap the transaction channel: sign on device, broadcast raw to the RPC.
+      const config = getBrowserSoulVaultClientConfig();
+      if (config) {
+        setTxChannel(createLedgerTxChannel({ signTransaction: ledgerSignTransaction, signTypedData: ledgerSignTypedData, config }));
+      }
       await refreshForAddress(account.address);
     } catch (cause) {
       await dmk.stopDiscovering().catch(() => undefined);
       setStatus("error"); setError(toUserMessage(cause));
     }
-  }, [disconnect, dmk, refreshForAddress, selectedTransport.emulated, selectedTransport.identifier]);
+  }, [disconnect, dmk, refreshForAddress, selectedTransport.emulated, selectedTransport.identifier, ledgerSignTransaction, ledgerSignTypedData]);
 
   const connectBrowserWallet = useCallback(async () => {
     const provider = getInjectedProvider();

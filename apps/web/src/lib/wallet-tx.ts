@@ -9,6 +9,34 @@ function injected(): Injected | undefined {
   return (window as typeof window & { ethereum?: Injected }).ethereum;
 }
 
+/**
+ * A transport for signing + broadcasting transactions and waiting for
+ * receipts. The default channel talks to the injected browser wallet; the
+ * Ledger channel (ledger-tx.ts) signs on the DMK device session and broadcasts
+ * raw txs straight to the configured RPC. The dashboard wallet provider swaps
+ * the active channel on connect/disconnect, so every write path (wizards, ENS
+ * writes, treasury + document flows) works under either connector unchanged.
+ */
+export type WalletReceipt = {
+  status: "success" | "reverted";
+  contractAddress?: Address;
+  blockNumber: bigint;
+};
+
+export type TxSubmitInput = {
+  from: Address;
+  /** `null` = contract creation (eth_sendTransaction with no `to`). */
+  to: Address | null;
+  data: Hex;
+  value?: bigint;
+};
+
+export type TxChannel = {
+  submit(input: TxSubmitInput): Promise<Hex>;
+  waitForReceipt(hash: Hex): Promise<WalletReceipt>;
+  signTypedData?(input: { address: Address; payload: string }): Promise<string>;
+};
+
 /** Map raw wallet RPC rejections (EIP-1193 provider errors) to actionable copy. */
 function walletRequestError(cause: unknown): Error {
   const e = cause as { code?: number; message?: string };
@@ -49,31 +77,97 @@ async function ensureWalletAuthorized(from?: Address): Promise<Injected> {
   return provider;
 }
 
-export async function sendWalletTransaction(input: {
-  from: Address;
-  /** `null` = contract creation (eth_sendTransaction with no `to`). */
-  to: Address | null;
-  data: Hex;
-  value?: bigint;
-}): Promise<Hex> {
-  const provider = await ensureWalletAuthorized(input.from);
-  let hash: unknown;
-  try {
-    hash = await provider.request({
-      method: "eth_sendTransaction",
-      params: [
-        {
-          from: input.from,
-          ...(input.to !== null ? { to: input.to } : {}),
-          data: input.data,
-          ...(input.value !== undefined ? { value: `0x${input.value.toString(16)}` } : {}),
-        },
-      ],
-    });
-  } catch (cause) {
-    throw walletRequestError(cause);
+// ---------------------------------------------------------------------------
+// Browser (injected wallet) channel
+// ---------------------------------------------------------------------------
+
+const browserChannel: TxChannel = {
+  async submit(input) {
+    const provider = await ensureWalletAuthorized(input.from);
+    let hash: unknown;
+    try {
+      hash = await provider.request({
+        method: "eth_sendTransaction",
+        params: [
+          {
+            from: input.from,
+            ...(input.to !== null ? { to: input.to } : {}),
+            data: input.data,
+            ...(input.value !== undefined ? { value: `0x${input.value.toString(16)}` } : {}),
+          },
+        ],
+      });
+    } catch (cause) {
+      throw walletRequestError(cause);
+    }
+    return hash as Hex;
+  },
+
+  async waitForReceipt(hash) {
+    const provider = injected();
+    if (!provider) throw new Error("No injected browser wallet.");
+    // Poll eth_getTransactionReceipt — static export has no viem public client wired
+    // into this module, and every browser wallet exposes the standard JSON-RPC methods.
+    for (let attempt = 0; attempt < 120; attempt++) {
+      const receipt = (await provider.request({
+        method: "eth_getTransactionReceipt",
+        params: [hash],
+      })) as {
+        status?: Hex;
+        contractAddress?: Address;
+        blockNumber?: Hex;
+      } | null;
+      if (receipt) {
+        return {
+          status: receipt.status === "0x1" ? "success" : "reverted",
+          contractAddress: receipt.contractAddress,
+          blockNumber: BigInt(receipt.blockNumber ?? "0x0"),
+        };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+    throw new Error(`Timed out waiting for transaction receipt (tx ${hash}).`);
+  },
+
+  async signTypedData(input) {
+    const provider = await ensureWalletAuthorized(input.address);
+    try {
+      return (await provider.request({
+        method: "eth_signTypedData_v4",
+        params: [input.address, input.payload],
+      })) as string;
+    } catch (cause) {
+      throw walletRequestError(cause);
+    }
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Active channel — defaults to the browser wallet; the wallet provider swaps
+// in the Ledger channel on connect (setTxChannel) and restores this default
+// on disconnect.
+// ---------------------------------------------------------------------------
+
+let activeChannel: TxChannel = browserChannel;
+
+/** Swap the active transaction channel. `undefined` restores the browser wallet. */
+export function setTxChannel(channel: TxChannel | undefined): void {
+  activeChannel = channel ?? browserChannel;
+}
+
+export async function sendWalletTransaction(input: TxSubmitInput): Promise<Hex> {
+  return activeChannel.submit(input);
+}
+
+export async function waitForWalletReceipt(hash: Hex): Promise<WalletReceipt> {
+  return activeChannel.waitForReceipt(hash);
+}
+
+export async function signTypedData(input: { address: Address; payload: string }): Promise<string> {
+  if (!activeChannel.signTypedData) {
+    throw new Error("Typed-data signing is not available on the active wallet channel.");
   }
-  return hash as Hex;
+  return activeChannel.signTypedData(input);
 }
 
 /**
@@ -93,46 +187,4 @@ export async function deployWalletContract(input: {
     throw new Error(`Deploy receipt has no contractAddress (tx ${hash}).`);
   }
   return { txHash: hash, contractAddress: receipt.contractAddress };
-}
-
-export async function waitForWalletReceipt(hash: Hex): Promise<{
-  status: "success" | "reverted";
-  contractAddress?: Address;
-  blockNumber: bigint;
-}> {
-  const provider = injected();
-  if (!provider) throw new Error("No injected browser wallet.");
-  // Poll eth_getTransactionReceipt — static export has no viem public client wired
-  // into this module, and every browser wallet exposes the standard JSON-RPC methods.
-  for (let attempt = 0; attempt < 120; attempt++) {
-    const receipt = (await provider.request({
-      method: "eth_getTransactionReceipt",
-      params: [hash],
-    })) as {
-      status?: Hex;
-      contractAddress?: Address;
-      blockNumber?: Hex;
-    } | null;
-    if (receipt) {
-      return {
-        status: receipt.status === "0x1" ? "success" : "reverted",
-        contractAddress: receipt.contractAddress,
-        blockNumber: BigInt(receipt.blockNumber ?? "0x0"),
-      };
-    }
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-  }
-  throw new Error(`Timed out waiting for transaction receipt (tx ${hash}).`);
-}
-
-export async function signTypedData(input: { address: Address; payload: string }): Promise<string> {
-  const provider = await ensureWalletAuthorized(input.address);
-  try {
-    return (await provider.request({
-      method: "eth_signTypedData_v4",
-      params: [input.address, input.payload],
-    })) as string;
-  } catch (cause) {
-    throw walletRequestError(cause);
-  }
 }

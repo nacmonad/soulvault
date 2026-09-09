@@ -118,3 +118,13 @@ incomplete — re-run step 3").
   against a CLI-written list fixture.
 - Keep both wizards out of the events cache path — they are write flows; the
   resulting contract state surfaces through the existing watchers.
+- **Ledger connector signing (added 2026-09-09):** the wizards run under the
+  Ledger connector too. `wallet-tx.ts` holds a swappable `TxChannel`; the
+  dashboard wallet provider installs the Ledger channel (`ledger-tx.ts`) on
+  connect, which builds a legacy type-0 tx (same 6a80 workaround as the CLI
+  signer), signs it on the DMK device session, reconstructs the full EIP-155
+  `v` from the device's parity bit, and broadcasts `eth_sendRawTransaction`
+  straight to the configured RPC — no injected wallet needed. ENS writes,
+  treasury fund lifecycle, and document publishes all flow through the same
+  channel. The device shows the (blind-signing) transaction prompt unless a
+  clear-sign context module is wired into the browser `SignerEthBuilder`.

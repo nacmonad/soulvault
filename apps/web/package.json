@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --webpack",
     "build": "next build",
     "build:export": "SOULVAULT_WEB_EXPORT=1 next build",
     "deploy:pages": "sh scripts/deploy-pages.sh",

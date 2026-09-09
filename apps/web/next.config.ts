@@ -9,6 +9,17 @@ const isUiBuild = process.env.SOULVAULT_WEB_EXPORT === "1";
 const nextConfig: NextConfig = {
   // Workspace packages export TypeScript source directly; Next compiles them.
   transpilePackages: ["@soulvault/protocol", "@soulvault/node", "@soulvault/presidio-adapter"],
+  // Workspace packages use NodeNext-style `.js` specifiers over `.ts` files
+  // (see packages/protocol/src/index.ts). Webpack needs extensionAlias to map
+  // those; Turbopack has no equivalent, so dev must stay on webpack
+  // (`next dev --webpack`) until the packages ship compiled output.
+  webpack: (config) => {
+    config.resolve.extensionAlias = {
+      ".js": [".ts", ".tsx", ".js"],
+      ".mjs": [".mts", ".mjs"],
+    };
+    return config;
+  },
   ...(isUiBuild && {
     output: "export" as const,
     trailingSlash: true,

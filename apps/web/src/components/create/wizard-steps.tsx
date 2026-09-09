@@ -21,6 +21,23 @@ export function ConnectorGate() {
   );
 }
 
+/**
+ * While the device prompt is up, surface the keccak hash of the unsigned tx —
+ * the same hash the device displays when it blind-signs (always the case for
+ * contract deploys, which CAL cannot decode). Compare before approving.
+ */
+export function DevicePromptHash() {
+  const { connector, devicePromptHash } = useSoulVaultWallet();
+  if (connector !== "ledger" || !devicePromptHash) return null;
+  return (
+    <p className="border border-amber-500 p-3 text-xs">
+      <span className="font-medium">Blind signing:</span> no clear-sign descriptor exists for this
+      payload (contract deploys never have one). Verify the hash on your Ledger matches:
+      <span className="mt-1 block break-all font-mono">{devicePromptHash}</span>
+    </p>
+  );
+}
+
 export function StepList({ steps }: { steps: WizardStep[] }) {
   return (
     <ul className="mt-3 space-y-2">

@@ -11,7 +11,7 @@
  *   `v` reconstructed (the device returns one byte; Sepolia's v ≈ 22.3M cannot
  *   fit, and 27/28 vs 0/1 conventions differ between app versions).
  */
-import { hexToBytes, serializeTransaction, type Address, type Hex, type PublicClient } from "viem";
+import { hexToBytes, keccak256, serializeTransaction, type Address, type Hex, type PublicClient } from "viem";
 
 import { createSoulVaultPublicClient, type SoulVaultClientConfig } from "@/lib/onchain/client";
 import type { TxChannel, TxSubmitInput } from "@/lib/wallet-tx";
@@ -36,6 +36,12 @@ export function createLedgerTxChannel(input: {
   /** DMK typed-data signing (EIP-712) — device path, same session. */
   signTypedData(payload: string): Promise<string>;
   config: SoulVaultClientConfig;
+  /**
+   * Fired right before the device prompt with the keccak hash of the unsigned
+   * tx — the exact bytes the device will display when it blind-signs (e.g.
+   * contract deploys, which CAL cannot decode). UIs surface it for comparison.
+   */
+  onSigningPrompt?(unsignedHash: Hex): void;
   /** Test seam — defaults to a viem public client over the configured RPC. */
   client?: PublicClient;
 }): TxChannel {
@@ -65,6 +71,7 @@ export function createLedgerTxChannel(input: {
       data: tx.data,
     };
     const unsignedSerialized = serializeTransaction(unsignedTx);
+    input.onSigningPrompt?.(keccak256(unsignedSerialized));
     const signature = await input.signTransaction(unsignedSerialized);
     // Device v is a single byte: the full EIP-155 v for chainId 1 (fixture v:38),
     // byte-truncated for large chainIds, or 27/28. All legacy conventions share

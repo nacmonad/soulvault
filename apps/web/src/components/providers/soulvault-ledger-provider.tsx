@@ -5,7 +5,7 @@ import { DeviceActionStatus, DeviceManagementKitBuilder, type DeviceSessionId, t
 import { SignerEthBuilder } from "@ledgerhq/device-signer-kit-ethereum";
 import { webHidIdentifier, webHidTransportFactory } from "@ledgerhq/device-transport-kit-web-hid";
 import { firstValueFrom, timeout } from "rxjs";
-import { hexToBytes, type Address, type Hex } from "viem";
+import { hexToBytes, keccak256, type Address, type Hex } from "viem";
 import type { SignerEth } from "@ledgerhq/device-signer-kit-ethereum";
 import { getBrowserSoulVaultActivityConfig, loadSoulVaultActivity, type SoulVaultActivity } from "@/lib/onchain/soulvault-activity";
 import { createBrowserContextModule } from "@/lib/ledger-clear-sign";
@@ -35,6 +35,8 @@ type InjectedProvider = {
 type ContextValue = {
   address?: Address; activity: SoulVaultActivity[]; status: LedgerConnectionStatus;
   connector?: SoulVaultWalletConnector; deviceState?: DeviceSessionState; error?: string;
+  /** Set while a device signing prompt is up — the keccak hash of the unsigned payload. */
+  devicePromptHash?: Hex;
   isBrowserWalletAvailable: boolean;
   connectLedger(): Promise<void>; connectBrowserWallet(): Promise<void>;
   disconnect(): Promise<void>; refreshActivity(): Promise<void>;
@@ -59,6 +61,7 @@ export function SoulVaultLedgerProvider({ children, developmentLedgerTransport }
   const [activity, setActivity] = useState<SoulVaultActivity[]>([]);
   const [status, setStatus] = useState<LedgerConnectionStatus>("idle");
   const [deviceState, setDeviceState] = useState<DeviceSessionState>();
+  const [devicePromptHash, setDevicePromptHash] = useState<Hex>();
   const [error, setError] = useState<string>();
 
   const refreshForAddress = useCallback(async (wallet: Address) => {
@@ -76,9 +79,14 @@ export function SoulVaultLedgerProvider({ children, developmentLedgerTransport }
   }, []);
 
   const ledgerSignTransaction = useCallback(async (unsignedSerialized: Hex): Promise<DeviceTransactionSignature> => {
-    return runDeviceAction<DeviceTransactionSignature>(
-      requireSigner().signTransaction(DERIVATION_PATH, hexToBytes(unsignedSerialized)),
-    );
+    setDevicePromptHash(keccak256(unsignedSerialized));
+    try {
+      return await runDeviceAction<DeviceTransactionSignature>(
+        requireSigner().signTransaction(DERIVATION_PATH, hexToBytes(unsignedSerialized)),
+      );
+    } finally {
+      setDevicePromptHash(undefined);
+    }
   }, []);
 
   const ledgerSignTypedData = useCallback(async (payload: string): Promise<string> => {
@@ -99,6 +107,7 @@ export function SoulVaultLedgerProvider({ children, developmentLedgerTransport }
     if (sessionId) await dmk.disconnect({ sessionId }).catch(() => undefined);
     signerRef.current = undefined;
     setTxChannel(undefined);
+    setDevicePromptHash(undefined);
     setAddress(undefined); setConnector(undefined); setActivity([]); setDeviceState(undefined); setError(undefined); setStatus("idle");
   }, [dmk]);
 
@@ -175,10 +184,10 @@ export function SoulVaultLedgerProvider({ children, developmentLedgerTransport }
   }, [dmk]);
 
   const value = useMemo(() => ({
-    address, activity, status, connector, deviceState, error,
+    address, activity, status, connector, deviceState, devicePromptHash, error,
     isBrowserWalletAvailable: typeof window !== "undefined" && !!getInjectedProvider(),
     connectLedger, connectBrowserWallet, disconnect, refreshActivity,
-  }), [address, activity, status, connector, deviceState, error, connectLedger, connectBrowserWallet, disconnect, refreshActivity]);
+  }), [address, activity, status, connector, deviceState, devicePromptHash, error, connectLedger, connectBrowserWallet, disconnect, refreshActivity]);
   return <LedgerContext.Provider value={value}>{children}</LedgerContext.Provider>;
 }
 

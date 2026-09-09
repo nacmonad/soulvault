@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { parseTransaction, serializeTransaction, toHex, type Hex, type PublicClient } from "viem";
+import { keccak256, parseTransaction, serializeTransaction, toHex, type Hex, type PublicClient } from "viem";
 
 import { createLedgerTxChannel, type DeviceTransactionSignature } from "./ledger-tx";
 
@@ -116,6 +116,30 @@ describe("createLedgerTxChannel", () => {
     // estimateGas received the creation / call shape.
     expect(client.estimateGas).toHaveBeenNthCalledWith(1, expect.objectContaining({ account: FROM, data: "0x6080" }));
     expect(client.estimateGas).toHaveBeenNthCalledWith(2, expect.objectContaining({ account: FROM, to: TO, value: 10n ** 18n }));
+  });
+
+  it("fires onSigningPrompt with the keccak hash of the exact unsigned payload", async () => {
+    const client = fakeClient();
+    const onSigningPrompt = vi.fn();
+    const unsigned = serializeTransaction({
+      type: "legacy",
+      chainId: SEPOLIA_CHAIN_ID,
+      nonce: 7,
+      gasPrice: 1_000_000_000n,
+      gas: 100_000n,
+      to: TO,
+      value: 0n,
+      data: "0xdeadbeef",
+    });
+    const channel = createLedgerTxChannel({
+      signTransaction: async () => ({ r: R, s: S, v: 113 }),
+      signTypedData: async () => "0x",
+      config,
+      client: asPublicClient(client),
+      onSigningPrompt,
+    });
+    await channel.submit({ from: FROM, to: TO, data: "0xdeadbeef" });
+    expect(onSigningPrompt).toHaveBeenCalledExactlyOnceWith(keccak256(unsigned));
   });
 
   it("waitForReceipt maps viem receipt fields to the WalletReceipt shape", async () => {

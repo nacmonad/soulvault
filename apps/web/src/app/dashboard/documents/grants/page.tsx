@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { isAddressEqual, type Hex } from "viem";
+import { isAddressEqual, type Address, type Hex } from "viem";
 import { createSlotKeyGrants, parsePublicDocumentBundle } from "@soulvault/protocol";
 
 import { Button } from "@/components/ui/button";
@@ -100,7 +100,7 @@ export default function DocumentsGrantsPage() {
             from: address,
             documentId: selectedDoc.docHash,
             slotId: grant.slotId,
-            recipient: grant.recipient as typeof address,
+            recipient: grant.recipient as Address,
             wrap: grant.wrap,
             send: sendTransaction,
           }),

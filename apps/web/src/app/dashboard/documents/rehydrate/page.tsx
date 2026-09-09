@@ -11,7 +11,6 @@ import {
   type RehydrationKeyStore,
   type SignedRehydrationKeyAttestation,
 } from "@soulvault/protocol";
-import type { Address } from "viem";
 
 import { Button } from "@/components/ui/button";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";

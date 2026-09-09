@@ -71,6 +71,13 @@ export function SoulVaultLedgerProvider({ children, developmentLedgerTransport }
   const [deviceState, setDeviceState] = useState<DeviceSessionState>();
   const [devicePrompt, setDevicePrompt] = useState<DeviceSigningPrompt>();
   const [error, setError] = useState<string>();
+  // Browser-wallet detection must happen post-mount: it reads window.ethereum,
+  // and computing it during render produces different SSR/client markup
+  // (disabled attribute) → hydration mismatch. Detect on mount, not in render.
+  const [isBrowserWalletAvailable, setBrowserWalletAvailable] = useState(false);
+  useEffect(() => {
+    setBrowserWalletAvailable(!!getInjectedProvider());
+  }, []);
 
   const refreshForAddress = useCallback(async (wallet: Address) => {
     const config = getBrowserSoulVaultActivityConfig();
@@ -201,9 +208,9 @@ export function SoulVaultLedgerProvider({ children, developmentLedgerTransport }
 
   const value = useMemo(() => ({
     address, activity, status, connector, deviceState, devicePrompt, error,
-    isBrowserWalletAvailable: typeof window !== "undefined" && !!getInjectedProvider(),
+    isBrowserWalletAvailable,
     connectLedger, connectBrowserWallet, disconnect, refreshActivity,
-  }), [address, activity, status, connector, deviceState, devicePrompt, error, connectLedger, connectBrowserWallet, disconnect, refreshActivity]);
+  }), [address, activity, status, connector, deviceState, devicePrompt, error, isBrowserWalletAvailable, connectLedger, connectBrowserWallet, disconnect, refreshActivity]);
   return <LedgerContext.Provider value={value}>{children}</LedgerContext.Provider>;
 }
 

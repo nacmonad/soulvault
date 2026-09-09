@@ -12,8 +12,6 @@ export const dashboardNav: DashboardNavItem[] = [
   { href: "/dashboard/treasury", label: "Treasury" },
   { href: "/dashboard/agents", label: "Agents" },
   { href: "/dashboard/events", label: "Events" },
-  { href: "/dashboard/create", label: "Create" },
-  { href: "/dashboard/settings", label: "Settings" },
   {
     href: "/dashboard/documents",
     label: "Documents",
@@ -23,6 +21,7 @@ export const dashboardNav: DashboardNavItem[] = [
       { href: "/dashboard/documents/rehydrate", label: "Rehydrate" },
     ],
   },
+  { href: "/dashboard/settings", label: "Settings" },
 ];
 
 export function isDashboardNavActive(pathname: string, href: string) {

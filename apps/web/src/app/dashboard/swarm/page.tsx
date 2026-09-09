@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useDashboardSelection } from "@/components/dashboard/selection-provider";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
 import { useSwarmEvents } from "@/hooks/useSwarmEvents";
+import { SwarmWizard } from "@/components/create/swarm-wizard";
 import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 import { shortAddress } from "@/lib/format";
 
@@ -103,6 +104,20 @@ export default function SwarmPage() {
         <Button disabled variant="outline" size="sm">
           Fund requests <span className="chip ml-2">soon</span>
         </Button>
+      </div>
+
+      <div className="mt-10 border-t border-border pt-6">
+        <details>
+          <summary className="cursor-pointer text-sm font-semibold">Create swarm</summary>
+          {selection.orgId ? (
+            <SwarmWizard orgEnsName={selection.orgId} />
+          ) : (
+            <p className="mt-3 text-sm text-muted-foreground">
+              Select an organization first — the swarm binds an ENS subdomain under the
+              org name and is appended to the org&apos;s swarm list.
+            </p>
+          )}
+        </details>
       </div>
     </div>
   );

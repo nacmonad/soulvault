@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPublicClient, formatEther, http, type Address } from "viem";
 
 import { Button } from "@/components/ui/button";
+import { useDashboardSelection } from "@/components/dashboard/selection-provider";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
+import { TreasuryWizard } from "@/components/create/treasury-wizard";
 import { useSwarmEvents } from "@/hooks/useSwarmEvents";
 import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 import {
@@ -41,6 +43,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 export default function TreasuryPage() {
   const { address } = useSoulVaultWallet();
+  const { selection } = useDashboardSelection();
   const swarm = useSwarmEvents({ live: true, pollSeconds: 5 });
   const treasury = treasuryDeployment();
   const swarmDep = swarmDeployment();
@@ -104,18 +107,20 @@ export default function TreasuryPage() {
         <p className="eyebrow text-primary">Treasury</p>
         <h1 className="mt-3 text-2xl font-semibold tracking-tight">No treasury configured</h1>
         <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-          Create one from the browser (deploys the contract and publishes the ENSIP-11
-          record for you), or add a <span className="font-mono">treasury</span> entry to{" "}
+          Create one right here — deploys the contract and publishes the ENSIP-11
+          record for you — or add a <span className="font-mono">treasury</span> entry to{" "}
           <span className="font-mono">NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS</span> manually. The
-          fund-request lifecycle renders here once a treasury and a bound swarm are
+          fund-request lifecycle renders once a treasury and a bound swarm are
           configured.
         </p>
-        <a
-          href="/dashboard/create"
-          className="mt-4 inline-block border border-primary bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-        >
-          Create treasury →
-        </a>
+        {selection.orgId ? (
+          <TreasuryWizard orgEnsName={selection.orgId} />
+        ) : (
+          <p className="mt-4 text-sm text-muted-foreground">
+            Select an organization first — the treasury is org-scoped and its ENSIP-11
+            record needs the org ENS name.
+          </p>
+        )}
       </div>
     );
   }

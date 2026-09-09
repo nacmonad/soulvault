@@ -1,5 +1,10 @@
 # Create flows — treasury create + swarm create as guided wizards
 
+> **Placement amendment (2026-09-09):** no dedicated Create tab. The treasury
+> wizard lives inline in the Treasury tab's empty state; the swarm wizard is a
+> collapsible "Create swarm" section at the bottom of the Swarm tab. Settings
+> is the last nav item.
+
 ## Parent
 
 (this epic) — Wallet-native dashboard: org/swarm/agent shell + documents UI

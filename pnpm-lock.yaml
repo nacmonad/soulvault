@@ -127,6 +127,9 @@ importers:
       '@soulvault/node':
         specifier: workspace:*
         version: link:../../packages/node
+      '@soulvault/presidio-adapter':
+        specifier: workspace:*
+        version: link:../../packages/presidio-adapter
       '@soulvault/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol

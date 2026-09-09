@@ -2,40 +2,30 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
-import type { Address } from "viem";
 
 import { ConnectPanel } from "@/components/dashboard/connect-panel";
+import { DashboardSelectionProvider, useDashboardSelection } from "@/components/dashboard/selection-provider";
 import { LogoMark } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
-import {
-  loadDashboardSelection,
-  type DashboardSelection,
-} from "@/lib/dashboard-context";
 import { dashboardNav, isDashboardNavActive } from "@/lib/dashboard-nav";
+import { shortAddress } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-function shortAddress(address: Address) {
-  return `${address.slice(0, 6)}…${address.slice(-4)}`;
+export function DashboardShell({ children }: { children: React.ReactNode }) {
+  const { address } = useSoulVaultWallet();
+
+  return (
+    <DashboardSelectionProvider>
+      <DashboardChrome>{address ? children : <ConnectPanel />}</DashboardChrome>
+    </DashboardSelectionProvider>
+  );
 }
 
-export function DashboardShell({ children }: { children: React.ReactNode }) {
+function DashboardChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "/dashboard";
   const { address, connector, disconnect, status } = useSoulVaultWallet();
-  const [selection, setSelection] = useState<DashboardSelection>({
-    orgId: null,
-    swarmId: null,
-  });
-
-  useEffect(() => {
-    if (!address) {
-      setSelection({ orgId: null, swarmId: null });
-      return;
-    }
-    setSelection(loadDashboardSelection(address));
-  }, [address]);
-
+  const { selection } = useDashboardSelection();
   const documentsOpen = pathname.startsWith("/dashboard/documents");
 
   return (
@@ -60,11 +50,6 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                   )}
                 >
                   <span>{item.label}</span>
-                  {item.soon ? (
-                    <span className="chip border border-border px-1.5 py-0.5 text-muted-foreground">
-                      soon
-                    </span>
-                  ) : null}
                 </Link>
                 {item.children && (documentsOpen || active) ? (
                   <div className="mb-1 ml-3 border-l border-border">
@@ -104,9 +89,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           )}
         </div>
       </aside>
-      <section className="min-w-0 flex-1 bg-background p-6 md:p-8">
-        {address ? children : <ConnectPanel />}
-      </section>
+      <section className="min-w-0 flex-1 bg-background p-6 md:p-8">{children}</section>
     </div>
   );
 }

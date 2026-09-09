@@ -1,34 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
+import { useDashboardSelection } from "@/components/dashboard/selection-provider";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
 import { useDocumentEvents } from "@/hooks/useDocumentEvents";
 import { useSwarmEvents } from "@/hooks/useSwarmEvents";
-import { loadDashboardSelection } from "@/lib/dashboard-context";
-
-function shortAddress(address: string) {
-  return `${address.slice(0, 6)}…${address.slice(-4)}`;
-}
+import { shortAddress } from "@/lib/format";
 
 export default function DashboardOverviewPage() {
   const { address, connector, error: walletError } = useSoulVaultWallet();
+  const { selection } = useDashboardSelection();
   const { documents: registry, status: documentStatus, error: documentError } =
     useDocumentEvents();
   const swarm = useSwarmEvents();
-  const [orgId, setOrgId] = useState<string | null>(null);
-  const [swarmId, setSwarmId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!address) {
-      setOrgId(null);
-      setSwarmId(null);
-      return;
-    }
-    const selection = loadDashboardSelection(address);
-    setOrgId(selection.orgId);
-    setSwarmId(selection.swarmId);
-  }, [address]);
 
   if (!address) return null;
 
@@ -54,11 +37,11 @@ export default function DashboardOverviewPage() {
       <dl className="mt-8 grid gap-px border border-border bg-border sm:grid-cols-2">
         <Stat label="Address" value={shortAddress(address)} mono />
         <Stat label="Connector" value={connector ?? "—"} />
-        <Stat label="Organization" value={orgId ?? "—"} />
+        <Stat label="Organization" value={selection.orgId ?? "—"} />
         <Stat
           label="Swarm epoch"
           value={swarm.currentEpoch !== null ? swarm.currentEpoch.toString() : "—"}
-          hint={swarmId}
+          hint={selection.swarmId}
         />
         <Stat
           label="Documents"

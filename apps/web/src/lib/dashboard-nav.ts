@@ -7,9 +7,9 @@ export type DashboardNavItem = {
 
 export const dashboardNav: DashboardNavItem[] = [
   { href: "/dashboard", label: "Overview" },
-  { href: "/dashboard/org", label: "Organization", soon: true },
-  { href: "/dashboard/swarm", label: "Swarm", soon: true },
-  { href: "/dashboard/agents", label: "Agents", soon: true },
+  { href: "/dashboard/org", label: "Organization" },
+  { href: "/dashboard/swarm", label: "Swarm" },
+  { href: "/dashboard/agents", label: "Agents" },
   { href: "/dashboard/events", label: "Events" },
   {
     href: "/dashboard/documents",

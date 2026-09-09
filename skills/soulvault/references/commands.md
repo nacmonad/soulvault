@@ -583,3 +583,43 @@ Fetch a message envelope from 0G by its `payloadRef` and optionally decrypt it.
 Decryption auto-detects mode from the envelope's `encryption` field:
 - `aes-256-gcm` → uses local epoch key from `~/.soulvault/keys/`
 - `secp256k1-ecdh-aes-256-gcm` → uses local signer private key
+
+## World Identity (Selfie Check)
+
+World ID / Selfie Check (Beta, credential 11) helpers backing the rehydrate-request
+authorization gate: a requester's Selfie Check proof (liveness + face match, bound to
+their wallet address as the signal) is verified by the author's node before a
+document rehydration request is approved and the encrypted bundle is transmitted.
+
+Configuration lives in `.env`:
+- `WORLD_APP_ID` — `app_id` from the Developer Portal
+- `WORLD_RP_ID` — World ID 4.0 relying-party id
+- `WORLD_RP_SIGNING_KEY` — backend-only signing key secret (never client-side)
+- `WORLD_ENVIRONMENT` — `staging` (simulator/sandbox) or `production`
+
+### `soulvault world status`
+Show World identity integration configuration state (configured values, action scope,
+and what is missing).
+
+### `soulvault world rp-signature`
+Generate a backend RP signature for a Selfie Check proof request. The browser client
+fetches this before opening the IDKit request flow; the signing key never leaves the node.
+
+```
+--action <action>          Action scoping the proof (default: soulvault-request-rehydrate)
+```
+
+### `soulvault world verify-proof`
+Evaluate a rehydrate request against a Selfie Check proof (author-side gate). Checks
+proof shape, signal binding (requester wallet), credential id (11), expiry, and
+nullifier replay within the 90-day validity window. Exits non-zero on rejection.
+
+```
+--proof <json>             [REQUIRED] Selfie Check proof payload as JSON
+--signal <value>           [REQUIRED] Expected signal (requester wallet address)
+--nullifiers <csv>         Already-consumed nullifiers for the action
+```
+
+Note: PoC scope — proof verification runs through the pluggable verifier boundary
+(`@soulvault/node/world-identity`, mock implementation). The real Developer Portal
+verification call drops in once the Selfie Check feature flag is enabled for the app.

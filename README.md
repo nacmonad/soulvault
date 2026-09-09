@@ -402,6 +402,32 @@ for the Ledger developer tooling challenge.
 - Package implementation status and acceptance criteria live in
   [`packages/dmk-speculos-browser/TODO.md`](packages/dmk-speculos-browser/TODO.md).
 
+### World track progress
+
+- Selected the World ID **Selfie Check (Beta)** credential (ID 11) as the
+  requester-side human-presence gate for document rehydration: before an author
+  approves a rehydrate request, their node verifies the requester's Selfie Check
+  proof (liveness + face match) and resolves the requester's World identity prior
+  to transmitting the encrypted bundle via smart contract event.
+- Added `@worldcoin/agentkit` and `@worldcoin/idkit-core` to `@soulvault/node`
+  as the integration surface; the `agentkit-x402` skill is installed for
+  agent-side integration reference.
+- Planned PoC coverage: grant approval gated on a verified Selfie Check proof,
+  rejection on missing/expired proofs, and AgentBook resolution of the
+  grant-recipient wallet. Sandbox testing follows the World ID Sandbox App
+  flow once the Selfie Check feature flag is enabled for the app.
+
+### World developer challenge notes
+
+These notes are a running record of integration friction, solutions, and feedback
+for the World developer tooling challenge (same format as the Ledger notes above).
+
+| Area | Finding | Resolution / feedback |
+|------|---------|-----------------------|
+| Selfie Check access | Selfie Check (Beta) is feature-flag gated per app; docs direct developers to request access through a World point of contact before any proof flow can run, including in Sandbox. | Requested enablement for the SoulVault sandbox app. Earlier self-serve sandbox enablement (or a documented SLA for the access request) would remove the biggest lead-time risk for hackathon timelines. |
+| Credential surface | Selfie Check returns a proof of completed check, not a uniqueness score; validity is a fixed 90-day window. | Treat the proof as an authorization-time signal (verify at grant approval), not a stored identity attribute. |
+| Docs discoverability | `docs.world.org/llms.txt` provides a clean LLM-facing index and the Developer Portal exposes an MCP context server; both materially reduce hallucinated SDK usage. | Keep the MCP endpoint and `llms.txt` index in sync with SDK releases; note SDK versions (`@worldcoin/agentkit`, `@worldcoin/idkit-core`) in the quickstart so agents can pin correctly. |
+
 ## Roadmap
 
 **Working today.** The CLI, swarm contract, treasury contract, fund-request flow,

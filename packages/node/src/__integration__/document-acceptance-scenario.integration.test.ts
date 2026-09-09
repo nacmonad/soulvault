@@ -3,7 +3,7 @@ import { Contract, JsonRpcProvider, Wallet } from 'ethers';
 import { createPublicClient, decodeEventLog, http, type Address, type Chain } from 'viem';
 import { makeTestProvider } from '../../test/helpers/provider.js';
 import { loadForgeArtifact, deployContract } from '../../test/helpers/forge-artifacts.js';
-import { analyzeText } from '@soulvault/presidio-adapter';
+import { analyzeText } from '@soulvault/presidio-adapter/analyzer';
 import {
   SECP_WRAP_ALGORITHM,
   hexToBytesFlexible,

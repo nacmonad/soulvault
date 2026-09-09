@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   PresidioWorkerClient,
   findingFromAuthorSpan,
@@ -8,8 +9,6 @@ import {
   type ReviewableFinding,
 } from "@soulvault/presidio-adapter";
 import { serializePublicDocumentBundle, type RedactedDocumentResult } from "@soulvault/protocol";
-
-import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
@@ -48,6 +47,7 @@ export default function DocumentsRedactPage() {
   const [findings, setFindings] = useState<ReviewableFinding[]>([]);
   const [accepted, setAccepted] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [workerReady, setWorkerReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<DraftSpan | null>(null);
   const [result, setResult] = useState<RedactedDocumentResult | null>(null);
@@ -61,9 +61,11 @@ export default function DocumentsRedactPage() {
     const client = new PresidioWorkerClient(worker);
     workerRef.current = worker;
     clientRef.current = client;
+    setWorkerReady(true);
     return () => {
       client.dispose();
       worker.terminate();
+      setWorkerReady(false);
     };
   }, []);
 
@@ -210,18 +212,29 @@ export default function DocumentsRedactPage() {
   }
 
   const segments = useMemo(() => splitHighlights(source, findings), [source, findings]);
+  const preview = useMemo(() => {
+    let output = source;
+    for (const item of [...findings].filter((f) => accepted.has(f.findingId)).sort((a, b) => b.start - a.start)) {
+      output = `${output.slice(0, item.start)}{{sv:${item.slotId}}}${output.slice(item.end)}`;
+    }
+    return output;
+  }, [source, findings, accepted]);
 
   return (
     <div>
       <p className="eyebrow text-primary">Documents</p>
       <h1 className="mt-3 text-2xl font-semibold tracking-tight">Redact</h1>
       <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-        Scan locally, then highlight anything else. Classify and finalize the slot
-        id. Only accepted spans enter the secret key bundle.
+        Same motor as presidio-web-demo: pattern scan in a module worker. Author
+        reviews, highlights extras, classifies, and finalizes slot ids. Engine
+        never runs on the UI thread.
+      </p>
+      <p className="mt-2 text-xs text-muted-foreground">
+        Worker {workerReady ? "ready" : "starting"} · {findings.length} findings · {accepted.size} accepted
       </p>
 
-      <div className="mt-6 flex flex-wrap gap-2">
-        <Button onClick={() => void scan()} disabled={busy}>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Button onClick={() => void scan()} disabled={busy || !workerReady}>
           {busy ? "Scanning…" : "Scan locally"}
         </Button>
         <label className="inline-flex h-8 cursor-pointer items-center border border-border px-2.5 text-sm">
@@ -240,41 +253,85 @@ export default function DocumentsRedactPage() {
             }}
           />
         </label>
-        <Button variant="outline" onClick={() => { setText(SAMPLE); setFindings([]); setAccepted(new Set()); setResult(null); }}>
+        <Button
+          variant="outline"
+          onClick={() => {
+            setText(SAMPLE);
+            setFindings([]);
+            setAccepted(new Set());
+            setResult(null);
+          }}
+        >
           Load sample
         </Button>
       </div>
       {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
 
-      {findings.length === 0 ? (
-        <textarea
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          spellCheck={false}
-          className="mt-6 min-h-48 w-full border border-border bg-card p-4 font-mono text-sm outline-none focus:border-ring"
-          aria-label="Source text"
-        />
-      ) : (
+      <div className="mt-6 grid gap-px border border-border bg-border lg:grid-cols-3">
+        <article className="bg-card p-4">
+          <p className="eyebrow text-muted-foreground">01 Source</p>
+          <textarea
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            spellCheck={false}
+            className="mt-3 min-h-56 w-full border border-border bg-background p-3 font-mono text-sm outline-none focus:border-ring"
+            aria-label="Text to analyze"
+          />
+        </article>
+        <article className="bg-card p-4">
+          <p className="eyebrow text-muted-foreground">02 Findings</p>
+          <p className="mt-1 text-xs text-muted-foreground">Click a row or highlight in the review pane.</p>
+          <div className="mt-3 max-h-56 space-y-1 overflow-auto">
+            {findings.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{busy ? "Analyzing locally…" : "Run a scan."}</p>
+            ) : (
+              findings.map((item) => (
+                <button
+                  key={item.findingId}
+                  type="button"
+                  onClick={() => openFinding(item)}
+                  className={`block w-full border border-border px-2 py-1.5 text-left text-xs ${accepted.has(item.findingId) ? "bg-secondary" : "bg-background"}`}
+                >
+                  <span className="font-medium">{item.entityType}</span>
+                  <code className="ml-2 font-mono">{source.slice(item.start, item.end)}</code>
+                  <span className="ml-2 text-muted-foreground">{item.source}</span>
+                </button>
+              ))
+            )}
+          </div>
+        </article>
+        <article className="bg-card p-4">
+          <p className="eyebrow text-muted-foreground">03 Preview</p>
+          <pre className="mt-3 min-h-56 whitespace-pre-wrap border border-border bg-background p-3 font-mono text-sm">
+            {accepted.size ? preview : "Accept slots to preview markers."}
+          </pre>
+        </article>
+      </div>
+
+      <article className="mt-px border border-border bg-card p-4">
+        <p className="eyebrow text-muted-foreground">Review / highlight</p>
         <pre
           ref={surfaceRef}
           onMouseUp={onSelect}
-          className="mt-6 min-h-48 w-full whitespace-pre-wrap border border-border bg-card p-4 font-mono text-sm"
+          className="mt-3 min-h-32 w-full whitespace-pre-wrap font-mono text-sm"
         >
-          {segments.map((segment) =>
-            segment.finding ? (
-              <mark
-                key={`${segment.finding.findingId}`}
-                className={`cursor-pointer ${accepted.has(segment.finding.findingId) ? "bg-primary/25" : "bg-muted"}`}
-                onClick={() => openFinding(segment.finding!)}
-              >
-                {segment.text}
-              </mark>
-            ) : (
-              <span key={`${segment.start}-${segment.end}`}>{segment.text}</span>
-            ),
-          )}
+          {findings.length === 0
+            ? source
+            : segments.map((segment) =>
+                segment.finding ? (
+                  <mark
+                    key={segment.finding.findingId}
+                    className={`cursor-pointer ${accepted.has(segment.finding.findingId) ? "bg-primary/25" : "bg-muted"}`}
+                    onClick={() => openFinding(segment.finding!)}
+                  >
+                    {segment.text}
+                  </mark>
+                ) : (
+                  <span key={`${segment.start}-${segment.end}`}>{segment.text}</span>
+                ),
+              )}
         </pre>
-      )}
+      </article>
 
       {draft ? (
         <div className="mt-4 border border-border bg-card p-4">
@@ -333,7 +390,7 @@ export default function DocumentsRedactPage() {
         <Button variant="outline" onClick={() => void publish()} disabled={!result || !address}>
           Publish on-chain
         </Button>
-        <Button render={<Link href="/dashboard/documents/grants" />} variant="ghost" disabled={!result}>
+        <Button render={<Link href="/dashboard/documents/grants" />} variant="ghost">
           Continue to Grants
         </Button>
       </div>
@@ -345,7 +402,6 @@ export default function DocumentsRedactPage() {
           <pre className="mt-3 whitespace-pre-wrap font-mono text-sm">{result.artifact.content}</pre>
           <p className="mt-3 text-xs text-muted-foreground">
             {result.slotKeys.length} slot keys in session for Grants. Not in the public file.
-            Reload requires re-redact before granting to a new recipient.
           </p>
           {publishTx ? <p className="mt-2 font-mono text-xs break-all">published {publishTx}</p> : null}
         </div>

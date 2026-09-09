@@ -37,7 +37,15 @@ export default function DocumentsGrantsPage() {
   const config = getBrowserSoulVaultClientConfig();
   const registry = documentRegistryAddress();
 
-  if (!address) return null;
+  if (!address) {
+    return (
+      <div>
+        <p className="eyebrow text-primary">Documents</p>
+        <h1 className="mt-3 text-2xl font-semibold tracking-tight">Grants</h1>
+        <p className="mt-2 text-sm text-muted-foreground">Connect a wallet to grant slots.</p>
+      </div>
+    );
+  }
 
   const delivered = selectedDoc
     ? events

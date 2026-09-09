@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 
-import { analyzeText } from "@soulvault/presidio-adapter";
+import { analyzeText } from "@soulvault/presidio-adapter/analyzer";
 import type { AnalyzeRequest, AnalyzerWorkerMessage } from "@soulvault/presidio-adapter";
 
 declare const self: DedicatedWorkerGlobalScope;

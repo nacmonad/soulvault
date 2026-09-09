@@ -56,7 +56,15 @@ export default function DocumentsRehydratePage() {
     return activeGrants.filter((grant) => grant.docHash === hash);
   }, [activeGrants, bundle, address]);
 
-  if (!address) return null;
+  if (!address) {
+    return (
+      <div>
+        <p className="eyebrow text-primary">Documents</p>
+        <h1 className="mt-3 text-2xl font-semibold tracking-tight">Rehydrate</h1>
+        <p className="mt-2 text-sm text-muted-foreground">Connect a wallet to rehydrate a bundle.</p>
+      </div>
+    );
+  }
 
   async function onUpload(file: File) {
     setError(null);

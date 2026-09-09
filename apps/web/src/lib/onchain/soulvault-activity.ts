@@ -1,4 +1,4 @@
-import { decodeEventLog, isAddressEqual, type Address, type Hex, type Log } from "viem";
+import { decodeEventLog, isAddressEqual, type Address, type Hex, type Log, type PublicClient } from "viem";
 import { SOULVAULT_EVENT_ABIS } from "./abis";
 import {
   createSoulVaultPublicClient,
@@ -22,6 +22,38 @@ export type SoulVaultActivity = {
   relationship: "initiated" | "referenced" | "initiated-and-referenced";
 };
 
+/** Public-node eth_getLogs block-range cap (publicnode = 50_000; keep headroom). */
+export const GET_LOGS_MAX_RANGE = 40_000n;
+
+/**
+ * Public RPCs commonly cap eth_getLogs block ranges (publicnode: 50_000).
+ * Fetch in bounded slices and concatenate. Tolerates clients without
+ * getBlockNumber by falling back to a single unchunked call.
+ */
+export async function getLogsChunked(
+  client: Pick<PublicClient, 'getLogs' | 'getBlockNumber'>,
+  input: { address: Address; fromBlock: bigint; toBlock: bigint | 'latest' },
+): Promise<Log[]> {
+  let target: bigint | 'latest' = input.toBlock;
+  if (target === 'latest') {
+    try {
+      target = await client.getBlockNumber();
+    } catch {
+      return client.getLogs({ address: input.address, fromBlock: input.fromBlock, toBlock: 'latest' });
+    }
+  }
+  if (target < input.fromBlock) return [];
+  const chunks: Log[] = [];
+  for (let start = input.fromBlock; start <= target; start += GET_LOGS_MAX_RANGE) {
+    const end = start + GET_LOGS_MAX_RANGE - BigInt(1) > target
+      ? target
+      : start + GET_LOGS_MAX_RANGE - BigInt(1);
+    const page = await client.getLogs({ address: input.address, fromBlock: start, toBlock: end });
+    chunks.push(...page);
+  }
+  return chunks;
+}
+
 function containsAddress(value: unknown, wallet: Address): boolean {
   if (typeof value === "string" && /^0x[0-9a-fA-F]{40}$/.test(value)) return isAddressEqual(value as Address, wallet);
   if (Array.isArray(value)) return value.some((v) => containsAddress(v, wallet));
@@ -33,7 +65,7 @@ export async function loadSoulVaultActivity(wallet: Address, config: SoulVaultCl
   const client = createSoulVaultPublicClient(config);
   const deployments: SoulVaultDeployment[] = config.deployments;
   const decoded = (await Promise.all(deployments.map(async (deployment) => {
-    const logs = await client.getLogs({ address: deployment.address, fromBlock: deployment.fromBlock, toBlock: "latest" });
+    const logs = await getLogsChunked(client, { address: deployment.address, fromBlock: deployment.fromBlock, toBlock: "latest" });
     return logs.flatMap((log) => decodeKnownLog(log, deployment));
   }))).flat();
   const senders = new Map<Hex, Address>();

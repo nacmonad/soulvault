@@ -70,9 +70,12 @@ Inter + IBM Plex Mono). Do not invent a second look.
    edit left `soon`.
 6. As an operator, I want a filterable event log (kind, address, tx) over the
    shared watcher cache.
-7. As a document author (Alice), I want to paste or upload text, review Presidio
-   findings locally, accept spans, and publish a redacted bundle plus registry
-   anchor — plaintext never leaves the browser during preparation.
+7. As a document author (Alice), I want to paste or upload text, review it
+   inline, accept or reject detector spans, and **manually highlight** anything
+   else — classifying (name, phone, SSN, medication, …) and finalizing the
+   `slotId` that replaces that text — then publish a redacted bundle plus
+   registry anchor. Plaintext never leaves the browser during preparation.
+   Accepted slots (detector + manual) become the secret `slotKeys` bundle.
 8. As a document author, I want to grant selected slots to a recipient wallet
    that has attested a rehydration key, with the grant event carrying the wrap.
 9. As a recipient (Charlie), I want to upload the JSON bundle, verify its
@@ -124,9 +127,10 @@ Inter + IBM Plex Mono). Do not invent a second look.
 - Placeholders: with fixture events, swarm/agent/events views render reduced
   state; with none, they render empty states, not errors. Org switcher changes
   context without a reload.
-- Redact: accepted findings only enter `redactAndEncryptDocument`; public
-  serialization contains no plaintext or slot keys; `DocumentPublished` matches
-  artifact `documentId` / slot ids.
+- Redact: detector + manual highlights; classify popover finalizes `slotId`;
+  only accepted spans enter `redactAndEncryptDocument`; public serialization
+  contains no plaintext or slot keys; `DocumentPublished` matches artifact
+  `documentId` / slot ids.
 - Grants: invalid attestation fails closed; valid grant emits `SlotKeyGranted`
   with the protocol wrap; UI never displays raw slot keys.
 - Rehydrate: Charlie hydrates exactly granted slots; Mallory gets no plaintext;

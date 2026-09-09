@@ -39,26 +39,42 @@ README). The dashboard **calls the adapter**; it does not reimplement
 | File `accept=".txt,.md,.json,.csv,text/*"` | — | Same accept list. No PDF/DOCX |
 | Text never leaves the browser | worker errors must not include source text | No analytics, no upload of plaintext |
 
-### Product delta vs the current demo UI
+### Author review canvas (required — this is the redact UX)
 
-The demo currently redacts **every** finding into `{{vaultId}}` and keeps
-plaintext in an in-memory vault (`demo-vault.ts`). SoulVault must not.
+The source snapshot is an **inline review surface**, not a dead textarea after
+scan. Presidio findings are proposals. The author is the last word.
 
-1. Show reviewable findings (`findingId`, `slotId`, entity type, offsets,
-   value, recognizer, score). Author accepts or rejects per **occurrence**.
-2. Only `acceptedFindingIds` go to `redactAcceptedFindings`.
-3. Public bundle is `serializePublicDocumentBundle` (artifact + encrypted
+1. **Render the scanned text with highlights** (absolute offsets). Detector
+   spans and author spans share one overlay. Click a highlight to edit it.
+2. **Manual redact:** drag/select any range the detectors missed. That opens a
+   small popover (not a full-page form):
+   - Classify: `PERSON`, `PHONE_NUMBER`, `EMAIL_ADDRESS`, `US_SSN`,
+     `CREDIT_CARD`, `MEDICATION` / medical, plus a free-text entity type.
+   - Show the **derived `slotId`** (adapter `indexFindings` default:
+     `pii-{entity}-{hash(entityType, normalizedValue)}`).
+   - Author may **finalize or edit** that `slotId` before accept. This is the
+     public marker (`{{sv:slotId}}`), not the AES slot key.
+   - Reuse an existing `slotId` only when entity type **and exact plaintext**
+     match (protocol throws otherwise). Offer existing slots that already
+     match this value; do not silently merge different strings.
+3. **Detector findings** use the same popover (accept / reject / reclassify /
+   override `slotId`). Rejected detector spans stay in the plaintext.
+4. Only accepted spans — detector **or** manual — go to
+   `redactAcceptedFindings` / `ReviewedSensitiveSpan`. Each accepted slot
+   gets a fresh AES-256-GCM key in `slotKeys` (the secret bundle for
+   Grants/publish). Author never types or sees raw slot keys.
+5. Public bundle is `serializePublicDocumentBundle` (artifact + encrypted
    slots, **no** `slotKeys`, **no** `originalValue`).
-4. `slotKeys` stay in memory (or wallet-scoped sessionStorage) for Grants.
+6. `slotKeys` stay in memory (or wallet-scoped sessionStorage) for Grants.
    Never log them.
+7. Show protocol markers (`{{sv:...}}` from the artifact) beside the reviewed
+   source. Connected author publishes `DocumentPublished(docHash, author,
+   slotIds)`. `docHash === artifact.documentId`.
+8. CTA: “Continue to Grants” with the in-session document selected.
 
-Then:
-
-5. Show protocol markers (`{{sv:...}}` from the artifact) beside the source
-   snapshot — that is the encrypted artifact, not the demo vault tokens.
-6. Connected author publishes `DocumentPublished(docHash, author, slotIds)`.
-   `docHash === artifact.documentId`.
-7. CTA: “Continue to Grants” with the in-session document selected.
+Do **not** import `DemoVaultEntry` / the demo vault. Manual classification is
+a `ReviewableFinding` with `source: 'author'` (add that source on the
+adapter if missing — do not invent a second span type in the page).
 
 ## Acceptance criteria
 
@@ -75,6 +91,13 @@ Then:
       in flight does not paint old offsets onto new text.
 - [ ] Findings are sliced from the **scanned** text snapshot, not from a
       textarea that changed after `postMessage`.
+- [ ] Scanned text is highlighted in-place. Author can select an arbitrary
+      range, get a classify popover (name / phone / SSN / medication / …),
+      and accept a finalized `slotId` that becomes `{{sv:slotId}}`.
+- [ ] Manual spans and accepted detector spans share one slot list. Same
+      `slotId` is allowed only for the same entity type + exact value.
+- [ ] Finalized accepted `slotId`s appear in `artifact.slots` and in the
+      in-session `slotKeys` bundle used by Grants. Raw keys never shown.
 - [ ] Rejected findings do not appear as slots in the artifact; rejected
       plaintext remains in `artifact.content`.
 - [ ] Public bundle JSON and captured logs contain none of the removed
@@ -105,3 +128,7 @@ Then:
 - Overflow/located slots: protocol chooses inline vs locator. No extra UI
   control in v0; fail closed on unresolved locators.
 - Do not grant in this ticket.
+- The classify popover is the authoring UX. A side list of findings is
+  optional, not a substitute for inline highlight + classify.
+- `slotId` is the shareable identifier. The AES key is derived at encrypt
+  time (`redactAndEncryptDocument`) and only lives in `slotKeys`.

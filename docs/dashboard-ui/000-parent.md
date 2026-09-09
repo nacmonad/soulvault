@@ -57,6 +57,14 @@ Inter + IBM Plex Mono). Do not invent a second look.
 5. Documents → Rehydrate (blocked by 4)
 6. Browser e2e over Speculos: Alice/Charlie/Mallory + Ledger clear-sign
    (epic exit gate, blocked by 4 + 5)
+7. Multi-chain event layer + config guard: per-deployment lanes so org /
+   swarm / agent discovery can read 0G (swarm) + Sepolia (ENS, ERC-8004) in
+   one session (blocks 002 from showing real data)
+
+**Priority note (2026-09-09):** the current push is **org + swarm + agent
+discovery** (tickets 007 → 002). The document flow (003–006) is paused: the
+`SoulVaultDocumentRegistry` is not deployed and has no CLI deploy path — that
+gap needs its own ticket before 003 can run against real chain state.
 
 ## User Stories
 
@@ -125,6 +133,10 @@ Inter + IBM Plex Mono). Do not invent a second look.
 - Grants persist on-chain — wrapped keys ride `SlotKeyGranted` events — and
   the public bundle is downloadable for the Rehydrate input path. Raw slot
   keys never leave the session outside the wrap.
+- The event layer is two-lane: each deployment entry may carry its own
+  `rpcUrl`/`chainId` (swarm + treasury on 0G Galileo, identity + documents on
+  Sepolia). Ordering is per-lane `(blockNumber, logIndex)`; cross-lane there
+  is no global timeline — the UI groups by chain. See ticket 007.
 - Documents sub-tabs are real routes, not query-param tabs, so static export and
   deep links work.
 

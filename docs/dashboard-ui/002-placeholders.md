@@ -71,6 +71,13 @@ events yet”, etc. Never invent rows.
 
 - Dashboard chrome (shell + `SoulVaultEventsProvider` mount)
 
+## Blocked by
+
+- Multi-chain event layer (007) — the swarm lives on 0G Galileo while ENS /
+  ERC-8004 live on Sepolia; with the single-chain watcher both panels cannot
+  be live in one session. Views may be tested with single-lane configs until
+  007 lands.
+
 ## Implementation notes
 
 - There is no org reducer in `apps/web/src/lib/onchain/reducers.ts`. Do not

@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { type Address } from "viem";
 
 import { Button } from "@/components/ui/button";
+import { CopyableAddress } from "@/components/dashboard/copyable-address";
 import { useDashboardSelection } from "@/components/dashboard/selection-provider";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
 import { useOrgDiscovery } from "@/hooks/useOrgDiscovery";
@@ -80,7 +81,7 @@ export default function SwarmPage() {
                   {item.label}
                 </button>
                 {item.address ? (
-                  <span className="font-mono text-xs text-muted-foreground">{shortAddress(item.address)}</span>
+                  <CopyableAddress address={item.address} chainId={item.chainId} />
                 ) : null}
                 {item.chainId !== null ? (
                   <span className="font-mono text-xs text-muted-foreground">chain {item.chainId}</span>

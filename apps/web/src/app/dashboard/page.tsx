@@ -2,6 +2,7 @@
 
 import { formatEther, type Address } from "viem";
 
+import { CopyableAddress } from "@/components/dashboard/copyable-address";
 import { useDashboardSelection } from "@/components/dashboard/selection-provider";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
 import { useDocumentEvents } from "@/hooks/useDocumentEvents";
@@ -107,7 +108,7 @@ function OrgStateSummary({ discovery }: { discovery: ReturnType<typeof useOrgDis
                 return (
                   <li key={`${entry.chainId}:${entry.address}`} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 bg-card px-4 py-3">
                     <span className="font-mono text-xs text-muted-foreground">chain {entry.chainId}</span>
-                    <span className="font-mono text-sm">{shortAddress(entry.address as Address)}</span>
+                    <CopyableAddress address={entry.address} chainId={entry.chainId} />
                     <span className="font-mono text-xs text-muted-foreground">
                       {bal !== undefined ? `${formatEther(bal)} ETH` : "…"}
                     </span>
@@ -136,7 +137,7 @@ function OrgStateSummary({ discovery }: { discovery: ReturnType<typeof useOrgDis
                     <span className="font-mono text-xs text-muted-foreground">chain {entry.chainId}</span>
                   ) : null}
                   {entry.address ? (
-                    <span className="font-mono text-xs text-muted-foreground">{shortAddress(entry.address)}</span>
+                    <CopyableAddress address={entry.address} chainId={entry.chainId} />
                   ) : (
                     <span className="text-xs text-muted-foreground">addr unresolved</span>
                   )}

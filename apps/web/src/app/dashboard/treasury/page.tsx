@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatEther, getAddress, type Address } from "viem";
 
 import { Button } from "@/components/ui/button";
+import { CopyableAddress } from "@/components/dashboard/copyable-address";
 import { useDashboardSelection } from "@/components/dashboard/selection-provider";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
 import { TreasuryWizard } from "@/components/create/treasury-wizard";
@@ -187,7 +188,10 @@ export default function TreasuryPage() {
         <Stat label="Owner" value={owner ? shortAddress(owner) : "…"} mono />
         <Stat label="Chain" value={String(active.chainId)} mono />
       </dl>
-      <p className="mt-2 font-mono text-xs text-muted-foreground">{active.address}</p>
+      <div className="mt-2 flex items-center gap-2">
+        <span className="font-mono text-xs text-muted-foreground">{active.address}</span>
+        <CopyableAddress address={active.address} chainId={active.chainId} />
+      </div>
 
       <OrgTreasuriesSection
         orgEnsName={selection.orgId}
@@ -493,7 +497,7 @@ function OrgTreasuriesSection({
             return (
               <li key={`${entry.chainId}:${entry.address}`} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 bg-card px-4 py-3">
                 <span className="font-mono text-xs text-muted-foreground">chain {entry.chainId}</span>
-                <span className="font-mono text-sm">{shortAddress(entry.address)}</span>
+                <CopyableAddress address={entry.address} chainId={entry.chainId} />
                 <span className="font-mono text-xs text-muted-foreground">
                   {bal !== undefined ? `${formatEther(bal)} ETH` : "…"}
                 </span>

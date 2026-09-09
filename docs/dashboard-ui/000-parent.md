@@ -61,6 +61,11 @@ Inter + IBM Plex Mono). Do not invent a second look.
    Sepolia (ops lane follows `SOULVAULT_RPC_URL`/`SOULVAULT_CHAIN_ID`),
    retire the 0G swarm, and guard empty/malformed `DEPLOYMENTS` into the
    config-error state (blocks 002 from showing real swarm data)
+8. Treasury tab: balance, deposit, and the fund-request lifecycle
+   (request / approve / reject / cancel / withdraw) driven from wallet
+   writes and the merged swarm + treasury event stream
+9. Creation wizards: deploy treasury + swarm from the dashboard as guided
+   flows (per story00/story08), replacing the CLI-only deploy path
 
 **Priority note (2026-09-09):** the project is **Sepolia-only** — swarm,
 treasury, ENS, ERC-8004, and documents share one chain and one watcher.

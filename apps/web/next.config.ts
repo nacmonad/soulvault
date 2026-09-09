@@ -1,4 +1,19 @@
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import type { NextConfig } from "next";
+
+function transformersWebEntry() {
+  const candidates = [
+    new URL("../../packages/presidio-adapter/node_modules/@huggingface/transformers/dist/transformers.web.js", import.meta.url),
+    new URL("../../node_modules/@huggingface/transformers/dist/transformers.web.js", import.meta.url),
+  ];
+  for (const url of candidates) {
+    const file = fileURLToPath(url);
+    if (existsSync(file)) return file;
+  }
+  return false as const;
+}
 
 // Static export for GitHub Pages hosting: no runtime server, no API routes.
 // All data paths are client-side (wallet + RPC + subgraph) by design — see
@@ -21,6 +36,21 @@ const nextConfig: NextConfig = {
     config.resolve.extensionAlias = {
       ".js": [".ts", ".tsx", ".js"],
       ".mjs": [".mts", ".mjs"],
+    };
+    // Hugging Face transformers' Node entry pulls onnxruntime-node. The
+    // dashboard worker is browser-only (onnxruntime-web + transformers.web).
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      "onnxruntime-node": false,
+      "@huggingface/transformers": transformersWebEntry(),
+    };
+    config.resolve.fallback = {
+      ...config.resolve.fallback,
+      fs: false,
+      path: false,
+      crypto: false,
+      os: false,
+      child_process: false,
     };
     return config;
   },

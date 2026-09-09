@@ -9,7 +9,7 @@ import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-prov
 import { runSwarmCreate, type SwarmTreasuryMode, type WizardStep } from "@/lib/create-flows";
 import { chainById, SEPOLIA_CHAIN_ID, WIZARD_CHAINS } from "@/lib/chains";
 import { shortAddress } from "@/lib/format";
-import { DeploymentSnippet, ConnectorGate, DevicePromptPanel, PartialFailureNote, StepList } from "@/components/create/wizard-steps";
+import { DeploymentSnippet, CliRecoveryHint, ConnectorGate, DevicePromptPanel, PartialFailureNote, StepList } from "@/components/create/wizard-steps";
 
 const INITIAL_STEPS: WizardStep[] = [
   { id: "treasury", label: "Resolve treasury (ENSIP-11 read)", status: "pending" },
@@ -42,6 +42,14 @@ export function SwarmWizard({ orgEnsName }: { orgEnsName: string }) {
   function updateStep(stepId: string, update: Partial<WizardStep>) {
     setSteps((prev) => prev.map((s) => (s.id === stepId ? { ...s, ...update } : s)));
   }
+
+  const cliCommand = buildSwarmCreateCommand({
+    orgEnsName,
+    label: label.trim(),
+    chainId,
+    treasuryMode,
+    treasuryOverride: treasuryOverride.trim() || undefined,
+  });
 
   async function onCreate() {
     if (!address || !orgEnsName || !label.trim()) return;
@@ -156,10 +164,11 @@ export function SwarmWizard({ orgEnsName }: { orgEnsName: string }) {
         </Button>
         <StepList steps={steps} />
         {error ? (
-          <p className="mt-3 border-l-2 border-red-600 pl-3 text-sm text-red-600">
+          <div className="mt-3 border-l-2 border-red-600 pl-3 text-sm text-red-600">
             {error}
             <PartialFailureNote steps={steps} />
-          </p>
+            <CliRecoveryHint command={cliCommand} />
+          </div>
         ) : null}
         {outcome ? (
           <div className="mt-4 border border-border p-4">
@@ -180,4 +189,32 @@ export function SwarmWizard({ orgEnsName }: { orgEnsName: string }) {
       </div>
     </div>
   );
+}
+
+/**
+ * CLI equivalent of this wizard's swarm create — mirrors runSwarmCreate's
+ * treasury-mode precedence (discover → no flag, override/none → --treasury).
+ * The CLI resolves --organization by slug or ENS name.
+ */
+function buildSwarmCreateCommand(input: {
+  orgEnsName: string;
+  label: string;
+  chainId: number;
+  treasuryMode: SwarmTreasuryMode;
+  treasuryOverride?: string;
+}): string {
+  const rpc = chainById(input.chainId)?.rpcUrl ?? "https://ethereum-sepolia-rpc.publicnode.com";
+  const parts = [
+    "pnpm soulvault swarm create",
+    `--organization ${input.orgEnsName}`,
+    `--name ${input.label || "<label>"}`,
+    `--chain-id ${input.chainId}`,
+    `--rpc ${rpc}`,
+  ];
+  if (input.treasuryMode === "override") {
+    parts.push(`--treasury ${input.treasuryOverride ?? "0x…"}`);
+  } else if (input.treasuryMode === "none") {
+    parts.push("--treasury 0x0000000000000000000000000000000000000000");
+  }
+  return parts.join(" ");
 }

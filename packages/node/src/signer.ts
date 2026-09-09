@@ -44,7 +44,18 @@ function loadSpeculosTransport(): { speculosTransportFactory: Function; speculos
 }
 
 const LEDGER_DISCOVERY_TIMEOUT_MS = 15_000;
-const LEDGER_ACTION_TIMEOUT_MS = 60_000;
+
+/**
+ * Per-action window (address confirm, each signature). Every Ledger action gets a
+ * fresh timer — multi-tx flows like `swarm create` do not share one budget — but the
+ * window must cover APDU transfer (a deploy is ~17KB chunked) plus on-device hash
+ * verification by the operator, hence the generous default. Configurable because a
+ * slow reader or a Flex with long menus may need more. Resolved lazily per action so
+ * test harnesses can set the env var before triggering a sign.
+ */
+function defaultLedgerActionTimeoutMs() {
+  return loadEnv().SOULVAULT_LEDGER_ACTION_TIMEOUT_MS;
+}
 
 type SoftwareSigner = HDNodeWallet | Wallet;
 export type SoulVaultSigner = SoftwareSigner | LedgerEthersSigner;
@@ -551,7 +562,7 @@ async function runLedgerAction<T>(action: {
     }): { unsubscribe(): void };
   };
   cancel: () => void;
-}, timeoutMs = LEDGER_ACTION_TIMEOUT_MS): Promise<T> {
+}, timeoutMs = defaultLedgerActionTimeoutMs()): Promise<T> {
   return await new Promise((resolve, reject) => {
     let settled = false;
     const timeout = setTimeout(() => {
@@ -560,7 +571,8 @@ async function runLedgerAction<T>(action: {
       subscription?.unsubscribe();
       action.cancel();
       reject(new Error(
-        `Ledger action timed out after ${timeoutMs}ms. Unlock the device, open the Ethereum app, and retry.`,
+        `Ledger action timed out after ${timeoutMs}ms (each action — one address confirm or one signature — gets its own window; this is not shared across transactions). ` +
+          'Unlock the device, open the Ethereum app, and retry. Need longer to verify hashes on-device? Set SOULVAULT_LEDGER_ACTION_TIMEOUT_MS.',
       ));
     }, timeoutMs);
 

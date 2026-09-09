@@ -5,6 +5,7 @@ import { createLedgerTxChannel, type DeviceTransactionSignature } from "./ledger
 
 const perChain = vi.hoisted(() => ({
   publicClientForChainId: vi.fn(),
+  chainById: vi.fn(),
 }));
 vi.mock("@/lib/chains", () => perChain);
 
@@ -169,6 +170,69 @@ describe("createLedgerTxChannel", () => {
     expect(parseTransaction(sent.params[0]).chainId).toBe(84532);
   });
 
+  it("falls back to the next RPC when the configured RPC fails pre-flight, and broadcasts on the one that answered", async () => {
+    const failing = fakeClient();
+    failing.estimateGas.mockRejectedValue(new Error("execution reverted for an unknown reason"));
+    const fallback = fakeClient();
+    const signTransaction = vi.fn(async (): Promise<DeviceTransactionSignature> => ({ r: R, s: S, v: 113 }));
+    const channel = createLedgerTxChannel({
+      signTransaction,
+      signTypedData: async () => "0x",
+      config,
+      client: asPublicClient(failing),
+      fallbacks: [{ label: "https://fallback-rpc.test", client: asPublicClient(fallback) }],
+    });
+
+    const hash = await channel.submit({ from: FROM, to: TO, data: "0xdeadbeef" });
+
+    expect(hash).toBe("0xabc");
+    expect(failing.estimateGas).toHaveBeenCalled();
+    expect(fallback.estimateGas).toHaveBeenCalled();
+    // Device still signs once, with the fallback RPC's pre-flight values.
+    expect(signTransaction).toHaveBeenCalledTimes(1);
+    // Broadcast goes to the RPC that answered the pre-flight.
+    expect(fallback.request).toHaveBeenCalled();
+    expect(failing.request).not.toHaveBeenCalled();
+  });
+
+  it("throws one actionable error (with every RPC listed) when all pre-flights fail, and never prompts the device", async () => {
+    const failing = fakeClient();
+    failing.estimateGas.mockRejectedValue(new Error("execution reverted"));
+    const fallback = fakeClient();
+    fallback.getTransactionCount.mockRejectedValue(new Error("rate limited"));
+    const signTransaction = vi.fn(async (): Promise<DeviceTransactionSignature> => ({ r: R, s: S, v: 1 }));
+    const channel = createLedgerTxChannel({
+      signTransaction,
+      signTypedData: async () => "0x",
+      config,
+      client: asPublicClient(failing),
+      fallbacks: [{ label: "https://fallback-rpc.test", client: asPublicClient(fallback) }],
+    });
+
+    await expect(channel.submit({ from: FROM, to: TO, data: "0xdeadbeef" })).rejects.toThrow(
+      /Could not pre-flight.*example-rpc\.test.*fallback-rpc\.test/s,
+    );
+    expect(signTransaction).not.toHaveBeenCalled();
+  });
+
+  it("rotates broadcast to the next RPC when the pre-flight RPC refuses the raw tx", async () => {
+    const primary = fakeClient();
+    primary.request.mockRejectedValue(new Error("txpool overflow"));
+    const fallback = fakeClient();
+    const channel = createLedgerTxChannel({
+      signTransaction: async () => ({ r: R, s: S, v: 1 }),
+      signTypedData: async () => "0x",
+      config,
+      client: asPublicClient(primary),
+      fallbacks: [{ label: "https://fallback-rpc.test", client: asPublicClient(fallback) }],
+    });
+
+    const hash = await channel.submit({ from: FROM, to: TO, data: "0xdeadbeef" });
+    expect(hash).toBe("0xabc");
+    expect(primary.request).toHaveBeenCalled();
+    expect(fallback.request).toHaveBeenCalled();
+  });
+
   it("waitForReceipt maps viem receipt fields to the WalletReceipt shape", async () => {
     const client = fakeClient();
     const channel = createLedgerTxChannel({
@@ -179,5 +243,37 @@ describe("createLedgerTxChannel", () => {
     });
     const receipt = await channel.waitForReceipt("0xabc" as Hex);
     expect(receipt).toEqual({ status: "success", blockNumber: 1234n });
+  });
+
+  it("polls the receipt on the chain the tx was submitted for, not the configured RPC", async () => {
+    const client = fakeClient();
+    const chainClient = fakeClient();
+    perChain.publicClientForChainId.mockReturnValue(asPublicClient(chainClient));
+    perChain.chainById.mockReturnValue({ rpcUrl: "https://evmrpc-testnet.0g.ai" });
+    const channel = createLedgerTxChannel({
+      signTransaction: async () => ({ r: R, s: S, v: 1 }),
+      signTypedData: async () => "0x",
+      config,
+      client: asPublicClient(client),
+    });
+
+    // A 0G Galileo deploy: device signs for chainId 16602, raw tx broadcast via
+    // the per-chain client. The receipt MUST be polled there too.
+    const hash = await channel.submit({ from: FROM, to: null, data: "0x6080", chainId: 16602 });
+    const receipt = await channel.waitForReceipt(hash);
+
+    expect(chainClient.waitForTransactionReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({ hash, retryCount: 90 }),
+    );
+    // Polling the configured (Sepolia) client would hang forever on a 0G tx.
+    expect(client.waitForTransactionReceipt).not.toHaveBeenCalled();
+    expect(receipt.status).toBe("success");
+
+    // An unknown hash (not submitted by this channel) falls back to the
+    // configured client.
+    await channel.waitForReceipt("0xunknown" as Hex);
+    expect(client.waitForTransactionReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({ hash: "0xunknown" }),
+    );
   });
 });

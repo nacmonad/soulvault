@@ -78,7 +78,13 @@ async function estimateGasUpfront(input: TxSubmitInput): Promise<bigint | undefi
       data: input.data,
       ...(input.value !== undefined ? { value: input.value } : {}),
     });
-  } catch {
+  } catch (error) {
+    console.warn(
+      `[wallet-tx] App-side gas estimate failed for ${
+        input.to === null ? "contract creation" : `call to ${input.to}`
+      }; falling back to wallet-side estimation.`,
+      error instanceof Error ? error.message : error,
+    );
     return undefined;
   }
 }
@@ -162,6 +168,38 @@ function addChainParams(chain: SoulVaultChain) {
 // Browser (injected wallet) channel
 // ---------------------------------------------------------------------------
 
+/**
+ * MetaMask's internal estimator can fail (revert/timeout on large creation
+ * payloads) even when the app pre-estimated the exact same tx successfully —
+ * when the app-side `gas` is present, a wallet estimation error is not a real
+ * revert, so rethrow with context instead of the cryptic viem payload.
+ */
+function walletSendError(cause: unknown, gas: bigint | undefined): Error {
+  const base = walletRequestError(cause);
+  const message = (cause as { message?: string } | null)?.message ?? "";
+  const looksLikeEstimateFailure =
+    /estimate gas/i.test(message) || /execution reverted/i.test(message);
+  if (!looksLikeEstimateFailure) return base;
+  if (gas !== undefined) {
+    return new Error(
+      `Your wallet failed its own gas estimation for this transaction, even though the app ` +
+        `pre-estimated ${gas} gas successfully against the configured RPC. This is usually a ` +
+        `wallet-side estimation issue, not a contract revert. Retry the step; if it keeps ` +
+        `failing, switch the wallet's active network to one with a working RPC, or connect a ` +
+        `Ledger device session (the device channel estimates via the app RPC directly). ` +
+        `Wallet said: ${base.message}`,
+    );
+  }
+  return new Error(
+    `The wallet failed to estimate this transaction, and the app could not pre-estimate it ` +
+      `either (look for a "[wallet-tx] App-side gas estimate failed" warning in the browser ` +
+      `console). Either the tx would genuinely revert, or the RPC used for estimation is ` +
+      `failing — public Sepolia endpoints are known to choke on large contract-creation ` +
+      `payloads. Check the RPC in /dashboard/settings and retry. ` +
+      `Wallet said: ${base.message}`,
+  );
+}
+
 const browserChannel: TxChannel = {
   async submit(input) {
     const provider = await ensureWalletAuthorized(input.from);
@@ -184,7 +222,7 @@ const browserChannel: TxChannel = {
         ],
       });
     } catch (cause) {
-      throw walletRequestError(cause);
+      throw walletSendError(cause, gas);
     }
     return hash as Hex;
   },

@@ -87,6 +87,39 @@ describe("browser channel gas pre-estimation", () => {
     expect(sent?.gas).toBeUndefined();
   });
 
+  it("wraps a wallet estimation failure with app-side context when the app estimate succeeded", async () => {
+    const walletError = Object.assign(
+      new Error("Execution reverted for an unknown reason. Estimate Gas Arguments: from: ... Version: viem@2.47.10"),
+      { code: -32603 },
+    );
+    injectWallet({
+      sendTransaction: async () => {
+        throw walletError;
+      },
+    });
+
+    await expect(sendWalletTransaction({ from: FROM, to: null, data: "0x6080" })).rejects.toThrow(
+      /pre-estimated 12345 gas successfully/,
+    );
+  });
+
+  it("wraps wallet estimation failures with rpc guidance when the app-side estimate failed too", async () => {
+    const { createSoulVaultPublicClient } = await import("@/lib/onchain/client");
+    vi.mocked(createSoulVaultPublicClient).mockImplementationOnce(() => ({
+      estimateGas: vi.fn(async () => { throw new Error("rpc down"); }),
+    }) as never);
+
+    injectWallet({
+      sendTransaction: async () => {
+        throw Object.assign(new Error("execution reverted"), { code: -32603 });
+      },
+    });
+
+    await expect(sendWalletTransaction({ from: FROM, to: null, data: "0x6080" })).rejects.toThrow(
+      /could not pre-estimate/,
+    );
+  });
+
   it("switches the wallet to the target chain before sending", async () => {
     const requests: string[] = [];
     const request = vi.fn(async ({ method, params }: { method: string; params?: unknown[] }) => {

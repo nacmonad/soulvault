@@ -8,7 +8,7 @@ import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-prov
 import { runTreasuryCreate, type WizardStep } from "@/lib/create-flows";
 import { chainById, SEPOLIA_CHAIN_ID, WIZARD_CHAINS } from "@/lib/chains";
 import { coinTypeForChain } from "@/lib/ens-writes";
-import { DeploymentSnippet, ConnectorGate, DevicePromptPanel, PartialFailureNote, StepList } from "@/components/create/wizard-steps";
+import { DeploymentSnippet, CliRecoveryHint, ConnectorGate, DevicePromptPanel, PartialFailureNote, StepList } from "@/components/create/wizard-steps";
 
 const INITIAL_STEPS: WizardStep[] = [
   { id: "deploy", label: "Deploy SoulVaultTreasury (you become owner)", status: "pending" },
@@ -30,6 +30,13 @@ export function TreasuryWizard({ orgEnsName }: { orgEnsName: string }) {
   function updateStep(stepId: string, update: Partial<WizardStep>) {
     setSteps((prev) => prev.map((s) => (s.id === stepId ? { ...s, ...update } : s)));
   }
+
+  // `treasury create` has no --rpc/--chain-id flags — the CLI reads them from
+  // env, so the recovery command carries inline overrides instead.
+  const cliCommand =
+    `SOULVAULT_RPC_URL=${chainById(chainId)?.rpcUrl ?? "https://ethereum-sepolia-rpc.publicnode.com"} ` +
+    `SOULVAULT_CHAIN_ID=${chainId} ` +
+    `pnpm soulvault treasury create --organization ${orgEnsName}`;
 
   async function onCreate() {
     if (!address || !orgEnsName) return;
@@ -90,10 +97,11 @@ export function TreasuryWizard({ orgEnsName }: { orgEnsName: string }) {
         </Button>
         <StepList steps={steps} />
         {error ? (
-          <p className="mt-3 border-l-2 border-red-600 pl-3 text-sm text-red-600">
+          <div className="mt-3 border-l-2 border-red-600 pl-3 text-sm text-red-600">
             {error}
             <PartialFailureNote steps={steps} />
-          </p>
+            <CliRecoveryHint command={cliCommand} />
+          </div>
         ) : null}
         {outcome ? (
           <div className="mt-4 border border-border p-4">

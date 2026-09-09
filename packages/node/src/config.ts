@@ -18,9 +18,14 @@ const envSchema = z.object({
     (v) => v === '1' || String(v ?? '').toLowerCase() === 'true',
     z.boolean(),
   ).default(false),
-  SOULVAULT_RPC_URL: z.string().url().default('https://evmrpc-testnet.0g.ai'),
-  SOULVAULT_CHAIN_ID: z.coerce.number().default(16602),
-  SOULVAULT_ETH_RPC_URL: z.string().url().default('https://ethereum-sepolia-rpc.publicnode.com'),
+  /**
+   * Ops/admin lane. Currently defaults to Sepolia so swarm/treasury/ENS all run on one
+   * chain during development; 0G Galileo (16602) is the production target — override
+   * these two vars to move the ops lane back.
+   */
+  SOULVAULT_RPC_URL: z.string().url().default('https://ethereum-sepolia-rpc.publicnode.com'),
+  SOULVAULT_CHAIN_ID: z.coerce.number().default(11155111),
+  SOULVAULT_ETH_RPC_URL: z.string().url().default('https://ethereum-sepolia-rpc.publicnode.com'), // identity lane (ENS)
   SOULVAULT_ENS_RPC_URL: z.string().url().default('https://ethereum-sepolia-rpc.publicnode.com'),
   SOULVAULT_ENS_CHAIN_ID: z.coerce.number().default(11155111),
   SOULVAULT_ENS_REGISTRY_ADDRESS: z.string().default('0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e'),
@@ -57,6 +62,13 @@ const envSchema = z.object({
   SOULVAULT_LEDGER_CLEAR_SIGN_MODE: z
     .enum(['strict-clear-sign', 'clear-sign-preferred', 'blind-only'])
     .default('clear-sign-preferred'),
+  /**
+   * Per-device-action timeout in ms (address confirm, transaction/message signing).
+   * Each Ledger action gets its own fresh window — multi-tx flows like `swarm create`
+   * are not sharing one budget. Blind-signing with on-device hash verification and
+   * large deploy payloads need more than the old 60s default.
+   */
+  SOULVAULT_LEDGER_ACTION_TIMEOUT_MS: z.coerce.number().int().positive().default(180_000),
   /** World ID app_id from the Developer Portal (app_xxxxx). Enables the World identity layer when set. */
   WORLD_APP_ID: z.string().optional(),
   /** World ID 4.0 relying-party id from the Developer Portal (rp_xxxxx). */

@@ -15,6 +15,7 @@ const PUBLIC_RESOLVER_ABI = [
   'function setAddr(bytes32 node, address a)',
   'function setText(bytes32 node, string key, string value)',
   'function setName(bytes32 node, string newName)',
+  'function text(bytes32 node, string key) view returns (string)',
 ] as const;
 
 /** EIP-634 text records on the ENS resolver for a name. */
@@ -118,14 +119,49 @@ export async function readEnsNodeOwner(name: string) {
   return { fullName, node, owner: String(owner) };
 }
 
+/**
+ * Landmine repair: point the name's registry resolver at the pinned PublicResolver.
+ * Some org nodes were created before the register flow wired the resolver atomically,
+ * leaving `registry.resolver(node) = 0x0` — every standard-ENS read of that node's
+ * records fails, and third-party ENS tooling sees nothing. SoulVault's own reads now
+ * fall back to the pinned resolver (see readEnsText), but this makes the node resolve
+ * normally for everyone. Idempotent — no-op (no tx) when the resolver is already set.
+ */
+export async function setEnsResolver(ensName: string) {
+  const fullName = normalizeEnsName(ensName);
+  const { node, owner } = await readEnsNodeOwner(fullName);
+  if (!owner || owner === ZeroAddress) {
+    throw new Error(
+      `ENS name "${fullName}" is not registered (owner is zero) — nothing to point a resolver at. ` +
+        `Run \`soulvault organization register-ens\` to register it first.`,
+    );
+  }
+  const currentResolver = String(await (await getEnsRegistry(false)).resolver(node));
+  const publicResolver = getEnsContracts().publicResolver;
+  if (currentResolver.toLowerCase() === publicResolver.toLowerCase()) {
+    return { node, resolver: publicResolver, alreadySet: true, txHash: undefined };
+  }
+  const registry = await getEnsRegistry(true);
+  const tx = await registry.setResolver(node, publicResolver);
+  const receipt = await tx.wait();
+  return { node, resolver: publicResolver, alreadySet: false, txHash: receipt?.hash as string | undefined };
+}
+
 /** Read a single text record via the name's current resolver. */
 export async function readEnsText(ensName: string, key: string) {
   const { node } = await readEnsNodeOwner(ensName);
   const registry = await getEnsRegistry(false);
   const resolverAddress = await registry.resolver(node);
   const resolverStr = String(resolverAddress);
+  // Landmine guard: some org nodes were created before setResolver was ever called,
+  // yet their records were WRITTEN to the pinned PublicResolver (setEnsText writes
+  // there unconditionally). Standard resolution reads nothing in that state — and a
+  // read-modify-write cycle (e.g. the soulvault.treasuries upsert) would treat the
+  // record as empty and clobber it. Fall back to the pinned resolver for reads.
   if (!resolverAddress || resolverStr.toLowerCase() === ZeroAddress.toLowerCase()) {
-    return '';
+    const fallback = await getPublicResolver(false);
+    const value = await fallback.text(node, key);
+    return String(value ?? '');
   }
   const provider = await createEnsProvider();
   const resolver = new Contract(resolverAddress, EXTENDED_RESOLVER_TEXT_ABI, provider);

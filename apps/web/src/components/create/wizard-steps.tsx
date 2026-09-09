@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { type Address } from "viem";
 
 import { shortAddress } from "@/lib/format";
@@ -83,6 +84,41 @@ export function PartialFailureNote({ steps }: { steps: WizardStep[] }) {
     <span className="block">
       Partial state: steps marked ✓ are already on-chain; re-run only what remains.
     </span>
+  );
+}
+
+/**
+ * When a wizard step fails (RPC flake, wallet estimation errors, …), surface
+ * the equivalent CLI command — it drives the same flow (deploy → ENS → list)
+ * through the local signer, bypassing browser-wallet estimation entirely.
+ */
+export function CliRecoveryHint({ command }: { command: string }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard unavailable (permissions/iframe) — the text is selectable anyway.
+    }
+  }
+  return (
+    <div className="mt-2 text-xs">
+      <p className="text-muted-foreground">
+        Or run the same flow via the CLI (uses the signer configured in .env, bypassing the
+        browser wallet):
+      </p>
+      <button
+        type="button"
+        onClick={() => void copy()}
+        title="Click to copy"
+        className="mt-1 block w-full cursor-pointer overflow-x-auto bg-muted p-3 text-left font-mono text-xs"
+      >
+        {command}
+        <span className="ml-2 text-muted-foreground">{copied ? "copied ✓" : "⧉"}</span>
+      </button>
+    </div>
   );
 }
 

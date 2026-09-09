@@ -119,7 +119,33 @@ export default function OrgPage() {
         <Button type="submit" size="sm">
           Remember name
         </Button>
+        <label className="inline-flex h-8 cursor-pointer items-center border border-border px-2.5 text-sm">
+          Import CLI JSON
+          <input
+            type="file"
+            accept=".json,application/json"
+            multiple
+            className="hidden"
+            onChange={async (event) => {
+              const files = [...(event.target.files ?? [])];
+              for (const file of files) {
+                try {
+                  const parsed = JSON.parse(await file.text()) as { ensName?: string; name?: string };
+                  const name = parsed.ensName || parsed.name;
+                  if (typeof name === "string" && name.includes(".")) rememberOrg(name);
+                } catch {
+                  /* skip malformed */
+                }
+              }
+              event.target.value = "";
+            }}
+          />
+        </label>
       </form>
+      <p className="mt-2 text-xs text-muted-foreground">
+        RPC cannot list ENS names you own. Registry = reverse record + manual add +
+        import of <span className="font-mono">~/.soulvault/organizations/*.json</span>.
+      </p>
 
       {names.length === 0 ? (
         <p className="mt-8 text-sm text-muted-foreground">No organization for this wallet.</p>

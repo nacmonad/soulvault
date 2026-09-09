@@ -9,8 +9,12 @@ import {
 } from "@soulvault/presidio-adapter";
 import { serializePublicDocumentBundle, type RedactedDocumentResult } from "@soulvault/protocol";
 
+import Link from "next/link";
+
 import { Button } from "@/components/ui/button";
-import { saveSessionDocument } from "@/lib/document-session";
+import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
+import { publishDocument } from "@/lib/document-registry";
+import { downloadText, saveSessionDocument } from "@/lib/document-session";
 
 const SAMPLE = `Patient Sarah Connor called from +1 415-555-2671.
 Her bank transfer used IBAN DE89370400440532013000.
@@ -47,6 +51,8 @@ export default function DocumentsRedactPage() {
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<DraftSpan | null>(null);
   const [result, setResult] = useState<RedactedDocumentResult | null>(null);
+  const [publishTx, setPublishTx] = useState<string | null>(null);
+  const { address } = useSoulVaultWallet();
 
   useEffect(() => {
     const worker = new Worker(new URL("../../../../workers/presidio.worker.ts", import.meta.url), {
@@ -158,7 +164,12 @@ export default function DocumentsRedactPage() {
         acceptedFindingIds: accepted,
       });
       setResult(encrypted);
-      saveSessionDocument({ documentId: encrypted.artifact.documentId, slotKeys: encrypted.slotKeys });
+      setPublishTx(null);
+      saveSessionDocument({
+        documentId: encrypted.artifact.documentId,
+        slotKeys: encrypted.slotKeys,
+        bundle: serializePublicDocumentBundle(encrypted),
+      });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Encrypt failed");
     }
@@ -166,13 +177,25 @@ export default function DocumentsRedactPage() {
 
   function downloadBundle() {
     if (!result) return;
-    const blob = new Blob([serializePublicDocumentBundle(result)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${result.artifact.documentId.slice(0, 16)}.soulvault.json`;
-    link.click();
-    URL.revokeObjectURL(url);
+    downloadText(
+      `${result.artifact.documentId.slice(0, 16)}.soulvault.json`,
+      serializePublicDocumentBundle(result),
+    );
+  }
+
+  async function publish() {
+    if (!result || !address) return;
+    setError(null);
+    try {
+      const hash = await publishDocument({
+        from: address,
+        documentId: result.artifact.documentId,
+        slotIds: result.artifact.slots.map((slot) => slot.slotId),
+      });
+      setPublishTx(hash);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Publish failed");
+    }
   }
 
   const segments = useMemo(() => splitHighlights(source, findings), [source, findings]);
@@ -296,6 +319,12 @@ export default function DocumentsRedactPage() {
         <Button variant="outline" onClick={downloadBundle} disabled={!result}>
           Download public bundle
         </Button>
+        <Button variant="outline" onClick={() => void publish()} disabled={!result || !address}>
+          Publish on-chain
+        </Button>
+        <Button render={<Link href="/dashboard/documents/grants" />} variant="ghost" disabled={!result}>
+          Continue to Grants
+        </Button>
       </div>
 
       {result ? (
@@ -305,7 +334,9 @@ export default function DocumentsRedactPage() {
           <pre className="mt-3 whitespace-pre-wrap font-mono text-sm">{result.artifact.content}</pre>
           <p className="mt-3 text-xs text-muted-foreground">
             {result.slotKeys.length} slot keys in session for Grants. Not in the public file.
+            Reload requires re-redact before granting to a new recipient.
           </p>
+          {publishTx ? <p className="mt-2 font-mono text-xs break-all">published {publishTx}</p> : null}
         </div>
       ) : null}
     </div>

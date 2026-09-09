@@ -2,7 +2,7 @@ import { encodeFunctionData, type Address, type Hex } from "viem";
 import type { SecpWrappedKey } from "@soulvault/protocol";
 
 import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
-import { sendWalletTransaction } from "@/lib/wallet-tx";
+import type { ChainSender } from "@/lib/wallet-tx";
 
 const WRITE_ABI = [
   {
@@ -49,6 +49,7 @@ export async function publishDocument(input: {
   from: Address;
   documentId: string;
   slotIds: string[];
+  send: ChainSender;
 }): Promise<Hex> {
   const to = documentRegistryAddress();
   if (!to) throw new Error("No document registry in NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS.");
@@ -57,7 +58,7 @@ export async function publishDocument(input: {
     functionName: "publishDocument",
     args: [asDocHash(input.documentId), input.slotIds],
   });
-  return sendWalletTransaction({ from: input.from, to, data });
+  return input.send({ from: input.from, to, data });
 }
 
 export async function grantSlotKey(input: {
@@ -66,6 +67,7 @@ export async function grantSlotKey(input: {
   slotId: string;
   recipient: Address;
   wrap: SecpWrappedKey;
+  send: ChainSender;
 }): Promise<Hex> {
   const to = documentRegistryAddress();
   if (!to) throw new Error("No document registry in NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS.");
@@ -82,5 +84,5 @@ export async function grantSlotKey(input: {
       input.wrap.nonce,
     ],
   });
-  return sendWalletTransaction({ from: input.from, to, data });
+  return input.send({ from: input.from, to, data });
 }

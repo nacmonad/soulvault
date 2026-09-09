@@ -18,7 +18,7 @@ import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-prov
 import { useDocumentEvents } from "@/hooks/useDocumentEvents";
 import { asDocHash, documentRegistryAddress } from "@/lib/document-registry";
 import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
-import { signTypedData } from "@/lib/wallet-tx";
+
 
 class LocalRehydrationStore implements RehydrationKeyStore {
   constructor(private readonly wallet: string) {}
@@ -37,7 +37,7 @@ class LocalRehydrationStore implements RehydrationKeyStore {
 }
 
 export default function DocumentsRehydratePage() {
-  const { address } = useSoulVaultWallet();
+  const { address, signTypedData } = useSoulVaultWallet();
   const { documents, activeGrants, status } = useDocumentEvents({
     recipient: address,
   });

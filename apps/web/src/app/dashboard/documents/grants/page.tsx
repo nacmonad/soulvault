@@ -1,12 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { isAddressEqual, type Address, type Hex } from "viem";
-import {
-  createSlotKeyGrants,
-  parsePublicDocumentBundle,
-  type SignedRehydrationKeyAttestation,
-} from "@soulvault/protocol";
+import { useEffect, useMemo, useState } from "react";
+import { isAddressEqual, type Hex } from "viem";
+import { createSlotKeyGrants, parsePublicDocumentBundle } from "@soulvault/protocol";
 
 import { Button } from "@/components/ui/button";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
@@ -14,13 +10,18 @@ import { useDocumentEvents } from "@/hooks/useDocumentEvents";
 import { useEvents } from "@/hooks/useEvents";
 import { parseDocumentEvent } from "@/lib/onchain/watcher";
 import { documentRegistryAddress, grantSlotKey } from "@/lib/document-registry";
-import { downloadText, loadSessionDocument } from "@/lib/document-session";
+import {
+  assertRecipientMatchesAttestation,
+  parsePastedAttestation,
+  slotsFromPublicBundle,
+} from "@/lib/document-grants";
+import { currentSessionDocumentId, downloadText, loadSessionDocument } from "@/lib/document-session";
 import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 import { shortAddress } from "@/lib/format";
 
 export default function DocumentsGrantsPage() {
-  const { address } = useSoulVaultWallet();
-  const { documents, status } = useDocumentEvents();
+  const { address, connector, sendTransaction } = useSoulVaultWallet();
+  const { documents, status, refresh } = useDocumentEvents();
   const { events } = useEvents({ kinds: ["document"] });
   const authored = useMemo(() => {
     if (!address) return [];
@@ -28,14 +29,28 @@ export default function DocumentsGrantsPage() {
   }, [address, documents]);
   const [docHash, setDocHash] = useState<Hex | "">("");
   const [attestationText, setAttestationText] = useState("");
+  const [recipient, setRecipient] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [txs, setTxs] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
 
   const selectedDoc = docHash ? documents.documents.get(docHash) : undefined;
   const session = selectedDoc ? loadSessionDocument(selectedDoc.docHash) : null;
+  const sessionSlots = session ? slotsFromPublicBundle(session.bundle) : [];
   const config = getBrowserSoulVaultClientConfig();
   const registry = documentRegistryAddress();
+  const isAuthor = Boolean(address && selectedDoc && isAddressEqual(selectedDoc.author, address));
+
+  useEffect(() => {
+    if (docHash || authored.length === 0) return;
+    const current = currentSessionDocumentId();
+    if (!current) return;
+    const match = authored.find((doc) => doc.docHash === current || doc.docHash.toLowerCase() === current.toLowerCase());
+    if (!match) return;
+    setDocHash(match.docHash);
+    setSelected(new Set(match.slotIds));
+  }, [authored, docHash]);
 
   if (!address) {
     return (
@@ -48,27 +63,27 @@ export default function DocumentsGrantsPage() {
   }
 
   const delivered = selectedDoc
-    ? events
-        .map(parseDocumentEvent)
-        .filter((event) => event?.eventName === "SlotKeyGranted" && event.docHash === selectedDoc.docHash)
+    ? events.flatMap((event) => {
+        const parsed = parseDocumentEvent(event);
+        return parsed?.eventName === "SlotKeyGranted" && parsed.docHash === selectedDoc.docHash ? [parsed] : [];
+      })
     : [];
 
   async function sendGrants() {
     if (!selectedDoc || !address || !config || !registry) return;
+    if (!isAuthor) {
+      setError("Only the publishing author can grant slots.");
+      return;
+    }
     setError(null);
     const keys = session?.slotKeys;
     if (!keys) {
       setError("No in-session slot keys. Re-run Redact in this browser, then grant. v0 cannot re-grant after reload.");
       return;
     }
-    let attestation: SignedRehydrationKeyAttestation;
     try {
-      attestation = JSON.parse(attestationText) as SignedRehydrationKeyAttestation;
-    } catch {
-      setError("Attestation JSON is invalid.");
-      return;
-    }
-    try {
+      const attestation = parsePastedAttestation(attestationText);
+      assertRecipientMatchesAttestation(recipient, attestation);
       const grants = createSlotKeyGrants({
         slotKeys: keys,
         slotIds: [...selected],
@@ -77,6 +92,7 @@ export default function DocumentsGrantsPage() {
         expectedVerifyingContract: registry,
         now: BigInt(Math.floor(Date.now() / 1000)),
       });
+      setBusy(true);
       const hashes: string[] = [];
       for (const grant of grants) {
         hashes.push(
@@ -84,14 +100,18 @@ export default function DocumentsGrantsPage() {
             from: address,
             documentId: selectedDoc.docHash,
             slotId: grant.slotId,
-            recipient: grant.recipient as Address,
+            recipient: grant.recipient as typeof address,
             wrap: grant.wrap,
+            send: sendTransaction,
           }),
         );
       }
       setTxs(hashes);
+      await refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Grant failed");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -118,6 +138,11 @@ export default function DocumentsGrantsPage() {
         Wrapped keys ride <span className="font-mono">SlotKeyGranted</span>. Raw
         slot keys never leave this session.
       </p>
+      {connector === "ledger" ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Ledger session active — each grant tx is clear-signed on the device.
+        </p>
+      ) : null}
 
       {status === "error" ? <p className="mt-3 text-sm text-destructive">Event config missing or scan failed.</p> : null}
       {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
@@ -148,22 +173,39 @@ export default function DocumentsGrantsPage() {
         <>
           <h2 className="mt-8 text-sm font-semibold">Slots</h2>
           <ul className="mt-2 border border-border">
-            {selectedDoc.slotIds.map((slotId) => (
-              <li key={slotId} className="flex items-center gap-2 border-b border-border px-4 py-2 font-mono text-sm last:border-b-0">
-                <input
-                  type="checkbox"
-                  checked={selected.has(slotId)}
-                  onChange={() => {
-                    const next = new Set(selected);
-                    if (next.has(slotId)) next.delete(slotId);
-                    else next.add(slotId);
-                    setSelected(next);
-                  }}
-                />
-                {slotId}
-              </li>
-            ))}
+            {selectedDoc.slotIds.map((slotId) => {
+              const meta = sessionSlots.find((slot) => slot.slotId === slotId);
+              return (
+                <li key={slotId} className="flex items-center gap-3 border-b border-border px-4 py-2 text-sm last:border-b-0">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(slotId)}
+                    onChange={() => {
+                      const next = new Set(selected);
+                      if (next.has(slotId)) next.delete(slotId);
+                      else next.add(slotId);
+                      setSelected(next);
+                    }}
+                  />
+                  <span className="font-mono text-xs">{slotId}</span>
+                  <span className="text-xs text-muted-foreground">{meta?.entityType ?? "—"}</span>
+                  <span className="font-mono text-xs text-muted-foreground">{meta?.marker ?? `{{sv:${slotId}}}`}</span>
+                  <span className="ml-auto text-xs text-muted-foreground">
+                    {meta ? `${meta.occurrences}×` : ""}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
+          <label className="mt-4 block text-xs text-muted-foreground">
+            Recipient wallet
+            <input
+              value={recipient}
+              onChange={(event) => setRecipient(event.target.value)}
+              placeholder="0x… (optional if the attestation already names them)"
+              className="mt-1 block h-8 w-full border border-border bg-card px-2 font-mono text-xs outline-none focus:border-ring"
+            />
+          </label>
           <label className="mt-4 block text-xs text-muted-foreground">
             Recipient attestation JSON
             <textarea
@@ -173,13 +215,25 @@ export default function DocumentsGrantsPage() {
             />
           </label>
           <div className="mt-4 flex flex-wrap gap-2">
-            <Button onClick={() => void sendGrants()} disabled={selected.size === 0 || !attestationText}>
-              Grant selected slots
+            <Button
+              onClick={() => void sendGrants()}
+              disabled={busy || !isAuthor || selected.size === 0 || !attestationText}
+            >
+              {busy
+                ? connector === "ledger"
+                  ? "Confirm on Ledger…"
+                  : "Granting…"
+                : connector === "ledger"
+                  ? "Grant selected slots on Ledger"
+                  : "Grant selected slots"}
             </Button>
-            <Button variant="outline" onClick={downloadBundle}>
+            <Button variant="outline" onClick={downloadBundle} disabled={!selectedDoc}>
               Download bundle
             </Button>
           </div>
+          {!isAuthor ? (
+            <p className="mt-3 text-xs text-muted-foreground">Only the publishing author can enable the grant action.</p>
+          ) : null}
           {!session ? (
             <p className="mt-3 text-xs text-muted-foreground">
               No session keys — granting a new recipient after reload requires re-running Redact in v0.
@@ -192,6 +246,9 @@ export default function DocumentsGrantsPage() {
           ))}
 
           <h2 className="mt-8 text-sm font-semibold">Delivered grants</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            A delivered READ grant is a permanent capability. Event log shows slotId, recipient, tx — never wrap material.
+          </p>
           {delivered.length === 0 ? (
             <p className="mt-2 text-sm text-muted-foreground">None in the event cache yet.</p>
           ) : (

@@ -24,7 +24,10 @@ Consumer path at `/dashboard/documents/rehydrate`. This is the judging surface.
 6. Mallory (wallet with no grants) sees only markers; unwrap errors stay
    typed (`UNAUTHORIZED_RECIPIENT`) with no plaintext leak in the message.
 7. **Gates** (fail closed if the gate is configured and not satisfied):
-   - World Selfie Check before the first successful unwrap.
+   - World Selfie Check before the first successful unwrap. **Deferred**:
+     World gating depends on the World feature branch
+     (`feature/world-selfie-check-poc`); until it lands, this gate ships off
+     and ticket 006 runs with the gate disabled (dev mode).
    - Ledger clear-sign of the rehydration-key attestation when the consumer
      is on a Ledger session (already required for attestation). High-stakes
      copy can require Ledger even if an injected wallet is present.
@@ -43,7 +46,8 @@ Export Charlie’s attestation JSON so Alice can paste it on Grants.
       plaintext in the DOM after hide (replace text node / unmount).
 - [ ] World Selfie Check: when the gate is on, hydration is blocked until a
       valid selfie credential for this app/doc/slot scope is presented. When
-      the gate is off (dev), the rest of the flow still works.
+      the gate is off (the default until the World feature branch lands),
+      the rest of the flow still works.
 - [ ] Ledger consumer: attestation is clear-signed through the existing DMK
       session; Speculos proof acceptable for CI.
 - [ ] Copy states that a delivered READ grant is permanent. No revoke UI.
@@ -62,8 +66,11 @@ Export Charlie’s attestation JSON so Alice can paste it on Grants.
 - `rehydrateGrantedDocument` throws if *no* grants match; for a mixed
   Charlie (some slots granted) it hydrates the subset. UI should call it
   (or unwrap per slot on toggle) and never pass Mallory a key.
-- World integration is the ETHOnline gate on this page. Keep protocol free
-  of World types. If the World app id / verifier is unset, show a config
-  error rather than skipping silently in production builds.
+- World integration is the ETHOnline gate on this page, but it is **blocked
+  by** the World feature branch (`feature/world-selfie-check-poc`). Keep
+  protocol free of World types. When it lands: if the World app id /
+  verifier is unset, show a config error rather than skipping silently in
+  production builds. Until then the gate stays off and the rest of the flow
+  must work without it; ticket 006 exercises the Ledger gate only.
 - Do not fetch ciphertexts from events; ciphertexts live in the uploaded
   bundle. Events are the integrity anchor + wrap transport only (spec §3–§4).

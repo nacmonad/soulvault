@@ -11,8 +11,11 @@ return to write-paths without changing nav.
 
 ### `/dashboard/org`
 
-- List organizations associated with the connected wallet (ENS names the wallet
-  owns / is set as controller, plus any locally remembered names).
+- List organizations from a **localStorage known-orgs registry** keyed by
+  the connected wallet. RPC cannot enumerate ENS names owned by an address,
+  so the list is built from: (a) an ENS reverse-record lookup (primary name)
+  for the connected address, (b) names the operator adds manually, and (c)
+  import of CLI state (`~/.soulvault/organizations/*.json`) via file upload.
 - Show useful metadata: ENS name, owner, resolver, a short record set (addr,
   text records that already exist). Mirror CLI `organization status` *read*
   fields, not the full CLI write surface.
@@ -53,6 +56,8 @@ events yet”, etc. Never invent rows.
       the sidebar.
 - [ ] Org switcher updates the shell context and is restored on reload for the
       same wallet.
+- [ ] The known-orgs registry persists in localStorage per wallet; importing
+      a CLI organization JSON adds it to the list without any ENS write.
 - [ ] Swarm view matches `reduceSwarmState` for fixture events (members, epoch).
 - [ ] Agents view matches `reduceAgentState` (uri + metadata keys).
 - [ ] Events view shows document publish/grant events from the shared cache;
@@ -70,7 +75,10 @@ events yet”, etc. Never invent rows.
 
 - There is no org reducer in `apps/web/src/lib/onchain/reducers.ts`. Do not
   fake one from swarm events. Resolve ENS read-only via viem (Sepolia) for
-  names the operator supplies or that the wallet owns.
+  the names in the localStorage registry. Do not attempt to enumerate owned
+  names from chain history — that is not feasible with read-only RPC; the
+  registry (reverse record + manual add + CLI state import) is the
+  discovery surface.
 - Reuse CLI mental model from `stories/story00.md` / `story01.md` / `story02.md`
   for copy (organization namespace, swarm namespace, ERC-8004 identity).
 - Fund-request columns are out of scope even though `reduceSwarmState` has

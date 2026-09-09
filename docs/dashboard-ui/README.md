@@ -19,6 +19,7 @@ File these on `nacmonad/soulvault` as GitHub issues. Same shape as #5–#12:
 | [003-documents-redact.md](./003-documents-redact.md) | Documents → Redact (demo motor + inline highlight/classify) | live |
 | [004-documents-grants.md](./004-documents-grants.md) | Documents → Grants | live |
 | [005-documents-rehydrate.md](./005-documents-rehydrate.md) | Documents → Rehydrate | live |
+| [006-documents-e2e.md](./006-documents-e2e.md) | Browser e2e: Alice/Charlie/Mallory + Ledger over Speculos | epic gate |
 
 Do not start Next work until the parent IA is locked in the GitHub issue.
 

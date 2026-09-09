@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { indexFindings, mergeFindings, PresidioWorkerClient, redactAcceptedFindings, type AnalyzerWorkerMessage, type WorkerPort } from '../src/index.js';
+import { findingFromAuthorSpan, indexFindings, mergeFindings, PresidioWorkerClient, redactAcceptedFindings, type AnalyzerWorkerMessage, type WorkerPort } from '../src/index.js';
 
 const source = 'Contact TEST@EXAMPLE.COM then TEST@EXAMPLE.COM; ignore SECRET WORD.';
 
@@ -16,6 +16,18 @@ describe('presidio adapter', () => {
     ]);
     expect(indexed[0].slotId).toBe(indexed[1].slotId);
     expect(indexed[0].findingId).not.toBe(indexed[1].findingId);
+  });
+
+  it('indexes author spans through the same slot pipeline', () => {
+    const finding = findingFromAuthorSpan({ text: source, start: 8, end: 24, entityType: 'EMAIL_ADDRESS' });
+    expect(finding.source).toBe('author');
+    const result = redactAcceptedFindings({
+      text: source,
+      findings: [finding],
+      acceptedFindingIds: [finding.findingId],
+    });
+    expect(result.artifact.slots[0].slotId).toBe(finding.slotId);
+    expect(result.artifact.content).not.toContain('TEST@EXAMPLE.COM');
   });
 
   it('encrypts only reviewed findings and leaks neither rejected plaintext nor keys publicly', () => {

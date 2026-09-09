@@ -124,6 +124,17 @@ export default function DocumentsRedactPage() {
 
   function applyDraft() {
     if (!draft) return;
+    const plaintext = source.slice(draft.start, draft.end);
+    const conflict = findings.find(
+      (item) =>
+        item.slotId === draft.slotId &&
+        item.findingId !== draft.findingId &&
+        (item.entityType !== draft.entityType || source.slice(item.start, item.end) !== plaintext),
+    );
+    if (conflict) {
+      setError("Same slotId is only allowed when entity type and exact value match.");
+      return;
+    }
     const next = findingFromAuthorSpan({
       text: source,
       start: draft.start,

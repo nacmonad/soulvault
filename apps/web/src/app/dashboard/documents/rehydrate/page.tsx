@@ -217,7 +217,7 @@ export default function DocumentsRehydratePage() {
               );
             })}
           </div>
-          <pre className="mt-4 whitespace-pre-wrap border border-border bg-card p-4 font-mono text-sm">{body}</pre>
+          <pre key={[...revealed].sort().join("|")} className="mt-4 whitespace-pre-wrap border border-border bg-card p-4 font-mono text-sm">{body}</pre>
         </>
       ) : null}
     </div>

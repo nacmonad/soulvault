@@ -328,6 +328,23 @@ Treasury is org-scoped: exactly one per organization per chain. An org that oper
 
 The legacy single-valued `soulvault.treasuryContract` / `soulvault.treasuryChainId` text records used in earlier prototypes have been removed in favor of ENSIP-11.
 
+### `soulvault treasury bind`
+Attach an **already-deployed** `SoulVaultTreasury` to an organization. Recovery path when `treasury create` deployed the contract but the ENS binding failed (e.g. a partial wizard failure), or for treasuries deployed outside the CLI entirely.
+
+Steps performed: validates the address, probes the contract on-chain (`owner()` must answer — anything else refuses to bind), publishes the address on the org ENS name via ENSIP-11 `addr` (same 'planned' semantics as `create` when the org has no ENS name), and writes the local treasury profile. If a profile already exists for the org pointing at a different address, it refuses unless `--force` is passed; rebinds keep the original profile `createdAt`. Warns when the on-chain owner differs from your signer.
+
+```
+--address <address>        Deployed SoulVaultTreasury contract address (required)
+--organization <nameOrEns> Parent organization (defaults to active)
+--force                    Rebind even if a treasury profile already exists for the org
+```
+
+Example recovery flow after a failed ENS binding:
+
+```
+soulvault treasury bind --address 0xabc...def --organization soulvault-demo
+```
+
 ### `soulvault treasury list`
 List all local treasury profiles across all organizations.
 

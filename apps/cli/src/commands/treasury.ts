@@ -15,6 +15,7 @@ import {
   writeTreasuryProfile,
 } from '@soulvault/node/treasury';
 import {
+  bindExistingTreasury,
   bindTreasuryEnsAddr,
   deploySoulVaultTreasuryContract,
 } from '@soulvault/node/treasury-deploy';
@@ -31,6 +32,7 @@ export function registerTreasuryCommands(program: Command) {
       'after',
       `\nExamples:\n` +
         `  soulvault treasury create --organization soulvault.eth\n` +
+        `  soulvault treasury bind --address 0xabc... --organization soulvault.eth\n` +
         `  soulvault treasury deposit --amount 5\n` +
         `  soulvault treasury status\n` +
         `  soulvault treasury approve-fund --swarm ops --request-id 1\n` +
@@ -90,6 +92,26 @@ export function registerTreasuryCommands(program: Command) {
       });
 
       await writeTreasuryProfile(profile);
+      console.log(JSON.stringify(profile, null, 2));
+    });
+
+  treasury
+    .command('bind')
+    .description(
+      'Attach an already-deployed SoulVaultTreasury to the organization: verifies the contract ' +
+        'on-chain (owner() must answer), publishes its address on the org ENS name via ENSIP-11, ' +
+        'and writes the local treasury profile. Recovery path when a deploy succeeded but ENS ' +
+        'binding failed, or for treasuries deployed outside the CLI.',
+    )
+    .requiredOption('--address <address>', 'Deployed SoulVaultTreasury contract address')
+    .option('--organization <nameOrEns>')
+    .option('--force', 'Rebind even if a treasury profile already exists for the organization', false)
+    .action(async (options) => {
+      const { profile } = await bindExistingTreasury({
+        organization: options.organization,
+        contractAddress: options.address,
+        force: options.force,
+      });
       console.log(JSON.stringify(profile, null, 2));
     });
 

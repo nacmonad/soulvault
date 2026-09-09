@@ -69,6 +69,7 @@ Organization  (ENS root, admin boundary, optional treasury per chain)
 | Record | Location | Purpose |
 |--------|----------|---------|
 | `addr(orgNode, coinType)` | Org ENS name | ENSIP-11 multichain treasury address (`coinType = 0x80000000 \| chainId`) |
+| `soulvault.treasuries` text record | Org ENS name | JSON array enumerating the org's treasuries — one `{chainId, address, label?, createdAt?}` entry per chain (ERC-634 has no key enumeration, so this single known key is the discovery index) |
 | `class` text record | Org ENS name | `soulvault.organization` — signals this is a SoulVault org |
 | `name` text record | Org ENS name | Human-readable org name |
 | `soulvault.swarms` text record | Org ENS name | CBOR array of swarm labels (`data:application/cbor;base64,…`) |
@@ -78,6 +79,13 @@ Organization  (ENS root, admin boundary, optional treasury per chain)
 Treasury discovery uses ENSIP-11 rather than text records so an org with
 treasuries on multiple chains gets one slot per chain without clobbering. For
 0G Galileo: `coinType = 2147500186`.
+
+The `soulvault.treasuries` text record complements the ENSIP-11 slots: because
+resolvers can't enumerate text keys or coinTypes, a consumer that only knows the
+org's ENS name would otherwise have to guess which chains hold treasuries. The
+record is a JSON array, upserted per `chainId` on every `treasury create` /
+`treasury bind` (CLI and browser wizard); the `addr` slot remains the source of
+truth for resolution, and a mismatch between the two is a corruption signal.
 
 ### Signer model
 

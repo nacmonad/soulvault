@@ -1,9 +1,13 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { type Address } from "viem";
+
 import { useDashboardSelection } from "@/components/dashboard/selection-provider";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
 import { useDocumentEvents } from "@/hooks/useDocumentEvents";
 import { useSwarmEvents } from "@/hooks/useSwarmEvents";
+import { readOrgTreasuries, type OrgTreasuryEntry } from "@/lib/ens-writes";
 import { shortAddress } from "@/lib/format";
 
 export default function DashboardOverviewPage() {
@@ -56,7 +60,67 @@ export default function DashboardOverviewPage() {
           }
         />
       </dl>
+
+      <OrgTreasuriesPanel orgEnsName={selection.orgId} />
     </div>
+  );
+}
+
+/**
+ * Treasuries discovered from the org's ENS `soulvault.treasuries` record — the
+ * enumerable discovery index that complements the ENSIP-11 addr slots. Read-only:
+ * derived from chain state, not a user database.
+ */
+function OrgTreasuriesPanel({ orgEnsName }: { orgEnsName: string | null }) {
+  const [entries, setEntries] = useState<OrgTreasuryEntry[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setEntries(null);
+    setError(null);
+    if (!orgEnsName) return;
+    let cancelled = false;
+    readOrgTreasuries(orgEnsName)
+      .then((result) => {
+        if (!cancelled) setEntries(result);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [orgEnsName]);
+
+  if (!orgEnsName) return null;
+
+  return (
+    <section className="mt-8">
+      <h2 className="text-sm font-semibold">Treasuries</h2>
+      <p className="mt-1 text-xs text-muted-foreground">
+        From the org's ENS <span className="font-mono">soulvault.treasuries</span> record on{" "}
+        <span className="font-mono">{orgEnsName}</span> — one entry per chain.
+      </p>
+      {error ? (
+        <p className="mt-3 text-sm text-destructive">{error}</p>
+      ) : entries === null ? (
+        <p className="mt-3 text-sm text-muted-foreground">…</p>
+      ) : entries.length === 0 ? (
+        <p className="mt-3 text-sm text-muted-foreground">
+          No treasuries published yet — create one in the Treasury tab.
+        </p>
+      ) : (
+        <ul className="mt-3 divide-y divide-border border border-border">
+          {entries.map((entry) => (
+            <li key={entry.chainId} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 bg-card px-4 py-3">
+              <span className="font-mono text-xs text-muted-foreground">chain {entry.chainId}</span>
+              <span className="font-mono text-sm">{shortAddress(entry.address as Address)}</span>
+              {entry.label ? <span className="text-xs text-muted-foreground">{entry.label}</span> : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

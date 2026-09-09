@@ -289,6 +289,97 @@ export async function getAddrMultichain(input: {
   return `0x${bytes.slice(-40)}` as Address;
 }
 
+// ---------------------------------------------------------------------------
+// Org treasury enumeration record (`soulvault.treasuries` text record)
+// ---------------------------------------------------------------------------
+//
+// ENSIP-11 addr slots are not enumerable on-chain, so a consumer that only knows
+// the org ENS name cannot discover which chains hold treasuries. This single known
+// text record is the discovery index — JSON array, one entry per (org, chain).
+// Byte-format parity with the CLI (packages/node/src/treasury-deploy.ts).
+
+export const TREASURIES_TEXT_RECORD_KEY = "soulvault.treasuries";
+
+export type OrgTreasuryEntry = {
+  chainId: number;
+  address: Address;
+  label?: string;
+  createdAt?: string;
+};
+
+/** Tolerant decode — garbage in, empty array out. Mirrors the CLI parser. */
+export function parseTreasuriesRecord(raw: string): OrgTreasuryEntry[] {
+  if (!raw.trim()) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (entry): entry is OrgTreasuryEntry =>
+        !!entry &&
+        typeof entry === "object" &&
+        typeof (entry as OrgTreasuryEntry).chainId === "number" &&
+        typeof (entry as OrgTreasuryEntry).address === "string",
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** Upsert by chainId, sorted ascending. Inherits prior label/createdAt when omitted. */
+export function upsertTreasuryEntry(
+  existing: OrgTreasuryEntry[],
+  entry: OrgTreasuryEntry,
+): OrgTreasuryEntry[] {
+  const prior = existing.find((e) => e.chainId === entry.chainId);
+  const merged: OrgTreasuryEntry = {
+    chainId: entry.chainId,
+    address: getAddress(entry.address),
+    label: entry.label ?? prior?.label,
+    createdAt: entry.createdAt ?? prior?.createdAt,
+  };
+  return [...existing.filter((e) => e.chainId !== entry.chainId), merged].sort(
+    (a, b) => a.chainId - b.chainId,
+  );
+}
+
+/** Read the org's treasury enumeration record. Empty array when unset/unparseable. */
+export async function readOrgTreasuries(orgEnsName: string): Promise<OrgTreasuryEntry[]> {
+  const client = publicClient();
+  const node = namehash(normalize(orgEnsName));
+  const raw = (await client.readContract({
+    address: PUBLIC_RESOLVER,
+    abi: RESOLVER_ABI,
+    functionName: "text",
+    args: [node, TREASURIES_TEXT_RECORD_KEY],
+  })) as string;
+  return parseTreasuriesRecord(raw ?? "");
+}
+
+/** Idempotent upsert of a treasury entry into the org's `soulvault.treasuries` record. */
+export async function upsertOrgTreasury(input: {
+  from: Address;
+  organizationEnsName: string;
+  entry: OrgTreasuryEntry;
+}): Promise<Hex | null> {
+  await requireOrgOwnership({ orgEnsName: input.organizationEnsName, from: input.from });
+  const existing = await readOrgTreasuries(input.organizationEnsName);
+  const next = upsertTreasuryEntry(existing, input.entry);
+  const value = JSON.stringify(next, null, 0);
+  if (value === JSON.stringify(existing, null, 0)) return null;
+  const txHash = await sendWalletTransaction({
+    from: input.from,
+    to: PUBLIC_RESOLVER,
+    data: encodeFunctionData({
+      abi: RESOLVER_ABI,
+      functionName: "setText",
+      args: [namehash(normalize(input.organizationEnsName)), TREASURIES_TEXT_RECORD_KEY, value],
+    }),
+  });
+  const receipt = await waitForWalletReceipt(txHash);
+  if (receipt.status !== "success") throw new Error(`setText(${TREASURIES_TEXT_RECORD_KEY}) reverted (tx ${txHash}).`);
+  return txHash;
+}
+
 /**
  * Bind a swarm subdomain: setSubnodeRecord + setAddr + the two text records,
  * byte-parity with the CLI's bindSwarmEnsSubdomain (packages/node/src/swarm-deploy.ts).

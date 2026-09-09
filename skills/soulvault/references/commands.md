@@ -317,7 +317,7 @@ List all fund requests on the swarm by querying `FundRequested` events and joini
 ## Treasury
 
 ### `soulvault treasury create`
-Deploy a fresh `SoulVaultTreasury` contract on 0G Galileo (one per organization per chain) and publish its address on the org's ENS name via an **ENSIP-11 multichain `addr` record** keyed by the chain's coinType (`0x80000000 | chainId`). For 0G Galileo, the coinType is `2147500186`. Requires an existing organization profile; the ENS binding step is best-effort and skipped if the org has no registered ENS name (the profile is saved with `ensBinding.status = 'planned'` for a later fix-up). Saves the treasury profile to `~/.soulvault/treasuries/<orgSlug>.json`.
+Deploy a fresh `SoulVaultTreasury` contract on 0G Galileo (one per organization per chain) and publish its address on the org's ENS name via an **ENSIP-11 multichain `addr` record** keyed by the chain's coinType (`0x80000000 | chainId`). For 0G Galileo, the coinType is `2147500186`. Also upserts the org's `soulvault.treasuries` text record (JSON array, one entry per chain — the enumerable discovery index, since ENSIP-11 slots can't be listed on-chain). Requires an existing organization profile; the ENS binding step is best-effort and skipped if the org has no registered ENS name (the profile is saved with `ensBinding.status = 'planned'` for a later fix-up). Saves the treasury profile to `~/.soulvault/treasuries/<orgSlug>.json`.
 
 ```
 --organization <nameOrEns> Parent organization (defaults to active)
@@ -331,7 +331,7 @@ The legacy single-valued `soulvault.treasuryContract` / `soulvault.treasuryChain
 ### `soulvault treasury bind`
 Attach an **already-deployed** `SoulVaultTreasury` to an organization. Recovery path when `treasury create` deployed the contract but the ENS binding failed (e.g. a partial wizard failure), or for treasuries deployed outside the CLI entirely.
 
-Steps performed: validates the address, probes the contract on-chain (`owner()` must answer — anything else refuses to bind), publishes the address on the org ENS name via ENSIP-11 `addr` (same 'planned' semantics as `create` when the org has no ENS name), and writes the local treasury profile. If a profile already exists for the org pointing at a different address, it refuses unless `--force` is passed; rebinds keep the original profile `createdAt`. Warns when the on-chain owner differs from your signer.
+Steps performed: validates the address, probes the contract on-chain (`owner()` must answer — anything else refuses to bind), publishes the address on the org ENS name via ENSIP-11 `addr` **and** upserts the `soulvault.treasuries` enumeration record (same 'planned' semantics as `create` when the org has no ENS name), and writes the local treasury profile. If a profile already exists for the org pointing at a different address, it refuses unless `--force` is passed; rebinds keep the original profile `createdAt`. Warns when the on-chain owner differs from your signer.
 
 ```
 --address <address>        Deployed SoulVaultTreasury contract address (required)

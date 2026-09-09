@@ -1,6 +1,6 @@
 import fs from 'fs-extra';
 import path from 'node:path';
-import { Contract, ContractFactory } from 'ethers';
+import { Contract, ContractFactory, getAddress } from 'ethers';
 import { namehash } from 'viem/ens';
 import { loadEnv } from './config.js';
 import { createProvider, createSigner } from './signer.js';
@@ -15,7 +15,9 @@ import {
   createEnsSigner,
   coinTypeForChain,
   readEnsNodeOwner,
+  readEnsText,
   setAddrMultichain,
+  setEnsText,
 } from './ens.js';
 import { resolveRepoRoot } from './paths.js';
 
@@ -57,6 +59,71 @@ export async function deploySoulVaultTreasuryContract() {
   };
 }
 
+// ---------------------------------------------------------------------------
+// ENS treasury enumeration record
+// ---------------------------------------------------------------------------
+//
+// ENSIP-11 `addr(orgNode, coinType)` is the machine-resolvable treasury slot, but
+// ERC-634 resolvers cannot enumerate text keys or coinTypes — a consumer that only
+// knows the org's ENS name has no way to discover *which* chains hold treasuries.
+// This single known text record is the human-readable discovery index: one JSON
+// array entry per (org, chain) treasury, upserted by chainId on every create/bind.
+// Complements the addr slot; the addr record remains the source of truth.
+
+export const TREASURIES_TEXT_RECORD_KEY = 'soulvault.treasuries';
+
+export type TreasuryEnsEntry = {
+  chainId: number;
+  address: string;
+  label?: string;
+  createdAt?: string;
+};
+
+/** Tolerant decode of the `soulvault.treasuries` record — garbage in, empty array out. */
+export function parseTreasuryEntriesRecord(raw: string): TreasuryEnsEntry[] {
+  if (!raw.trim()) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (entry): entry is TreasuryEnsEntry =>
+        !!entry &&
+        typeof entry === 'object' &&
+        typeof (entry as TreasuryEnsEntry).chainId === 'number' &&
+        typeof (entry as TreasuryEnsEntry).address === 'string',
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** Upsert by chainId, sorted ascending. Inherits the existing entry's createdAt/label when omitted. */
+export function upsertTreasuryEntry(
+  existing: TreasuryEnsEntry[],
+  entry: TreasuryEnsEntry,
+): TreasuryEnsEntry[] {
+  const prior = existing.find((e) => e.chainId === entry.chainId);
+  const merged: TreasuryEnsEntry = {
+    chainId: entry.chainId,
+    address: getAddress(entry.address),
+    label: entry.label ?? prior?.label,
+    createdAt: entry.createdAt ?? prior?.createdAt,
+  };
+  return [...existing.filter((e) => e.chainId !== entry.chainId), merged].sort(
+    (a, b) => a.chainId - b.chainId,
+  );
+}
+
+/** Read the org's treasury enumeration record from ENS. Empty array when unset/unparseable. */
+export async function readOrgTreasuryEntries(organizationEnsName: string) {
+  const raw = await readEnsText(organizationEnsName, TREASURIES_TEXT_RECORD_KEY);
+  return parseTreasuryEntriesRecord(raw);
+}
+
+async function writeOrgTreasuryEntries(organizationEnsName: string, entries: TreasuryEnsEntry[]) {
+  return setEnsText(organizationEnsName, TREASURIES_TEXT_RECORD_KEY, JSON.stringify(entries));
+}
+
 /**
  * Publish the treasury's address on the org's ENS name via ENSIP-11 multichain `addr`.
  *
@@ -92,11 +159,31 @@ export async function bindTreasuryEnsAddr(input: {
     input.contractAddress,
   );
 
+  // Keep the enumeration record in sync with the addr slot. Non-fatal: the addr
+  // record is the source of truth; a failed text write only loses discoverability.
+  let treasuriesRecordTxHash: string | undefined;
+  try {
+    const existingEntries = await readOrgTreasuryEntries(input.organizationEnsName);
+    const entries = upsertTreasuryEntry(existingEntries, {
+      chainId: env.SOULVAULT_CHAIN_ID,
+      address: input.contractAddress,
+      createdAt: new Date().toISOString(),
+    });
+    const written = await writeOrgTreasuryEntries(input.organizationEnsName, entries);
+    treasuriesRecordTxHash = written.txHash;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[treasury] warning: could not update "${TREASURIES_TEXT_RECORD_KEY}" on ${input.organizationEnsName}: ${message}`,
+    );
+  }
+
   return {
     node: orgNode,
     coinType,
     chainId: env.SOULVAULT_CHAIN_ID,
     addrTxHash: result.txHash,
+    treasuriesRecordTxHash,
   };
 }
 

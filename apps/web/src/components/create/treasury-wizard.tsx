@@ -13,6 +13,7 @@ import { DeploymentSnippet, ConnectorGate, DevicePromptPanel, PartialFailureNote
 const INITIAL_STEPS: WizardStep[] = [
   { id: "deploy", label: "Deploy SoulVaultTreasury (you become owner)", status: "pending" },
   { id: "ens", label: "Publish ENSIP-11 addr on the org ENS name", status: "pending" },
+  { id: "treasuryList", label: "Add to the org's soulvault.treasuries ENS record", status: "pending" },
 ];
 
 type Outcome = { address: Address; blockNumber: bigint };
@@ -55,9 +56,10 @@ export function TreasuryWizard({ orgEnsName }: { orgEnsName: string }) {
     <div className="mt-4 max-w-xl">
       <p className="text-sm text-muted-foreground">
         Deploys a <span className="font-mono">SoulVaultTreasury</span> for{" "}
-        <span className="font-mono">{orgEnsName}</span> and publishes it via ENSIP-11 at
-        coinType <span className="font-mono">{coinTypeForChain(chainId)}</span>. Two wallet
-        signatures; the connected wallet becomes the immutable owner.
+        <span className="font-mono">{orgEnsName}</span>, publishes it via ENSIP-11 at
+        coinType <span className="font-mono">{coinTypeForChain(chainId)}</span>, and lists it
+        in the org's <span className="font-mono">soulvault.treasuries</span> record. Two to
+        three wallet signatures; the connected wallet becomes the immutable owner.
       </p>
       <div className="mt-3">
         <ConnectorGate />

@@ -7,7 +7,7 @@
 import { encodeFunctionData, type Address, type Hex } from "viem";
 
 import { SWARM_ARTIFACT, TREASURY_ARTIFACT } from "@/lib/contracts-artifacts";
-import { addSwarmToOrgList, bindSwarmEnsSubdomain, getAddrMultichain, setAddrMultichain } from "@/lib/ens-writes";
+import { addSwarmToOrgList, bindSwarmEnsSubdomain, getAddrMultichain, setAddrMultichain, upsertOrgTreasury } from "@/lib/ens-writes";
 import { createSoulVaultPublicClient, getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 import { deployWalletContract, sendWalletTransaction, waitForWalletReceipt } from "@/lib/wallet-tx";
 
@@ -40,6 +40,7 @@ export type TreasuryCreateResult = {
   deployTxHash: Hex;
   ensTxHash: Hex;
   coinType: number;
+  treasuryListTxHash: Hex | null;
   blockNumber: bigint;
 };
 
@@ -66,12 +67,29 @@ export async function runTreasuryCreate(input: {
   });
   input.onStep("ens", { status: "done", txHash: ens.txHash, detail: `coinType ${ens.coinType}` });
 
+  input.onStep("treasuryList", { status: "signing" });
+  const treasuryListTxHash = await upsertOrgTreasury({
+    from: input.from,
+    organizationEnsName: input.organizationEnsName,
+    entry: {
+      chainId: input.chainId,
+      address: deployed.contractAddress,
+      createdAt: new Date().toISOString(),
+    },
+  });
+  input.onStep("treasuryList", {
+    status: "done",
+    txHash: treasuryListTxHash ?? undefined,
+    detail: treasuryListTxHash ? "soulvault.treasuries updated" : "already listed — no write needed",
+  });
+
   const blockNumber = await receiptBlockOf(deployed.txHash);
   return {
     treasuryAddress: deployed.contractAddress,
     deployTxHash: deployed.txHash,
     ensTxHash: ens.txHash,
     coinType: ens.coinType,
+    treasuryListTxHash,
     blockNumber,
   };
 }

@@ -8,6 +8,7 @@ import { useDashboardSelection } from "@/components/dashboard/selection-provider
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
 import { TreasuryWizard } from "@/components/create/treasury-wizard";
 import { useSwarmEvents } from "@/hooks/useSwarmEvents";
+import { readOrgTreasuries, type OrgTreasuryEntry } from "@/lib/ens-writes";
 import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 import {
   approveFundRequest,
@@ -160,6 +161,8 @@ export default function TreasuryPage() {
         <Stat label="Owner" value={owner ? shortAddress(owner) : "…"} mono />
         <Stat label="Bound swarm" value={swarmDep ? swarmDep.label : swarm.treasury ? shortAddress(swarm.treasury) : "—"} mono />
       </dl>
+
+      <OrgTreasuriesSection orgEnsName={selection.orgId} activeAddress={treasury.address} publicClient={publicClient} />
 
       <section className="mt-8">
         <h2 className="text-sm font-semibold">Deposit</h2>
@@ -395,5 +398,98 @@ function Stat({ label, value, mono }: { label: string; value: string; mono?: boo
       <dt className="eyebrow text-muted-foreground">{label}</dt>
       <dd className={`mt-2 text-sm ${mono ? "font-mono" : ""}`}>{value}</dd>
     </div>
+  );
+}
+
+/**
+ * All treasuries published on the org's ENS `soulvault.treasuries` record, with live
+ * balances. The active treasury (driving the flows below) is marked; the others are
+ * read-only entries. Discovery is per-chain, so an org with treasuries on multiple
+ * chains lists them all here.
+ */
+function OrgTreasuriesSection({
+  orgEnsName,
+  activeAddress,
+  publicClient,
+}: {
+  orgEnsName: string | null;
+  activeAddress: Address;
+  publicClient: ReturnType<typeof createPublicClient> | null;
+}) {
+  const [entries, setEntries] = useState<OrgTreasuryEntry[] | null>(null);
+  const [balances, setBalances] = useState<Record<string, bigint>>({});
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setEntries(null);
+    setBalances({});
+    setError(null);
+    if (!orgEnsName) return;
+    let cancelled = false;
+    readOrgTreasuries(orgEnsName)
+      .then((result) => {
+        if (!cancelled) setEntries(result);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [orgEnsName]);
+
+  useEffect(() => {
+    if (!entries || !publicClient) return;
+    let cancelled = false;
+    (async () => {
+      const next: Record<string, bigint> = {};
+      for (const entry of entries) {
+        try {
+          next[entry.address.toLowerCase()] = await publicClient.getBalance({ address: entry.address });
+        } catch {
+          // balance is decorative here — skip entries whose chain we can't reach
+        }
+      }
+      if (!cancelled) setBalances(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [entries, publicClient]);
+
+  if (!orgEnsName) return null;
+
+  return (
+    <section className="mt-8">
+      <h2 className="text-sm font-semibold">Org treasuries (ENS)</h2>
+      <p className="mt-1 text-xs text-muted-foreground">
+        From <span className="font-mono">soulvault.treasuries</span> on{" "}
+        <span className="font-mono">{orgEnsName}</span>. Flows below operate on the active
+        treasury; one per chain is the intended shape (ENSIP-11 slot per chain).
+      </p>
+      {error ? (
+        <p className="mt-3 text-sm text-destructive">{error}</p>
+      ) : entries === null ? (
+        <p className="mt-3 text-sm text-muted-foreground">…</p>
+      ) : (
+        <ul className="mt-3 divide-y divide-border border border-border">
+          {entries.map((entry) => {
+            const isActive = entry.address.toLowerCase() === activeAddress.toLowerCase();
+            const bal = balances[entry.address.toLowerCase()];
+            return (
+              <li key={entry.chainId} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 bg-card px-4 py-3">
+                <span className="font-mono text-xs text-muted-foreground">chain {entry.chainId}</span>
+                <span className="font-mono text-sm">{shortAddress(entry.address)}</span>
+                <span className="font-mono text-xs text-muted-foreground">
+                  {bal !== undefined ? `${formatEther(bal)} ETH` : "…"}
+                </span>
+                {entry.label ? <span className="text-xs text-muted-foreground">{entry.label}</span> : null}
+                {isActive ? <span className="chip text-primary">active</span> : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }

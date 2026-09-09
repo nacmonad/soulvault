@@ -380,3 +380,28 @@ Responsibilities:
 - react to file mapping updates
 - react to `BackupRequested` by running local backup flow when appropriate
 - optionally trigger restore suggestions / backup reminders
+
+## World commands
+
+World ID / Selfie Check (credential 11) helpers behind the rehydrate-request
+authorization gate. Config comes from `.env` (`WORLD_APP_ID`, `WORLD_RP_ID`,
+`WORLD_RP_SIGNING_KEY`, `WORLD_ENVIRONMENT`); `world status` reports what is set.
+
+## `soulvault world status`
+Print World identity configuration state as JSON (configured flag, app id, rp id,
+signing key presence, environment, proof action).
+
+## `soulvault world rp-signature`
+Generate a backend RP signature (sig, nonce, created_at, expires_at) for a Selfie
+Check proof request. Requires `WORLD_*` env config; the signing key is never exposed
+to clients.
+
+- `--action <action>` — proof action scope (default `soulvault-request-rehydrate`)
+
+## `soulvault world verify-proof`
+Author-side evaluation of a rehydrate request against a Selfie Check proof: shape,
+signal binding, credential 11, expiry, nullifier replay. Non-zero exit on rejection.
+
+- `--proof <json>` [REQUIRED] — proof payload as JSON
+- `--signal <value>` [REQUIRED] — expected signal (requester wallet address)
+- `--nullifiers <csv>` — consumed nullifiers for the action

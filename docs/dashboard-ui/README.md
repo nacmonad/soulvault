@@ -20,7 +20,7 @@ File these on `nacmonad/soulvault` as GitHub issues. Same shape as #5–#12:
 | [004-documents-grants.md](./004-documents-grants.md) | Documents → Grants | live |
 | [005-documents-rehydrate.md](./005-documents-rehydrate.md) | Documents → Rehydrate | live |
 | [006-documents-e2e.md](./006-documents-e2e.md) | Browser e2e: Alice/Charlie/Mallory + Ledger over Speculos | epic gate |
-| [007-multichain-event-layer.md](./007-multichain-event-layer.md) | Two-lane event layer (0G + Sepolia) + config guard | **next** |
+| [007-sepolia-only-ops-lane.md](./007-sepolia-only-ops-lane.md) | Sepolia-only ops lane + config guard | **next** |
 
 Do not start Next work until the parent IA is locked in the GitHub issue.
 

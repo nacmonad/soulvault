@@ -73,10 +73,10 @@ events yet”, etc. Never invent rows.
 
 ## Blocked by
 
-- Multi-chain event layer (007) — the swarm lives on 0G Galileo while ENS /
-  ERC-8004 live on Sepolia; with the single-chain watcher both panels cannot
-  be live in one session. Views may be tested with single-lane configs until
-  007 lands.
+- Sepolia-only ops lane + config guard (007) — there are no swarm/treasury
+  deployments on Sepolia yet; the old swarm lives on 0G and is retired. Run
+  the 007 §B redeploy runbook, then wire the single-chain `DEPLOYMENTS`
+  config so these views render real state.
 
 ## Implementation notes
 

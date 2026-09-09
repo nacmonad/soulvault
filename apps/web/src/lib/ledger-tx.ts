@@ -13,6 +13,7 @@
  */
 import { hexToBytes, keccak256, serializeTransaction, type Address, type Hex, type PublicClient } from "viem";
 
+import { publicClientForChainId } from "@/lib/chains";
 import { createSoulVaultPublicClient, type SoulVaultClientConfig } from "@/lib/onchain/client";
 import type { TxChannel, TxSubmitInput } from "@/lib/wallet-tx";
 
@@ -48,11 +49,26 @@ export function createLedgerTxChannel(input: {
   const client = (input.client ?? createSoulVaultPublicClient(input.config)) as LedgerRpcClient;
   const chainId = input.config.chainId;
 
+  /**
+   * The viem client the tx is estimated/broadcast on. Defaults to the
+   * operator-configured Sepolia client; a per-tx chainId override routes to
+   * that chain's registry RPC so multi-chain deploys work with the Ledger
+   * channel too (the device signs for the override chainId).
+   */
+  function clientForChain(txChainId: number | undefined): LedgerRpcClient {
+    if (txChainId === undefined || txChainId === chainId) {
+      return client;
+    }
+    return (publicClientForChainId(txChainId) ?? client) as LedgerRpcClient;
+  }
+
   async function submit(tx: TxSubmitInput): Promise<Hex> {
+    const txClient = clientForChain(tx.chainId);
+    const signedChainId = tx.chainId ?? chainId;
     const [nonce, gasPrice, gas] = await Promise.all([
-      client.getTransactionCount({ address: tx.from }),
-      client.getGasPrice(),
-      client.estimateGas({
+      txClient.getTransactionCount({ address: tx.from }),
+      txClient.getGasPrice(),
+      txClient.estimateGas({
         account: tx.from,
         ...(tx.to !== null ? { to: tx.to } : {}),
         data: tx.data,
@@ -62,7 +78,7 @@ export function createLedgerTxChannel(input: {
     // Legacy type-0 with a single gasPrice — same workaround as the CLI signer.
     const unsignedTx = {
       type: "legacy" as const,
-      chainId,
+      chainId: signedChainId,
       nonce,
       gasPrice,
       gas,
@@ -77,9 +93,9 @@ export function createLedgerTxChannel(input: {
     // byte-truncated for large chainIds, or 27/28. All legacy conventions share
     // "odd → yParity 0, even → yParity 1" (full v = 35 + 2c + y flips parity).
     const yParity = (signature.v + 1) & 1;
-    const v = BigInt(35 + 2 * chainId + yParity);
+    const v = BigInt(35 + 2 * signedChainId + yParity);
     const signed = serializeTransaction(unsignedTx, { r: signature.r, s: signature.s, v });
-    return (await client.request({ method: "eth_sendRawTransaction", params: [signed] })) as Hex;
+    return (await txClient.request({ method: "eth_sendRawTransaction", params: [signed] })) as Hex;
   }
 
   return {

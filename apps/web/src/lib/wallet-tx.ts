@@ -1,6 +1,11 @@
 import type { Address, Hex } from "viem";
 
 import {
+  chainById,
+  publicClientForChainId,
+  type SoulVaultChain,
+} from "@/lib/chains";
+import {
   createSoulVaultPublicClient,
   getBrowserSoulVaultClientConfig,
 } from "@/lib/onchain/client";
@@ -34,6 +39,13 @@ export type TxSubmitInput = {
   to: Address | null;
   data: Hex;
   value?: bigint;
+  /**
+   * Target chain for this tx. The browser channel switches the injected
+   * wallet to it when needed (prompting to add the chain if unknown); the
+   * Ledger channel estimates/broadcasts on that chain's RPC. `undefined`
+   * leaves the wallet on whatever network it is currently on.
+   */
+  chainId?: number;
 };
 
 export type TxChannel = {
@@ -55,7 +67,11 @@ async function estimateGasUpfront(input: TxSubmitInput): Promise<bigint | undefi
   try {
     const config = getBrowserSoulVaultClientConfig();
     if (!config) return undefined;
-    const client = createSoulVaultPublicClient(config);
+    const client =
+      input.chainId !== undefined && input.chainId !== config.chainId
+        ? publicClientForChainId(input.chainId)
+        : createSoulVaultPublicClient(config);
+    if (!client) return undefined;
     return await client.estimateGas({
       account: input.from,
       ...(input.to !== null ? { to: input.to } : {}),
@@ -107,6 +123,41 @@ async function ensureWalletAuthorized(from?: Address): Promise<Injected> {
   return provider;
 }
 
+/**
+ * Make sure the injected wallet's active network matches `chainId`, switching
+ * (and adding the chain) if needed. No-op when the wallet is already there.
+ */
+async function ensureWalletOnChain(provider: Injected, chainId: number): Promise<void> {
+  const current = (await provider.request({ method: "eth_chainId" })) as Hex;
+  if (Number(BigInt(current)) === chainId) return;
+  const chain = chainById(chainId);
+  try {
+    await provider.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: `0x${chainId.toString(16)}` }],
+    });
+  } catch (cause) {
+    // 4902 = chain not added to the wallet yet.
+    if ((cause as { code?: number })?.code !== 4902 || !chain) {
+      throw walletRequestError(cause);
+    }
+    await provider.request({
+      method: "wallet_addEthereumChain",
+      params: [addChainParams(chain)],
+    });
+  }
+}
+
+function addChainParams(chain: SoulVaultChain) {
+  return {
+    chainId: `0x${chain.id.toString(16)}`,
+    chainName: chain.name,
+    nativeCurrency: chain.currency,
+    rpcUrls: [chain.rpcUrl],
+    blockExplorerUrls: [chain.explorer],
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Browser (injected wallet) channel
 // ---------------------------------------------------------------------------
@@ -114,6 +165,9 @@ async function ensureWalletAuthorized(from?: Address): Promise<Injected> {
 const browserChannel: TxChannel = {
   async submit(input) {
     const provider = await ensureWalletAuthorized(input.from);
+    if (input.chainId !== undefined) {
+      await ensureWalletOnChain(provider, input.chainId);
+    }
     const gas = await estimateGasUpfront(input);
     let hash: unknown;
     try {
@@ -204,13 +258,20 @@ export async function signTypedData(input: { address: Address; payload: string }
 
 /**
  * Send a contract-creation transaction and wait for the receipt.
- * Returns the deployed address from the receipt's `contractAddress` field.
+ * Returns the deployed address from the receipt's `contractAddress` field and
+ * the deploy block from the same receipt (never re-read cross-chain later).
  */
 export async function deployWalletContract(input: {
   from: Address;
   bytecode: Hex;
-}): Promise<{ txHash: Hex; contractAddress: Address }> {
-  const hash = await sendWalletTransaction({ from: input.from, to: null, data: input.bytecode });
+  chainId?: number;
+}): Promise<{ txHash: Hex; contractAddress: Address; blockNumber: bigint }> {
+  const hash = await sendWalletTransaction({
+    from: input.from,
+    to: null,
+    data: input.bytecode,
+    ...(input.chainId !== undefined ? { chainId: input.chainId } : {}),
+  });
   const receipt = await waitForWalletReceipt(hash);
   if (receipt.status !== "success") {
     throw new Error(`Deploy transaction reverted (tx ${hash}).`);
@@ -218,5 +279,5 @@ export async function deployWalletContract(input: {
   if (!receipt.contractAddress || receipt.contractAddress === "0x0000000000000000000000000000000000000000") {
     throw new Error(`Deploy receipt has no contractAddress (tx ${hash}).`);
   }
-  return { txHash: hash, contractAddress: receipt.contractAddress };
+  return { txHash: hash, contractAddress: receipt.contractAddress, blockNumber: receipt.blockNumber };
 }

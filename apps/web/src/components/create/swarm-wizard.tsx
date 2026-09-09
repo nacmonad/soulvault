@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useDashboardSelection } from "@/components/dashboard/selection-provider";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
 import { runSwarmCreate, type SwarmTreasuryMode, type WizardStep } from "@/lib/create-flows";
-import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
+import { chainById, SEPOLIA_CHAIN_ID, WIZARD_CHAINS } from "@/lib/chains";
 import { shortAddress } from "@/lib/format";
 import { DeploymentSnippet, ConnectorGate, DevicePromptPanel, PartialFailureNote, StepList } from "@/components/create/wizard-steps";
 
@@ -30,7 +30,7 @@ type Outcome = {
 export function SwarmWizard({ orgEnsName }: { orgEnsName: string }) {
   const { address } = useSoulVaultWallet();
   const { setSwarm } = useDashboardSelection();
-  const chainId = getBrowserSoulVaultClientConfig()?.chainId ?? 11155111;
+  const [chainId, setChainId] = useState<number>(SEPOLIA_CHAIN_ID);
   const [label, setLabel] = useState("");
   const [treasuryMode, setTreasuryMode] = useState<SwarmTreasuryMode>("discover");
   const [treasuryOverride, setTreasuryOverride] = useState("");
@@ -76,11 +76,30 @@ export function SwarmWizard({ orgEnsName }: { orgEnsName: string }) {
   return (
     <div className="mt-4 max-w-xl space-y-3">
       <p className="text-sm text-muted-foreground">
-        Deploys a <span className="font-mono">SoulVaultSwarm</span> bound to{" "}
-        {orgEnsName}&apos;s treasury (discovered via ENSIP-11), then binds the ENS
-        subdomain and appends the label to the org&apos;s swarm list. Six wallet
-        signatures total.
+        Deploys a <span className="font-mono">SoulVaultSwarm</span> on the selected chain,
+        bound to {orgEnsName}&apos;s treasury (discovered via ENSIP-11 on Sepolia), then binds
+        the ENS subdomain and appends the label to the org&apos;s swarm list. ENS coordination
+        always stays on Sepolia. Six wallet signatures total (plus network-switch prompts for
+        non-Sepolia chains).
       </p>
+
+      <div>
+        <label className="text-sm font-medium" htmlFor="swarm-chain">
+          Deployment chain
+        </label>
+        <select
+          id="swarm-chain"
+          className="mt-1 block w-full max-w-xs border border-border bg-background px-3 py-2 text-sm"
+          value={chainId}
+          onChange={(e) => setChainId(Number(e.target.value))}
+        >
+          {WIZARD_CHAINS.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+      </div>
 
       <div>
         <label className="text-sm font-medium" htmlFor="swarm-label">
@@ -147,7 +166,8 @@ export function SwarmWizard({ orgEnsName }: { orgEnsName: string }) {
             <p className="text-sm font-medium">Swarm deployed</p>
             <p className="mt-1 font-mono text-xs">{outcome.swarmEnsName} → {outcome.swarmAddress}</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Bound treasury {shortAddress(outcome.boundTreasury)} · deploy block {outcome.blockNumber.toString()}
+              {chainById(chainId)?.name ?? `chain ${chainId}`} · bound treasury{" "}
+              {shortAddress(outcome.boundTreasury)} · deploy block {outcome.blockNumber.toString()}
             </p>
             <pre className="mt-3 overflow-x-auto bg-muted p-3 font-mono text-xs">
 {`NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS=[

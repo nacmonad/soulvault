@@ -3,6 +3,11 @@ import { keccak256, parseTransaction, serializeTransaction, toHex, type Hex, typ
 
 import { createLedgerTxChannel, type DeviceTransactionSignature } from "./ledger-tx";
 
+const perChain = vi.hoisted(() => ({
+  publicClientForChainId: vi.fn(),
+}));
+vi.mock("@/lib/chains", () => perChain);
+
 const FROM = "0x1111111111111111111111111111111111111111" as const;
 const TO = "0x2222222222222222222222222222222222222222" as const;
 const SEPOLIA_CHAIN_ID = 11155111;
@@ -140,6 +145,28 @@ describe("createLedgerTxChannel", () => {
     });
     await channel.submit({ from: FROM, to: TO, data: "0xdeadbeef" });
     expect(onSigningPrompt).toHaveBeenCalledExactlyOnceWith(keccak256(unsigned));
+  });
+
+  it("routes a per-tx chainId override to the per-chain client and signs for that chain", async () => {
+    const client = fakeClient();
+    const chainClient = fakeClient();
+    perChain.publicClientForChainId.mockReturnValue(asPublicClient(chainClient));
+    const channel = createLedgerTxChannel({
+      signTransaction: async () => ({ r: R, s: S, v: 1 }),
+      signTypedData: async () => "0x",
+      config,
+      client: asPublicClient(client),
+    });
+
+    await channel.submit({ from: FROM, to: null, data: "0x6080", chainId: 84532 });
+
+    expect(perChain.publicClientForChainId).toHaveBeenCalledWith(84532);
+    // Estimate/nonce/gasprice + broadcast all hit the per-chain client...
+    expect(client.estimateGas).not.toHaveBeenCalled();
+    expect(chainClient.estimateGas).toHaveBeenCalled();
+    const sent = chainClient.request.mock.calls[0][0] as unknown as { params: [Hex] };
+    // ...and the device-signed tx carries the override chainId, not the config's.
+    expect(parseTransaction(sent.params[0]).chainId).toBe(84532);
   });
 
   it("waitForReceipt maps viem receipt fields to the WalletReceipt shape", async () => {

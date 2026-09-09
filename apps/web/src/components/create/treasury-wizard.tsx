@@ -6,8 +6,8 @@ import { type Address } from "viem";
 import { Button } from "@/components/ui/button";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
 import { runTreasuryCreate, type WizardStep } from "@/lib/create-flows";
+import { chainById, SEPOLIA_CHAIN_ID, WIZARD_CHAINS } from "@/lib/chains";
 import { coinTypeForChain } from "@/lib/ens-writes";
-import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 import { DeploymentSnippet, ConnectorGate, DevicePromptPanel, PartialFailureNote, StepList } from "@/components/create/wizard-steps";
 
 const INITIAL_STEPS: WizardStep[] = [
@@ -21,7 +21,7 @@ type Outcome = { address: Address; blockNumber: bigint };
 /** Treasury creation wizard (ticket 009), embeddable in the Treasury tab. */
 export function TreasuryWizard({ orgEnsName }: { orgEnsName: string }) {
   const { address } = useSoulVaultWallet();
-  const chainId = getBrowserSoulVaultClientConfig()?.chainId ?? 11155111;
+  const [chainId, setChainId] = useState<number>(SEPOLIA_CHAIN_ID);
   const [steps, setSteps] = useState<WizardStep[]>(INITIAL_STEPS);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,11 +56,32 @@ export function TreasuryWizard({ orgEnsName }: { orgEnsName: string }) {
     <div className="mt-4 max-w-xl">
       <p className="text-sm text-muted-foreground">
         Deploys a <span className="font-mono">SoulVaultTreasury</span> for{" "}
-        <span className="font-mono">{orgEnsName}</span>, publishes it via ENSIP-11 at
-        coinType <span className="font-mono">{coinTypeForChain(chainId)}</span>, and lists it
-        in the org's <span className="font-mono">soulvault.treasuries</span> record. Two to
-        three wallet signatures; the connected wallet becomes the immutable owner.
+        <span className="font-mono">{orgEnsName}</span> on the selected chain, publishes it via
+        ENSIP-11 at coinType <span className="font-mono">{coinTypeForChain(chainId)}</span> on
+        Sepolia, and lists it in the org&apos;s{" "}
+        <span className="font-mono">soulvault.treasuries</span> record. ENS coordination always
+        stays on Sepolia — the treasury address lands there as a multichain record. Two to three
+        wallet signatures (plus network-switch prompts for non-Sepolia chains); the connected
+        wallet becomes the immutable owner.
       </p>
+
+      <div className="mt-3">
+        <label className="text-sm font-medium" htmlFor="treasury-chain">
+          Deployment chain
+        </label>
+        <select
+          id="treasury-chain"
+          className="mt-1 block w-full max-w-xs border border-border bg-background px-3 py-2 text-sm"
+          value={chainId}
+          onChange={(e) => setChainId(Number(e.target.value))}
+        >
+          {WIZARD_CHAINS.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+      </div>
       <div className="mt-3">
         <ConnectorGate />
         <DevicePromptPanel />
@@ -78,7 +99,9 @@ export function TreasuryWizard({ orgEnsName }: { orgEnsName: string }) {
           <div className="mt-4 border border-border p-4">
             <p className="text-sm font-medium">Treasury deployed</p>
             <p className="mt-1 font-mono text-xs">{outcome.address}</p>
-            <p className="mt-1 text-xs text-muted-foreground">Deploy block {outcome.blockNumber.toString()}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {chainById(chainId)?.name ?? `chain ${chainId}`} · deploy block {outcome.blockNumber.toString()}
+            </p>
             <DeploymentSnippet>
 {`NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS=[
   {"kind":"treasury","address":"${outcome.address}","fromBlock":"${outcome.blockNumber}","label":"${orgEnsName}"},

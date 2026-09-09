@@ -7,9 +7,10 @@
 import { encodeFunctionData, type Address, type Hex } from "viem";
 
 import { SWARM_ARTIFACT, TREASURY_ARTIFACT } from "@/lib/contracts-artifacts";
+import { publicClientForChainId } from "@/lib/chains";
 import { addSwarmToOrgList, bindSwarmEnsSubdomain, getAddrMultichain, setAddrMultichain, upsertOrgTreasury } from "@/lib/ens-writes";
 import { createSoulVaultPublicClient, getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
-import { deployWalletContract, sendWalletTransaction, waitForWalletReceipt } from "@/lib/wallet-tx";
+import { deployWalletContract } from "@/lib/wallet-tx";
 
 const SWARM_ABI = [
   {
@@ -50,8 +51,14 @@ export async function runTreasuryCreate(input: {
   chainId: number;
   onStep: (stepId: string, update: Partial<WizardStep>) => void;
 }): Promise<TreasuryCreateResult> {
+  // Deploy on the chosen chain; ENS steps below are pinned to Sepolia by
+  // ens-writes.ts (ENS coordination is always Sepolia, per the ENS-native epic).
   input.onStep("deploy", { status: "signing" });
-  const deployed = await deployWalletContract({ from: input.from, bytecode: TREASURY_ARTIFACT.bytecode as Hex });
+  const deployed = await deployWalletContract({
+    from: input.from,
+    bytecode: TREASURY_ARTIFACT.bytecode as Hex,
+    chainId: input.chainId,
+  });
   input.onStep("deploy", {
     status: "done",
     txHash: deployed.txHash,
@@ -83,14 +90,14 @@ export async function runTreasuryCreate(input: {
     detail: treasuryListTxHash ? "soulvault.treasuries updated" : "already listed — no write needed",
   });
 
-  const blockNumber = await receiptBlockOf(deployed.txHash);
+  // Block comes from the deploy receipt itself — never re-read cross-chain.
   return {
     treasuryAddress: deployed.contractAddress,
     deployTxHash: deployed.txHash,
     ensTxHash: ens.txHash,
     coinType: ens.coinType,
     treasuryListTxHash,
-    blockNumber,
+    blockNumber: deployed.blockNumber,
   };
 }
 
@@ -150,7 +157,11 @@ export async function runSwarmCreate(input: {
   // headless-abi-encoded constructor arg (no 4-byte selector in initcode).
   input.onStep("deploy", { status: "signing" });
   const creationData = encodeCreationData(SWARM_ARTIFACT.bytecode as Hex, initialTreasury);
-  const deployed = await deployWalletContract({ from: input.from, bytecode: creationData });
+  const deployed = await deployWalletContract({
+    from: input.from,
+    bytecode: creationData,
+    chainId: input.chainId,
+  });
   input.onStep("deploy", { status: "done", txHash: deployed.txHash, detail: deployed.contractAddress });
 
   // Step 3–6: ENS binding (subnode + addr + 2 text records in one UI step, 4 txs)
@@ -177,8 +188,9 @@ export async function runSwarmCreate(input: {
     txHash: orgListTxHash ?? undefined,
   });
 
-  // Step 7: read-back verification before declaring success.
-  const readClient = publicClient();
+  // Step 7: read-back verification before declaring success — on the chain the
+  // swarm actually deployed to (ENS reads stay on Sepolia).
+  const readClient = publicClientForChainId(input.chainId) ?? publicClient();
   const boundTreasury = (await readClient.readContract({
     address: deployed.contractAddress,
     abi: SWARM_ABI,
@@ -188,13 +200,11 @@ export async function runSwarmCreate(input: {
     throw new Error(`Post-deploy check failed: swarm.treasury() = ${boundTreasury}, expected ${initialTreasury}.`);
   }
 
-  const blockNumber = await readClient.getBlockNumber();
-
   return {
     swarmAddress: deployed.contractAddress,
     swarmEnsName,
     deployTxHash: deployed.txHash,
-    blockNumber,
+    blockNumber: deployed.blockNumber,
     ens,
     orgListTxHash,
     boundTreasury,
@@ -226,9 +236,4 @@ function publicClient() {
   const config = getBrowserSoulVaultClientConfig();
   if (!config) throw new Error("Dashboard config missing — set NEXT_PUBLIC_SOULVAULT_* env vars.");
   return createSoulVaultPublicClient(config);
-}
-
-async function receiptBlockOf(hash: Hex): Promise<bigint> {
-  const receipt = await waitForWalletReceipt(hash);
-  return receipt.blockNumber;
 }

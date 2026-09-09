@@ -19,6 +19,7 @@ import {
 import { normalize } from "viem/ens";
 
 import { getBrowserSoulVaultClientConfig, createSoulVaultPublicClient } from "@/lib/onchain/client";
+import { SEPOLIA_CHAIN_ID } from "@/lib/chains";
 import { sendWalletTransaction, waitForWalletReceipt } from "@/lib/wallet-tx";
 
 // Sepolia ENS contracts — same addresses the CLI uses (packages/node/src/ens.ts).
@@ -255,6 +256,8 @@ export async function setAddrMultichain(input: {
   const node = namehash(normalize(input.ensName));
   const coinType = coinTypeForChain(input.chainId);
   const txHash = await sendWalletTransaction({
+    // ENS coordination is pinned to Sepolia — registry/resolver live there.
+    chainId: SEPOLIA_CHAIN_ID,
     from: input.from,
     to: PUBLIC_RESOLVER,
     data: encodeFunctionData({
@@ -367,6 +370,8 @@ export async function upsertOrgTreasury(input: {
   const value = JSON.stringify(next, null, 0);
   if (value === JSON.stringify(existing, null, 0)) return null;
   const txHash = await sendWalletTransaction({
+    // ENS coordination is pinned to Sepolia — registry/resolver live there.
+    chainId: SEPOLIA_CHAIN_ID,
     from: input.from,
     to: PUBLIC_RESOLVER,
     data: encodeFunctionData({
@@ -397,6 +402,8 @@ export async function bindSwarmEnsSubdomain(input: {
   const swarmNode = namehash(normalize(input.swarmEnsName));
 
   const subnodeTxHash = await sendWalletTransaction({
+    // ENS coordination is pinned to Sepolia — registry/resolver live there.
+    chainId: SEPOLIA_CHAIN_ID,
     from: input.from,
     to: ENS_REGISTRY,
     data: encodeFunctionData({
@@ -409,6 +416,8 @@ export async function bindSwarmEnsSubdomain(input: {
   if (subnodeReceipt.status !== "success") throw new Error(`setSubnodeRecord reverted (tx ${subnodeTxHash}).`);
 
   const setAddrTxHash = await sendWalletTransaction({
+    // ENS coordination is pinned to Sepolia — registry/resolver live there.
+    chainId: SEPOLIA_CHAIN_ID,
     from: input.from,
     to: PUBLIC_RESOLVER,
     data: encodeFunctionData({
@@ -421,6 +430,8 @@ export async function bindSwarmEnsSubdomain(input: {
   if (setAddrReceipt.status !== "success") throw new Error(`setAddr reverted (tx ${setAddrTxHash}).`);
 
   const chainIdTxHash = await sendWalletTransaction({
+    // ENS coordination is pinned to Sepolia — registry/resolver live there.
+    chainId: SEPOLIA_CHAIN_ID,
     from: input.from,
     to: PUBLIC_RESOLVER,
     data: encodeFunctionData({
@@ -433,6 +444,8 @@ export async function bindSwarmEnsSubdomain(input: {
   if (chainIdReceipt.status !== "success") throw new Error(`setText(soulvault.chainId) reverted (tx ${chainIdTxHash}).`);
 
   const contractTxHash = await sendWalletTransaction({
+    // ENS coordination is pinned to Sepolia — registry/resolver live there.
+    chainId: SEPOLIA_CHAIN_ID,
     from: input.from,
     to: PUBLIC_RESOLVER,
     data: encodeFunctionData({
@@ -458,6 +471,8 @@ export async function addSwarmToOrgList(input: {
   if (list.includes(input.label)) return null;
   const value = encodeSwarmsListDataUri([...list, input.label]);
   const txHash = await sendWalletTransaction({
+    // ENS coordination is pinned to Sepolia — registry/resolver live there.
+    chainId: SEPOLIA_CHAIN_ID,
     from: input.from,
     to: PUBLIC_RESOLVER,
     data: encodeFunctionData({

@@ -58,10 +58,12 @@ export function SoulVaultEventsProvider({
   useEffect(() => () => stopRef.current?.(), []);
 
   const getWatcher = useCallback(() => {
-    if (!watcherRef.current && resolvedConfig.current) {
+    const config = resolvedConfig.current;
+    if (!config || config.deployments.length === 0) return null;
+    if (!watcherRef.current) {
       watcherRef.current = new SoulVaultEventWatcher({
-        publicClient: createSoulVaultPublicClient(resolvedConfig.current),
-        sources: resolvedConfig.current.deployments,
+        publicClient: createSoulVaultPublicClient(config),
+        sources: config.deployments,
       });
     }
     return watcherRef.current;

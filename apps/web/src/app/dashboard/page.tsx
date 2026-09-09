@@ -1,77 +1,172 @@
-import type { Metadata } from "next";
-import { Wallet } from "lucide-react";
+"use client";
 
-import { PageShell } from "@/components/page-shell";
-import { Button } from "@/components/ui/button";
+import { formatEther, type Address } from "viem";
 
-export const metadata: Metadata = {
-  title: "Dashboard",
-  description:
-    "Connect a wallet to manage organizations, swarms, epochs, and document grants.",
-};
+import { CopyableAddress } from "@/components/dashboard/copyable-address";
+import { useDashboardSelection } from "@/components/dashboard/selection-provider";
+import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
+import { useDocumentEvents } from "@/hooks/useDocumentEvents";
+import { useOrgDiscovery } from "@/hooks/useOrgDiscovery";
+import { useSwarmEvents } from "@/hooks/useSwarmEvents";
+import { shortAddress } from "@/lib/format";
+
+export default function DashboardOverviewPage() {
+  const { address, connector, error: walletError } = useSoulVaultWallet();
+  const { selection } = useDashboardSelection();
+  const { documents: registry, status: documentStatus, error: documentError } =
+    useDocumentEvents();
+  const swarm = useSwarmEvents();
+  const discovery = useOrgDiscovery(selection.orgId);
+
+  if (!address) return null;
+
+  const documentCount = registry.documents.size;
+  const configError =
+    documentStatus === "error"
+      ? documentError instanceof Error
+        ? documentError.message
+        : "Could not load SoulVault events."
+      : null;
+  const treasuries = discovery.treasuries ?? [];
+  const swarms = discovery.swarms ?? [];
+
+  return (
+    <div>
+      <p className="eyebrow text-primary">Overview</p>
+      <h1 className="mt-3 text-2xl font-semibold tracking-tight">Connected wallet</h1>
+      <p className="mt-2 max-w-xl text-sm text-muted-foreground">
+        Identity is this address. State below is read from the org&apos;s ENS records
+        and chain events — no user database.
+      </p>
+      {walletError ? <p className="mt-4 text-sm text-destructive">{walletError}</p> : null}
+      {configError ? <p className="mt-4 text-sm text-destructive">{configError}</p> : null}
+
+      <dl className="mt-8 grid gap-px border border-border bg-border sm:grid-cols-2">
+        <Stat label="Address" value={shortAddress(address)} mono />
+        <Stat label="Connector" value={connector ?? "—"} />
+        <Stat label="Organization" value={selection.orgId ?? "—"} />
+        <Stat
+          label="Swarm epoch"
+          value={swarm.currentEpoch !== null ? swarm.currentEpoch.toString() : "—"}
+          hint={selection.swarmId}
+        />
+        <Stat
+          label="Documents"
+          value={documentStatus === "loading" ? "…" : String(documentCount)}
+        />
+        <Stat
+          label="Events"
+          value={
+            documentStatus === "ready" || swarm.status === "ready"
+              ? "live cache"
+              : documentStatus
+          }
+        />
+      </dl>
+
+      <OrgStateSummary discovery={discovery} />
+    </div>
+  );
+}
 
 /**
- * Placeholder shell. The real dashboard is wallet-native: no account, no
- * server-side session — connecting a wallet is what resolves identity, and
- * every panel below reads its state from chain + 0G.
+ * ENS-derived org state: everything the org name publishes — treasuries (per
+ * chain, with balances) and swarms (label, contract address, chain). Read-only;
+ * this is the web3-native inventory that replaces ~/.soulvault state files.
  */
-const panels = [
-  {
-    title: "Organizations & swarms",
-    body: "Profiles resolved from ENS, membership and epoch state read from the swarm contract on 0G.",
-  },
-  {
-    title: "Backups & epochs",
-    body: "Rotate the epoch key, inspect wrapped bundles, and verify that every current member can decrypt.",
-  },
-  {
-    title: "Documents & grants",
-    body: "Prepare redacted artifacts, issue per-field grants to wallets and share the redacted bundle.",
-  },
-  {
-    title: "Treasury",
-    body: "Balances, deposits, and the fund-request queue for agents that need to spend.",
-  },
-];
+function OrgStateSummary({ discovery }: { discovery: ReturnType<typeof useOrgDiscovery> }) {
+  const treasuries = discovery.treasuries;
+  const swarms = discovery.swarms;
 
-export default function DashboardPage() {
+  if (discovery.status === "idle") return null;
+
   return (
-    <PageShell
-      eyebrow="Dashboard"
-      title="Wallet-native, by construction"
-      description="There is no signup and no user database. Connecting a wallet is what establishes identity — every panel here reads its state from the chain and from 0G, so the same view works on any machine."
-    >
-      <div className="border border-border bg-card p-8">
-        <div className="flex flex-col items-start gap-4">
-          <span className="flex size-10 items-center justify-center border border-border-strong text-muted-foreground">
-            <Wallet className="size-5" />
-          </span>
-          <div>
-            <p className="font-medium">Wallet connection</p>
-            <p className="mt-1 max-w-md text-sm text-muted-foreground">
-              Not wired up yet. The connector lands with the first dashboard
-              panel.
+    <section className="mt-8">
+      <h2 className="text-sm font-semibold">Org state (ENS)</h2>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Derived from the org&apos;s ENS records —{" "}
+        <span className="font-mono">soulvault.treasuries</span> and{" "}
+        <span className="font-mono">soulvault.swarms</span>.
+      </p>
+      {discovery.error ? (
+        <p className="mt-3 text-sm text-destructive">{discovery.error}</p>
+      ) : (
+        <>
+          <h3 className="mt-4 text-xs font-medium text-muted-foreground">
+            Treasuries{treasuries ? ` (${treasuries.length})` : ""}
+          </h3>
+          {treasuries === null ? (
+            <p className="mt-2 text-sm text-muted-foreground">…</p>
+          ) : treasuries.length === 0 ? (
+            <p className="mt-2 text-sm text-muted-foreground">
+              None published yet — create one in the Treasury tab.
             </p>
-          </div>
-          <Button disabled>Connect wallet</Button>
-        </div>
-      </div>
+          ) : (
+            <ul className="mt-2 divide-y divide-border border border-border">
+              {treasuries.map((entry) => {
+                const bal = discovery.treasuryBalances[entry.address.toLowerCase()];
+                return (
+                  <li key={`${entry.chainId}:${entry.address}`} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 bg-card px-4 py-3">
+                    <span className="font-mono text-xs text-muted-foreground">chain {entry.chainId}</span>
+                    <CopyableAddress address={entry.address} chainId={entry.chainId} />
+                    <span className="font-mono text-xs text-muted-foreground">
+                      {bal !== undefined ? `${formatEther(bal)} ETH` : "…"}
+                    </span>
+                    {entry.label ? <span className="text-xs text-muted-foreground">{entry.label}</span> : null}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
 
-      <div className="mt-px grid gap-px border border-border bg-border sm:grid-cols-2">
-        {panels.map((panel) => (
-          <div key={panel.title} className="bg-card p-6">
-            <div className="flex items-center gap-2">
-              <h2 className="font-semibold tracking-tight">{panel.title}</h2>
-              <span className="border border-border px-1.5 py-0.5 chip text-muted-foreground">
-                soon
-              </span>
-            </div>
-            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-              {panel.body}
+          <h3 className="mt-6 text-xs font-medium text-muted-foreground">
+            Swarms{swarms ? ` (${swarms.length})` : ""}
+          </h3>
+          {swarms === null ? (
+            <p className="mt-2 text-sm text-muted-foreground">…</p>
+          ) : swarms.length === 0 ? (
+            <p className="mt-2 text-sm text-muted-foreground">
+              None published yet — create one in the Swarm tab.
             </p>
-          </div>
-        ))}
-      </div>
-    </PageShell>
+          ) : (
+            <ul className="mt-2 divide-y divide-border border border-border">
+              {swarms.map((entry) => (
+                <li key={entry.label} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 bg-card px-4 py-3">
+                  <span className="font-mono text-sm">{entry.ensName}</span>
+                  {entry.chainId !== null ? (
+                    <span className="font-mono text-xs text-muted-foreground">chain {entry.chainId}</span>
+                  ) : null}
+                  {entry.address ? (
+                    <CopyableAddress address={entry.address} chainId={entry.chainId} />
+                  ) : (
+                    <span className="text-xs text-muted-foreground">addr unresolved</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  mono,
+  hint,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  hint?: string | null;
+}) {
+  return (
+    <div className="bg-card p-5">
+      <dt className="eyebrow text-muted-foreground">{label}</dt>
+      <dd className={`mt-2 text-sm font-medium ${mono ? "font-mono" : ""}`}>{value}</dd>
+      {hint ? <p className="mt-1 font-mono text-xs text-muted-foreground">{hint}</p> : null}
+    </div>
   );
 }

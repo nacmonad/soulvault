@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --webpack",
     "build": "next build",
     "build:export": "SOULVAULT_WEB_EXPORT=1 next build",
     "deploy:pages": "sh scripts/deploy-pages.sh",
@@ -15,10 +15,11 @@
   "dependencies": {
     "@base-ui/react": "^1.7.0",
     "@ledgerhq/context-module": "^2.5.0",
-    "@ledgerhq/device-management-kit": "^1.8.0",
-    "@ledgerhq/device-signer-kit-ethereum": "^1.16.0",
+    "@ledgerhq/device-management-kit": "^1.9.0",
+    "@ledgerhq/device-signer-kit-ethereum": "^1.18.0",
     "@ledgerhq/device-transport-kit-web-hid": "^1.2.4",
     "@soulvault/node": "workspace:*",
+    "@soulvault/presidio-adapter": "workspace:*",
     "@soulvault/protocol": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

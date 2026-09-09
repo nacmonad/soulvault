@@ -12,6 +12,7 @@ import {
   EnsNameUnavailableError,
   registerOrganizationEns,
 } from '@soulvault/node/ens-name';
+import { setEnsResolver } from '@soulvault/node/ens';
 
 export function registerOrganizationCommands(program: Command) {
   const organization = program.command('organization').description('Organization profiles, ENS root context, and owner actions')
@@ -110,5 +111,39 @@ export function registerOrganizationCommands(program: Command) {
         }
         throw err;
       }
+    });
+
+  organization
+    .command('set-resolver')
+    .description(
+      'Point a registered ENS name\'s resolver at the SoulVault PublicResolver (idempotent; no-op when already set). ' +
+        'Repair for org names registered before the register flow wired the resolver atomically — without it, ' +
+        'standard ENS resolution of the org\'s records fails and third-party ENS tooling sees nothing. ' +
+        'Requires the name\'s owner as signer (1 Ledger signature when a change is needed).',
+    )
+    .option('--organization <nameOrEns>', 'Defaults to the active organization\'s ensName')
+    .option('--ens-name <name>', 'Explicit ENS name to repair (overrides --organization)')
+    .action(async (options) => {
+      let ensName = options.ensName;
+      if (!ensName) {
+        const target = options.organization ?? (await getActiveOrganization())?.slug;
+        if (!target) {
+          throw new Error('No organization selected. Pass --organization or set an active organization first.');
+        }
+        const profile = await getOrganizationProfile(target);
+        if (!profile?.ensName) {
+          throw new Error(
+            `Organization "${target}" has no ENS name configured. Pass --ens-name explicitly or run \`soulvault organization set-ens-name\` first.`,
+          );
+        }
+        ensName = profile.ensName;
+      }
+      const result = await setEnsResolver(ensName);
+      if (result.alreadySet) {
+        console.error(`Resolver for ${ensName} already points at ${result.resolver} — no transaction needed.`);
+      } else {
+        console.error(`Resolver set on ${ensName} → ${result.resolver} (tx: ${result.txHash})`);
+      }
+      console.log(JSON.stringify(result, null, 2));
     });
 }

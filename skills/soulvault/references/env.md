@@ -13,6 +13,7 @@ All variables are loaded from `.env` in the project root via `dotenv`.
 | `SOULVAULT_MNEMONIC` | BIP39 mnemonic phrase (when mode=mnemonic) | `word1 word2 ...` |
 | `SOULVAULT_MNEMONIC_PATH` | HD derivation path (default: `m/44'/60'/0'/0/0`) | `m/44'/60'/0'/0/0` |
 | `SOULVAULT_LEDGER_DERIVATION_PATH` | Ledger ETH derivation path | `m/44'/60'/0'/0/0` |
+| `SOULVAULT_LEDGER_ACTION_TIMEOUT_MS` | Per-device-action timeout in ms (address confirm, each signature). Each action gets a fresh window — multi-tx flows are not sharing one budget. Default `180000` | `180000` |
 | `SOULVAULT_LEDGER_CONFIRM_ADDRESS` | If `true`, approve address export on the Ledger when the CLI opens a session (default: silent `getAddress`) | `false` |
 | `SOULVAULT_LEDGER_AUTO_SYNC` | When `ledger` mode: after resolving the device address (`describeSigner`), run sync if org/swarm lists are set | `false` |
 | `SOULVAULT_SYNC_ORGANIZATION_ENS` | Comma-separated root ENS names for `sync` | — |
@@ -20,12 +21,12 @@ All variables are loaded from `.env` in the project root via `dotenv`.
 
 ---
 
-## 0G Galileo (SoulVault Operations Lane)
+## Ops Lane (swarm / treasury / epochs — Sepolia)
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `SOULVAULT_RPC_URL` | 0G Galileo RPC endpoint | `https://evmrpc-testnet.0g.ai` |
-| `SOULVAULT_CHAIN_ID` | 0G chain ID | `16602` |
+| `SOULVAULT_RPC_URL` | Ops-lane RPC endpoint. Sepolia-only posture: same RPC as the ENS lane. Previously 0G Galileo; changing these two vars re-points the whole ops lane (signer, deploys, ENSIP-11 discovery via `coinTypeForChain(SOULVAULT_CHAIN_ID)`) with no code changes. | `https://ethereum-sepolia-rpc.publicnode.com` |
+| `SOULVAULT_CHAIN_ID` | Ops-lane chain ID. Sepolia = `11155111`; the old 0G value was `16602`. | `11155111` |
 
 ---
 

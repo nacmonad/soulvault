@@ -5,7 +5,7 @@ import fs from 'fs-extra';
 import { loadForgeArtifact, deployContract } from '../../test/helpers/forge-artifacts.js';
 import { createOrganizationProfile } from '../organization.js';
 import { createSwarmProfile } from '../swarm.js';
-import { buildTreasuryProfile, writeTreasuryProfile } from '../treasury.js';
+import { buildTreasuryEntry, upsertLocalTreasuryEntry } from '../treasury.js';
 import {
   listFundRequests,
   listRecentSwarmEvents,
@@ -156,12 +156,13 @@ describe('fund request flow (CLI integration)', () => {
       contractAddress: swarmAddress, // skip deployment since we already deployed
     });
 
-    const treasuryProfile = buildTreasuryProfile({
+    await upsertLocalTreasuryEntry({
       organization: ORG_SLUG,
-      contractAddress: treasuryAddress,
-      ownerAddress: owner.address,
+      entry: buildTreasuryEntry({
+        contractAddress: treasuryAddress,
+        ownerAddress: owner.address,
+      }),
     });
-    await writeTreasuryProfile(treasuryProfile);
 
     // 5. Deposit 10 ether into the treasury via the CLI helper (validates depositToTreasury).
     await depositToTreasury({

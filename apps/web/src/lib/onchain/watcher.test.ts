@@ -254,6 +254,40 @@ describe('scanHistory bounds', () => {
     await watcher.scanHistory();
     expect(getLogs.mock.calls[0][0].fromBlock).toBe(7n);
   });
+
+  it('chunks getLogs into bounded ranges (publicnode caps at 50_000)', async () => {
+    // Deployment at block 0, latest 90_000 → 3 chunks of ≤40_000.
+    const sources: SoulVaultDeployment[] = [{ address: DOC_ADDRESS, kind: 'document', fromBlock: 0n }];
+    const { watcher, getLogs } = makeWatcher([], 90_000n, sources);
+    await watcher.scanHistory();
+    const calls = getLogs.mock.calls.map((c) => [c[0].fromBlock, c[0].toBlock]);
+    expect(calls).toEqual([
+      [0n, 39_999n],
+      [40_000n, 79_999n],
+      [80_000n, 90_000n],
+    ]);
+  });
+
+  it('chunks respect the per-source deployment block', async () => {
+    const sources: SoulVaultDeployment[] = [{ address: DOC_ADDRESS, kind: 'document', fromBlock: 75_000n }];
+    const { watcher, getLogs } = makeWatcher([], 160_000n, sources);
+    await watcher.scanHistory();
+    const calls = getLogs.mock.calls.map((c) => [c[0].fromBlock, c[0].toBlock]);
+    expect(calls).toEqual([
+      [75_000n, 114_999n],
+      [115_000n, 154_999n],
+      [155_000n, 160_000n],
+    ]);
+  });
+
+  it('still returns logs that fall across chunk boundaries', async () => {
+    const logAtBoundary = makeRawLog({ kind: 'document', address: DOC_ADDRESS, eventName: 'DocumentPublished', args: { docHash: DOC_HASH, author: ALICE, slotIds: [] }, blockNumber: 39_999n, logIndex: 0 });
+    const sources: SoulVaultDeployment[] = [{ address: DOC_ADDRESS, kind: 'document', fromBlock: 0n }];
+    const { watcher } = makeWatcher([logAtBoundary], 50_000n, sources);
+    const events = await watcher.scanHistory();
+    expect(events).toHaveLength(1);
+    expect(events[0].blockNumber).toBe(39_999n);
+  });
 });
 
 // --- watchLive ------------------------------------------------------------------

@@ -22,6 +22,9 @@ import type {
 
 export { orderEvents } from './reducers';
 
+/** Public-node eth_getLogs block-range cap (publicnode = 50_000; keep headroom). */
+const GET_LOGS_MAX_RANGE = 40_000n;
+
 export type WatchLiveOptions = {
   pollSeconds?: number;
   fromBlock?: bigint;
@@ -134,13 +137,49 @@ export class SoulVaultEventWatcher {
         const requested = fromBlock ?? source.fromBlock;
         if (toBlock !== 'latest' && toBlock < source.fromBlock) return [];
         const from = requested < source.fromBlock ? source.fromBlock : requested;
-        const logs = await this.publicClient.getLogs({ address: source.address, fromBlock: from, toBlock });
+        const logs = await this.getLogsChunked(source, from, toBlock);
         return logs
           .map((log) => this.decodeLog(log, source))
           .filter((event): event is SoulVaultEvent => event !== null);
       }),
     );
     return orderEvents(perSource.flat());
+  }
+
+  /**
+   * Public RPCs commonly cap eth_getLogs block ranges (publicnode: 50_000).
+   * Fetch in bounded slices and concatenate; sequential per source to avoid
+   * hammering rate-limited endpoints, sources still run in parallel.
+   */
+  private async getLogsChunked(
+    source: SoulVaultDeployment,
+    fromBlock: bigint,
+    toBlock: bigint | 'latest',
+  ): Promise<Log[]> {
+    let target = toBlock;
+    if (target === 'latest') {
+      try {
+        target = await this.publicClient.getBlockNumber();
+      } catch {
+        // Client without getBlockNumber (test stubs): viem will resolve
+        // 'latest' server-side; pass the range through unchunked.
+        return this.publicClient.getLogs({ address: source.address, fromBlock, toBlock });
+      }
+    }
+    if (target < fromBlock) return [];
+    const chunks: Log[] = [];
+    for (let start = fromBlock; start <= target; start += GET_LOGS_MAX_RANGE) {
+      const end = start + GET_LOGS_MAX_RANGE - BigInt(1) > target
+        ? target
+        : start + GET_LOGS_MAX_RANGE - BigInt(1);
+      const page = await this.publicClient.getLogs({
+        address: source.address,
+        fromBlock: start,
+        toBlock: end,
+      });
+      chunks.push(...page);
+    }
+    return chunks;
   }
 
   private decodeLog(log: Log, source: SoulVaultDeployment): SoulVaultEvent | null {

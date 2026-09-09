@@ -8,6 +8,7 @@ import { firstValueFrom, timeout } from "rxjs";
 import { hexToBytes, type Address, type Hex } from "viem";
 import type { SignerEth } from "@ledgerhq/device-signer-kit-ethereum";
 import { getBrowserSoulVaultActivityConfig, loadSoulVaultActivity, type SoulVaultActivity } from "@/lib/onchain/soulvault-activity";
+import { createBrowserContextModule } from "@/lib/ledger-clear-sign";
 import { createLedgerTxChannel, type DeviceTransactionSignature } from "@/lib/ledger-tx";
 import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 import { setTxChannel } from "@/lib/wallet-tx";
@@ -110,7 +111,11 @@ export function SoulVaultLedgerProvider({ children, developmentLedgerTransport }
       const sessionId = await dmk.connect({ device, sessionRefresherOptions: { isRefresherDisabled: false, pollingInterval: 3_000 } });
       sessionRef.current = sessionId;
       subscriptionRef.current = dmk.getDeviceSessionState({ sessionId }).subscribe(setDeviceState);
-      const signer = new SignerEthBuilder({ dmk, sessionId }).build();
+      // Clear-sign CAL descriptors: the device renders decoded calldata +
+      // EIP-712 fields; failures degrade to blind signing (preferred mode).
+      const signer = new SignerEthBuilder({ dmk, sessionId })
+        .withContextModule(createBrowserContextModule(dmk))
+        .build();
       signerRef.current = signer;
       const account = await runDeviceAction<{ address: Address }>(signer.getAddress(DERIVATION_PATH, {
         checkOnDevice: true,

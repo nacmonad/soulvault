@@ -126,5 +126,7 @@ incomplete — re-run step 3").
   `v` from the device's parity bit, and broadcasts `eth_sendRawTransaction`
   straight to the configured RPC — no injected wallet needed. ENS writes,
   treasury fund lifecycle, and document publishes all flow through the same
-  channel. The device shows the (blind-signing) transaction prompt unless a
-  clear-sign context module is wired into the browser `SignerEthBuilder`.
+  channel. A clear-sign context module (browser port of the CLI's setup,
+  `lib/ledger-clear-sign.ts`) feeds CAL descriptors to the device, so txs and
+  EIP-712 payloads render decoded where Ledger's descriptor service has a
+  match; failures degrade to blind signing (clear-sign-preferred semantics).

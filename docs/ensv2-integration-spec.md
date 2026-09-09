@@ -139,3 +139,49 @@ Contracts repo: `ensdomains/contracts-v2` (Foundry remappings per the official t
 - **Ledger clear-signing:** new registry/resolver selectors need ERC-7730 descriptors for
   clear signing, or fall back to `blind-only` for the demo with a documented caveat.
 - **Gas/cost:** Verifiable Factory deployments on Sepolia — trivial, but document.
+
+## 7. Addendum — documents lane: DocumentRegistry discovery (must not be lost in the v2 migration)
+
+The documents pipeline (redact → publish → grant → rehydrate,
+`SoulVaultDocumentRegistry` + `docs/redaction-hydration-spec.md`) is **absent from the
+architecture above** — it is not org- or swarm-scoped, it is a **global per-chain
+singleton** so an external consumer (Charlie) who is *not* in any swarm can verify and
+rehydrate. That consumer-facing role makes its discovery a first-class ENS concern.
+
+**Problem (today, ENSv1):** the registry address reaches the browser only via
+`NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS` (build-time env). The public bundle carries no
+chain/registry pointer, and the RehydrationKey EIP-712 attestation domain pins
+`verifyingContract = registry` — so Charlie must resolve the registry address *before*
+he can attest. An external consumer currently has no path.
+
+**Design:**
+
+1. **ENSIP-11 on the protocol root name** — `addr(soulvault.eth, coinType(chainId))` →
+   the `SoulVaultDocumentRegistry` for that chain. Same pattern as treasury discovery,
+   applied to protocol infrastructure. One record set covers every chain we deploy to;
+   readers resolve through the ENSv2 Universal Resolver V2.
+2. **Write path rides the EAC unlock (Phase 3)** — the record lives on the org's
+   Permissioned Resolver, so a wallet holding the scoped record role can maintain it
+   without the org Ledger. Publishing a new registry deployment (rare) should still be
+   owner-gated (separate role, e.g. `ROLE_PROTOCOL_RECORDS`).
+3. **Self-describing bundle hint (non-authoritative)** — `serializePublicDocumentBundle`
+   gains an optional `registry: { chainId, address }` field (protocol version note:
+   additive, readers treat absence as unknown). The Rehydrate UI compares hint vs the
+   ENS-resolved answer and warns on mismatch — ENS is the trust anchor, the hint is
+   convenience/portability (same pattern as the ops swarm's stale `soulvault.chainId`
+   lesson).
+4. **Preference order** for registry resolution:
+   `localStorage override → ENS (soulvault.eth ENSIP-11) → env var → bundle hint`.
+5. **Attestation domain unchanged** — `verifyingContract` stays the registry contract;
+   the ENS version used for discovery does not enter the domain. Registry *rotation* is
+   handled by the existing attestation `expiry`, not by re-attestation on ENS changes.
+
+**Implementation touchpoints:**
+- Phase 1 (`ensv2.ts`): the `setAddrMultichain` dispatch must cover this write — the
+  registry record is just another ENSIP-11 slot on the root name.
+- Phase 5 demo: extend the demo script — consumer resolves `soulvault.eth` → registry →
+  verifies `DocumentPublished` → attests → rehydrates granted slots, **no env vars, no
+  swarm membership**.
+- Dashboard ticket 012 (otto/dashboard-ui) section D tracks the same work from the
+  browser side; v1 implementation should land there first and dispatch to v2 via the
+  same flag as the rest of `ens.ts`.

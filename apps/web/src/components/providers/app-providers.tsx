@@ -1,4 +1,14 @@
 "use client";
+
 import type { PropsWithChildren } from "react";
+
 import { SoulVaultLedgerProvider } from "@/components/providers/soulvault-ledger-provider";
-export function AppProviders({ children }: PropsWithChildren) { return <SoulVaultLedgerProvider>{children}</SoulVaultLedgerProvider>; }
+import { SoulVaultEventsProvider } from "@/context/SoulVaultEventsProvider";
+
+export function AppProviders({ children }: PropsWithChildren) {
+  return (
+    <SoulVaultLedgerProvider>
+      <SoulVaultEventsProvider>{children}</SoulVaultEventsProvider>
+    </SoulVaultLedgerProvider>
+  );
+}

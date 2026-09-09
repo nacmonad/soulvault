@@ -6,7 +6,7 @@ import { loadForgeArtifact, deployContract } from '../../test/helpers/forge-arti
 import { createSigner, type SoulVaultSigner } from '../signer.js';
 import { createOrganizationProfile } from '../organization.js';
 import { createSwarmProfile } from '../swarm.js';
-import { buildTreasuryProfile, writeTreasuryProfile } from '../treasury.js';
+import { buildTreasuryEntry, upsertLocalTreasuryEntry } from '../treasury.js';
 import {
   getFundRequestStatus,
   SOULVAULT_SWARM_ABI,
@@ -142,12 +142,13 @@ describe('fund request flow (Ledger integration)', () => {
       contractAddress: swarmAddress,
     });
 
-    const treasuryProfile = buildTreasuryProfile({
+    await upsertLocalTreasuryEntry({
       organization: ORG_SLUG,
-      contractAddress: treasuryAddress,
-      ownerAddress: await owner.getAddress(),
+      entry: buildTreasuryEntry({
+        contractAddress: treasuryAddress,
+        ownerAddress: await owner.getAddress(),
+      }),
     });
-    await writeTreasuryProfile(treasuryProfile);
 
     await depositToTreasury({
       organization: ORG_SLUG,

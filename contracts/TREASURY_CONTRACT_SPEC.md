@@ -139,6 +139,17 @@ addr(namehash('myorg.eth'), 2147500186) = <0G treasury address>   # coinType = 0
 
 A downstream consumer that knows the org's ENS name can resolve the treasury for any chain by calling `addr(node, coinType)` with the appropriate coinType. An org with treasuries on multiple chains gets one slot per chain for free; setting one doesn't clobber the others.
 
+### The `soulvault.treasuries` enumeration record
+
+ENSIP-11 slots are not enumerable — a resolver cannot list which coinTypes are set, so a consumer that only knows the org's ENS name cannot discover *which* chains hold treasuries. To close that gap, every `treasury create` / `treasury bind` (CLI and browser wizard) also upserts a text record on the org's ENS name:
+
+```
+text(namehash('myorg.eth'), 'soulvault.treasuries')
+  = '[{"chainId":11155111,"address":"0x…","createdAt":"…"}, …]'
+```
+
+A JSON array with one entry per (org, chain) treasury — `chainId` is the upsert key, `label` and `createdAt` are optional metadata. The `addr(orgNode, coinType)` record remains the source of truth for machine resolution; this record exists purely for enumeration and human-readable discovery (the dashboard Overview and Treasury tab render from it). Clients writing one entry must read-modify-write the whole array so they don't clobber other chains' entries, and a mismatch between an entry and its corresponding ENSIP-11 slot indicates corruption.
+
 ---
 
 ## What's deliberately NOT in v1

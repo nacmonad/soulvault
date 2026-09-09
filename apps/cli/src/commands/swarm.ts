@@ -6,6 +6,8 @@ import {
   getActiveSwarm,
   getSwarmProfile,
   listSwarmProfiles,
+  setSwarmLane,
+  syncSwarmOrgList,
   unlinkSwarmFromOrgList,
   unpublishSwarm,
   updateSwarmProfile,
@@ -387,6 +389,43 @@ export function registerSwarmCommands(program: Command) {
       } catch {
         // profile refresh is best-effort
       }
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  swarm
+    .command('set-lane')
+    .description(
+      'Re-point a swarm profile to a different ops lane (chainId + rpcUrl). The contract is ' +
+        'immovable — this corrects where subsequent operations send transactions. With --ens, ' +
+        'also rewrites the soulvault.chainId AND soulvault.swarmContract text records on the ' +
+        'swarm\'s ENS name (2 signatures).',
+    )
+    .option('--chain-id <id>', 'New ops-lane chain id, e.g. 11155111 for Sepolia')
+    .option('--rpc <url>', 'New ops-lane RPC endpoint')
+    .option('--ens', 'Also rewrite the soulvault.chainId ENS text record to match --chain-id', false)
+    .option('--swarm <nameOrEns>')
+    .action(async (options) => {
+      const result = await setSwarmLane({
+        swarm: options.swarm,
+        chainId: options.chainId !== undefined ? Number(options.chainId) : undefined,
+        rpcUrl: options.rpc,
+        updateEns: options.ens,
+      });
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  swarm
+    .command('list-sync')
+    .description(
+      'Repair org-level discoverability: append the swarm\'s label to the parent org\'s ' +
+        'CBOR `soulvault.swarms` list (1 signature). Use when the subdomain is bound but ' +
+        'the append step never landed — the swarm resolves by name yet discovery can\'t see it. ' +
+        'Idempotent; public swarms only unless --force.',
+    )
+    .option('--swarm <nameOrEns>')
+    .option('--force', 'List the swarm even though its visibility is not public', false)
+    .action(async (options) => {
+      const result = await syncSwarmOrgList({ swarm: options.swarm, force: options.force });
       console.log(JSON.stringify(result, null, 2));
     });
 

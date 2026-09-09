@@ -11,6 +11,7 @@
 import { decodeEventLog, type Address, type Hex, type Log, type PublicClient } from 'viem';
 import { SECP_WRAP_ALGORITHM, type SecpWrappedKey } from '@soulvault/protocol';
 import { SOULVAULT_EVENT_ABIS } from './abis';
+import { getLogsChunked } from './soulvault-activity';
 import { orderEvents, resolveActiveGrants } from './reducers';
 import type {
   ActiveGrant,
@@ -134,7 +135,7 @@ export class SoulVaultEventWatcher {
         const requested = fromBlock ?? source.fromBlock;
         if (toBlock !== 'latest' && toBlock < source.fromBlock) return [];
         const from = requested < source.fromBlock ? source.fromBlock : requested;
-        const logs = await this.publicClient.getLogs({ address: source.address, fromBlock: from, toBlock });
+        const logs = await getLogsChunked(this.publicClient, { address: source.address, fromBlock: from, toBlock });
         return logs
           .map((log) => this.decodeLog(log, source))
           .filter((event): event is SoulVaultEvent => event !== null);

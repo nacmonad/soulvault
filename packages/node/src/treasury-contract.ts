@@ -1,40 +1,40 @@
 import { Contract, parseEther, formatEther } from 'ethers';
 import { createProvider, createSigner } from './signer.js';
-import { requireTreasuryProfile, resolveTargetOrganization } from './treasury.js';
+import { requireTreasuryEntry, resolveTargetOrganization } from './treasury.js';
 import { getSwarmProfile } from './swarm.js';
 import { SOULVAULT_TREASURY_ABI } from './swarm-contract.js';
 
 async function resolveTargetTreasury(orgNameOrSlug?: string) {
   const organization = await resolveTargetOrganization(orgNameOrSlug);
-  const profile = await requireTreasuryProfile(organization.slug);
-  return { organization, profile };
+  const { entry } = await requireTreasuryEntry(organization.slug);
+  return { organization, entry };
 }
 
 export async function getTreasuryContractReadonly(orgNameOrSlug?: string) {
-  const { organization, profile } = await resolveTargetTreasury(orgNameOrSlug);
+  const { organization, entry } = await resolveTargetTreasury(orgNameOrSlug);
   const provider = await createProvider();
-  const contract = new Contract(profile.contractAddress, SOULVAULT_TREASURY_ABI, provider);
-  return { organization, profile, contract };
+  const contract = new Contract(entry.contractAddress, SOULVAULT_TREASURY_ABI, provider);
+  return { organization, entry, contract };
 }
 
 export async function getTreasuryContract(orgNameOrSlug?: string) {
-  const { organization, profile } = await resolveTargetTreasury(orgNameOrSlug);
+  const { organization, entry } = await resolveTargetTreasury(orgNameOrSlug);
   const signer = await createSigner();
-  const contract = new Contract(profile.contractAddress, SOULVAULT_TREASURY_ABI, signer);
-  return { organization, profile, contract };
+  const contract = new Contract(entry.contractAddress, SOULVAULT_TREASURY_ABI, signer);
+  return { organization, entry, contract };
 }
 
 /** Read treasury status (owner + balance + recent event counts). */
 export async function getTreasuryStatus(input: { organization?: string }) {
-  const { profile, contract } = await getTreasuryContractReadonly(input.organization);
+  const { organization, entry, contract } = await getTreasuryContractReadonly(input.organization);
   const [owner, balance, chainId] = await Promise.all([
     contract.owner(),
     contract.balance(),
     contract.chainId(),
   ]);
   return {
-    organization: profile.organization,
-    contractAddress: profile.contractAddress,
+    organization: organization.slug,
+    contractAddress: entry.contractAddress,
     owner: String(owner),
     balanceWei: balance.toString(),
     balanceEther: formatEther(balance),
@@ -44,13 +44,13 @@ export async function getTreasuryStatus(input: { organization?: string }) {
 
 /** Send native value to the treasury contract. Any wallet can deposit. */
 export async function depositToTreasury(input: { organization?: string; amountEther: string }) {
-  const { profile, contract } = await getTreasuryContract(input.organization);
+  const { organization, entry, contract } = await getTreasuryContract(input.organization);
   const amountWei = parseEther(input.amountEther);
   const tx = await contract.deposit({ value: amountWei });
   const receipt = await tx.wait();
   return {
-    organization: profile.organization,
-    contractAddress: profile.contractAddress,
+    organization: organization.slug,
+    contractAddress: entry.contractAddress,
     txHash: receipt?.hash,
     amountWei: amountWei.toString(),
     amountEther: input.amountEther,
@@ -63,13 +63,13 @@ export async function withdrawFromTreasury(input: {
   to: string;
   amountEther: string;
 }) {
-  const { profile, contract } = await getTreasuryContract(input.organization);
+  const { organization, entry, contract } = await getTreasuryContract(input.organization);
   const amountWei = parseEther(input.amountEther);
   const tx = await contract.withdraw(input.to, amountWei);
   const receipt = await tx.wait();
   return {
-    organization: profile.organization,
-    contractAddress: profile.contractAddress,
+    organization: organization.slug,
+    contractAddress: entry.contractAddress,
     txHash: receipt?.hash,
     to: input.to,
     amountWei: amountWei.toString(),
@@ -90,7 +90,7 @@ export async function approveFundRequestViaTreasury(input: {
   swarm: string;
   requestId: string;
 }) {
-  const { profile, contract } = await getTreasuryContract(input.organization);
+  const { organization, entry, contract } = await getTreasuryContract(input.organization);
   const swarmAddress = await resolveSwarmAddress(input.swarm);
   const tx = await contract.approveFundRequest(swarmAddress, input.requestId);
   const receipt = await tx.wait();
@@ -113,8 +113,8 @@ export async function approveFundRequestViaTreasury(input: {
   }
 
   return {
-    organization: profile.organization,
-    treasuryContractAddress: profile.contractAddress,
+    organization: organization.slug,
+    treasuryContractAddress: entry.contractAddress,
     swarmAddress,
     requestId: input.requestId,
     txHash: receipt?.hash,
@@ -130,13 +130,13 @@ export async function rejectFundRequestViaTreasury(input: {
   requestId: string;
   reason: string;
 }) {
-  const { profile, contract } = await getTreasuryContract(input.organization);
+  const { organization, entry, contract } = await getTreasuryContract(input.organization);
   const swarmAddress = await resolveSwarmAddress(input.swarm);
   const tx = await contract.rejectFundRequest(swarmAddress, input.requestId, input.reason);
   const receipt = await tx.wait();
   return {
-    organization: profile.organization,
-    treasuryContractAddress: profile.contractAddress,
+    organization: organization.slug,
+    treasuryContractAddress: entry.contractAddress,
     swarmAddress,
     requestId: input.requestId,
     reason: input.reason,

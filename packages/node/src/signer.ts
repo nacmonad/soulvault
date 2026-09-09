@@ -15,6 +15,7 @@ import type { ClearSignContextType, ContextModule } from '@ledgerhq/context-modu
 import type { DeviceManagementKit, DeviceSessionId, DiscoveredDevice } from '@ledgerhq/device-management-kit';
 import type { Signature as LedgerSignature, SignerEth } from '@ledgerhq/device-signer-kit-ethereum';
 import { loadEnv } from './config.js';
+import { buildTxChecklist, renderTxChecklist, unsignedTxHash } from './ledger-checklist.js';
 import {
   ClearSignError,
   apduToClearSignCode,
@@ -43,7 +44,18 @@ function loadSpeculosTransport(): { speculosTransportFactory: Function; speculos
 }
 
 const LEDGER_DISCOVERY_TIMEOUT_MS = 15_000;
-const LEDGER_ACTION_TIMEOUT_MS = 60_000;
+
+/**
+ * Per-action window (address confirm, each signature). Every Ledger action gets a
+ * fresh timer — multi-tx flows like `swarm create` do not share one budget — but the
+ * window must cover APDU transfer (a deploy is ~17KB chunked) plus on-device hash
+ * verification by the operator, hence the generous default. Configurable because a
+ * slow reader or a Flex with long menus may need more. Resolved lazily per action so
+ * test harnesses can set the env var before triggering a sign.
+ */
+function defaultLedgerActionTimeoutMs() {
+  return loadEnv().SOULVAULT_LEDGER_ACTION_TIMEOUT_MS;
+}
 
 type SoftwareSigner = HDNodeWallet | Wallet;
 export type SoulVaultSigner = SoftwareSigner | LedgerEthersSigner;
@@ -175,6 +187,17 @@ class LedgerEthersSigner extends AbstractSigner {
     }
 
     try {
+      // The device has no CAL descriptor for this payload (SoulVault selectors
+      // never do, and deploys can't) — render the plain-text checklist so the
+      // operator knows what the device prompt is asking them to approve. The
+      // hash is keccak of exactly the bytes we hand the device to sign.
+      // eslint-disable-next-line no-console
+      console.log(
+        renderTxChecklist(
+          buildTxChecklist({ to: transaction.to, value: transaction.value, data: transaction.data?.toString() }),
+          unsignedTxHash(transaction.unsignedSerialized),
+        ) + '\n',
+      );
       const signature = await runLedgerAction<LedgerSignature>(
         this.ledgerClient.signerEth.signTransaction(this.derivationPath, getBytes(transaction.unsignedSerialized)),
       );
@@ -539,7 +562,7 @@ async function runLedgerAction<T>(action: {
     }): { unsubscribe(): void };
   };
   cancel: () => void;
-}, timeoutMs = LEDGER_ACTION_TIMEOUT_MS): Promise<T> {
+}, timeoutMs = defaultLedgerActionTimeoutMs()): Promise<T> {
   return await new Promise((resolve, reject) => {
     let settled = false;
     const timeout = setTimeout(() => {
@@ -548,7 +571,8 @@ async function runLedgerAction<T>(action: {
       subscription?.unsubscribe();
       action.cancel();
       reject(new Error(
-        `Ledger action timed out after ${timeoutMs}ms. Unlock the device, open the Ethereum app, and retry.`,
+        `Ledger action timed out after ${timeoutMs}ms (each action — one address confirm or one signature — gets its own window; this is not shared across transactions). ` +
+          'Unlock the device, open the Ethereum app, and retry. Need longer to verify hashes on-device? Set SOULVAULT_LEDGER_ACTION_TIMEOUT_MS.',
       ));
     }, timeoutMs);
 
@@ -602,6 +626,25 @@ function extractLedgerApduCode(err: unknown): string | undefined {
   return undefined;
 }
 
+/**
+ * DMK typed errors (Effect-style `_tag` classes) don't extend Error and carry
+ * their real diagnostic in a non-enumerable `originalError` Error — plain
+ * stringification/JSON yields `{"_tag":"…","originalError":{}}`, which is how
+ * "InvalidStatusWordError with no information" crashes happen.
+ */
+function describeDmkError(error: object): string {
+  const tag = '_tag' in error && typeof error._tag === 'string' ? error._tag : undefined;
+  const orig = (error as { originalError?: unknown }).originalError;
+  const detail =
+    orig instanceof Error && orig.message
+      ? orig.message
+      : typeof (error as { message?: unknown }).message === 'string'
+        ? (error as { message: string }).message
+        : undefined;
+  const code = extractLedgerApduCode(error);
+  return [tag, code ? `APDU ${code}` : undefined, detail].filter(Boolean).join(': ') || 'unknown DMK error';
+}
+
 /** Turn low-level DMK / APDU failures into actionable messages. */
 function wrapLedgerCommunicationError(error: unknown): Error {
   if (typeof error !== 'object' || error === null) {
@@ -609,7 +652,7 @@ function wrapLedgerCommunicationError(error: unknown): Error {
   }
 
   const code = extractLedgerApduCode(error);
-  const msg = error instanceof Error ? error.message : JSON.stringify(error);
+  const msg = error instanceof Error ? error.message : describeDmkError(error);
   const tag =
     '_tag' in error && error._tag !== undefined ? String(error._tag as unknown) : '';
 
@@ -629,9 +672,18 @@ function wrapLedgerCommunicationError(error: unknown): Error {
     msg.includes('UnknownDeviceExchangeError') ||
     tag === 'UnknownDeviceExchangeError';
 
+  const isStatusWordFailure =
+    tag === 'InvalidStatusWordError' || tag === 'InvalidResponseFormatError';
+
   if (isExchangeFailure) {
     return new Error(
       `Ledger communication failed (APDU/status ${code ?? 'unknown'}). This often means the Ethereum app and CLI disagree on a command, or the device was not ready.\n\n${hints}\n\nOriginal: ${msg}`,
+    );
+  }
+
+  if (isStatusWordFailure) {
+    return new Error(
+      `Ledger returned an unexpected response (${describeDmkError(error)}). This usually means the Ethereum app version and the device-management kit disagree on a command's response format.\n\n${hints}`,
     );
   }
 

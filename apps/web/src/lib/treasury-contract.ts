@@ -9,7 +9,7 @@ import { sendWalletTransaction } from "@/lib/wallet-tx";
  * the treasury checks `swarm.treasury() == address(this)` before any payout.
  * A delivered payout is final — the UI never offers revoke/un-send.
  */
-const TREASURY_ABI = [
+export const TREASURY_ABI = [
   {
     type: "function",
     name: "deposit",
@@ -50,7 +50,7 @@ const TREASURY_ABI = [
   },
 ] as const;
 
-const SWARM_ABI = [
+export const SWARM_ABI = [
   {
     type: "function",
     name: "requestFunds",
@@ -82,6 +82,30 @@ export function swarmDeployment(): { address: Address; label: string } | null {
   return entry ? { address: entry.address, label: entry.label ?? entry.address } : null;
 }
 
+/**
+ * Resolve the treasury to target: an explicit address (from ENS-derived state)
+ * wins, otherwise fall back to the env-configured deployment.
+ */
+function resolveTreasury(explicit?: Address): Address {
+  const target = explicit ?? treasuryDeployment()?.address;
+  if (!target) {
+    throw new Error(
+      "No treasury target — publish one on the org ENS (soulvault.treasuries) or set NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS.",
+    );
+  }
+  return target;
+}
+
+function resolveSwarm(explicit?: Address): Address {
+  const target = explicit ?? swarmDeployment()?.address;
+  if (!target) {
+    throw new Error(
+      "No swarm target — publish one on the org ENS (soulvault.swarms) or set NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS.",
+    );
+  }
+  return target;
+}
+
 export function parseEthAmount(input: string): bigint {
   const trimmed = input.trim();
   if (!trimmed || Number.isNaN(Number(trimmed))) {
@@ -90,12 +114,15 @@ export function parseEthAmount(input: string): bigint {
   return parseUnits(trimmed, 18);
 }
 
-export async function depositToTreasury(input: { from: Address; amountWei: bigint }): Promise<Hex> {
-  const treasury = treasuryDeployment();
-  if (!treasury) throw new Error("No treasury in NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS.");
+export async function depositToTreasury(input: {
+  from: Address;
+  amountWei: bigint;
+  treasury?: Address;
+}): Promise<Hex> {
+  const treasury = resolveTreasury(input.treasury);
   return sendWalletTransaction({
     from: input.from,
-    to: treasury.address,
+    to: treasury,
     data: encodeFunctionData({ abi: TREASURY_ABI, functionName: "deposit" }),
     value: input.amountWei,
   });
@@ -105,12 +132,12 @@ export async function withdrawFromTreasury(input: {
   from: Address;
   to: Address;
   amountWei: bigint;
+  treasury?: Address;
 }): Promise<Hex> {
-  const treasury = treasuryDeployment();
-  if (!treasury) throw new Error("No treasury in NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS.");
+  const treasury = resolveTreasury(input.treasury);
   return sendWalletTransaction({
     from: input.from,
-    to: treasury.address,
+    to: treasury,
     data: encodeFunctionData({
       abi: TREASURY_ABI,
       functionName: "withdraw",
@@ -123,12 +150,12 @@ export async function approveFundRequest(input: {
   from: Address;
   swarm: Address;
   requestId: bigint;
+  treasury?: Address;
 }): Promise<Hex> {
-  const treasury = treasuryDeployment();
-  if (!treasury) throw new Error("No treasury in NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS.");
+  const treasury = resolveTreasury(input.treasury);
   return sendWalletTransaction({
     from: input.from,
-    to: treasury.address,
+    to: treasury,
     data: encodeFunctionData({
       abi: TREASURY_ABI,
       functionName: "approveFundRequest",
@@ -142,12 +169,12 @@ export async function rejectFundRequest(input: {
   swarm: Address;
   requestId: bigint;
   reason: string;
+  treasury?: Address;
 }): Promise<Hex> {
-  const treasury = treasuryDeployment();
-  if (!treasury) throw new Error("No treasury in NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS.");
+  const treasury = resolveTreasury(input.treasury);
   return sendWalletTransaction({
     from: input.from,
-    to: treasury.address,
+    to: treasury,
     data: encodeFunctionData({
       abi: TREASURY_ABI,
       functionName: "rejectFundRequest",
@@ -160,12 +187,12 @@ export async function requestFunds(input: {
   from: Address;
   amountWei: bigint;
   reason: string;
+  swarm?: Address;
 }): Promise<Hex> {
-  const swarm = swarmDeployment();
-  if (!swarm) throw new Error("No swarm in NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS.");
+  const swarm = resolveSwarm(input.swarm);
   return sendWalletTransaction({
     from: input.from,
-    to: swarm.address,
+    to: swarm,
     data: encodeFunctionData({
       abi: SWARM_ABI,
       functionName: "requestFunds",
@@ -177,12 +204,12 @@ export async function requestFunds(input: {
 export async function cancelFundRequest(input: {
   from: Address;
   requestId: bigint;
+  swarm?: Address;
 }): Promise<Hex> {
-  const swarm = swarmDeployment();
-  if (!swarm) throw new Error("No swarm in NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS.");
+  const swarm = resolveSwarm(input.swarm);
   return sendWalletTransaction({
     from: input.from,
-    to: swarm.address,
+    to: swarm,
     data: encodeFunctionData({
       abi: SWARM_ABI,
       functionName: "cancelFundRequest",

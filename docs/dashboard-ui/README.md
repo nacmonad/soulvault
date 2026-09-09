@@ -22,7 +22,15 @@ File these on `nacmonad/soulvault` as GitHub issues. Same shape as #5–#12:
 | [006-documents-e2e.md](./006-documents-e2e.md) | Browser e2e: Alice/Charlie/Mallory + Ledger over Speculos | epic gate |
 | [007-sepolia-only-ops-lane.md](./007-sepolia-only-ops-lane.md) | Sepolia-only ops lane + config guard | ops backfill |
 | [008-treasury-tab.md](./008-treasury-tab.md) | Treasury tab: fund-request lifecycle in the browser | live |
-| [009-create-flows.md](./009-create-flows.md) | Creation wizards: treasury + swarm from the dashboard | spec |
+| [009-create-flows.md](./009-create-flows.md) | Creation wizards: treasury + swarm from the dashboard | live |
+| [010-browser-rpc-settings.md](./010-browser-rpc-settings.md) | Browser RPC override + rate-limit-safe log fetching | live |
+| [011-ens-native-state.md](./011-ens-native-state.md) | ENS-native state: eliminate `~/.soulvault` as a data layer | epic |
+| [012-ens-deployment-bootstrap.md](./012-ens-deployment-bootstrap.md) | ENS deployment bootstrap: derive deployments from ENS records | draft |
+| [013-ens-write-batching.md](./013-ens-write-batching.md) | ENS write batching: resolver multicall to cut wallet prompts | draft |
+| [014-cli-ens-first-reads.md](./014-cli-ens-first-reads.md) | CLI reads go ENS-first: profiles become caches | draft |
+| [015-ensv2-adoption.md](./015-ensv2-adoption.md) | ENSv2 adoption: agents as namespaces on the beta registry | draft |
+| [016-wizard-existing-deployment.md](./016-wizard-existing-deployment.md) | Create wizards: detect and adopt existing deployments | draft |
+| [017-eip7702-batch-executor.md](./017-eip7702-batch-executor.md) | EIP-7702 batch executor: one-signature atomic wizard flows | draft |
 
 Do not start Next work until the parent IA is locked in the GitHub issue.
 

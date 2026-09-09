@@ -32,7 +32,7 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@ledgerhq/device-management-kit": "^1.8.0"
+    "@ledgerhq/device-management-kit": "^1.9.0"
   },
   "dependencies": {
     "purify-ts": "2.1.0",
@@ -41,8 +41,8 @@
   "devDependencies": {
     "@playwright/test": "^1.55.0",
     "@types/node": "^25.0.0",
-    "@ledgerhq/device-management-kit": "^1.8.0",
-    "@ledgerhq/device-signer-kit-ethereum": "^1.16.0",
+    "@ledgerhq/device-management-kit": "^1.9.0",
+    "@ledgerhq/device-signer-kit-ethereum": "^1.18.0",
     "typescript": "^6.0.2",
     "vitest": "^4.1.2"
   }

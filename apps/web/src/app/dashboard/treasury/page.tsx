@@ -1,11 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createPublicClient, formatEther, http, type Address } from "viem";
+import { formatEther, getAddress, type Address } from "viem";
 
 import { Button } from "@/components/ui/button";
+import { CopyableAddress } from "@/components/dashboard/copyable-address";
+import { useDashboardSelection } from "@/components/dashboard/selection-provider";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
+import { TreasuryWizard } from "@/components/create/treasury-wizard";
+import { useOrgDiscovery } from "@/hooks/useOrgDiscovery";
 import { useSwarmEvents } from "@/hooks/useSwarmEvents";
+import { SEPOLIA_CHAIN_ID, publicClientForChainId } from "@/lib/chains";
 import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 import {
   approveFundRequest,
@@ -41,8 +46,10 @@ const STATUS_LABELS: Record<string, string> = {
 
 export default function TreasuryPage() {
   const { address } = useSoulVaultWallet();
+  const { selection } = useDashboardSelection();
   const swarm = useSwarmEvents({ live: true, pollSeconds: 5 });
-  const treasury = treasuryDeployment();
+  const discovery = useOrgDiscovery(selection.orgId);
+  const envTreasury = treasuryDeployment();
   const swarmDep = swarmDeployment();
 
   const [balance, setBalance] = useState<bigint | null>(null);
@@ -57,27 +64,48 @@ export default function TreasuryPage() {
   const [withdrawTo, setWithdrawTo] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
 
-  const publicClient = useMemo(() => {
-    const config = getBrowserSoulVaultClientConfig();
-    if (!config) return null;
-    return createPublicClient({
-      chain: {
-        id: config.chainId,
-        name: `SoulVault chain ${config.chainId}`,
-        nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-        rpcUrls: { default: { http: [config.rpcUrl] } },
-      },
-      transport: http(config.rpcUrl),
-    });
-  }, []);
+  /**
+   * Active treasury: env deployment wins (explicit operator intent), otherwise
+   * the first treasury published on the org's ENS `soulvault.treasuries` record.
+   * Flows target this address explicitly, so a treasury known only via ENS is
+   * fully operable without env config.
+   */
+  const active = useMemo(() => {
+    if (envTreasury) {
+      const config = getBrowserSoulVaultClientConfig();
+      return {
+        address: envTreasury.address,
+        chainId: config?.chainId ?? SEPOLIA_CHAIN_ID,
+        label: envTreasury.label,
+        source: "env" as const,
+      };
+    }
+    const first = discovery.treasuries?.[0];
+    if (first) {
+      return {
+        address: getAddress(first.address),
+        chainId: first.chainId,
+        label: first.label ?? shortAddress(first.address),
+        source: "ens" as const,
+      };
+    }
+    return null;
+  }, [envTreasury, discovery.treasuries]);
+
+  // Balance + owner reads go to the active treasury's own chain (it may live on
+  // any deployment chain; ENS coordination stays on Sepolia).
+  const publicClient = useMemo(
+    () => (active ? publicClientForChainId(active.chainId) : null),
+    [active?.address, active?.chainId],
+  );
 
   const refreshOnchain = useCallback(async () => {
-    if (!publicClient || !treasury) return;
+    if (!publicClient || !active) return;
     try {
       const [bal, treasOwner] = await Promise.all([
-        publicClient.getBalance({ address: treasury.address }),
+        publicClient.getBalance({ address: active.address }),
         publicClient.readContract({
-          address: treasury.address,
+          address: active.address,
           abi: OWNER_ABI,
           functionName: "owner",
         }),
@@ -88,7 +116,7 @@ export default function TreasuryPage() {
       setBalance(null);
       setOwner(null);
     }
-  }, [publicClient, treasury]);
+  }, [publicClient, active]);
 
   useEffect(() => {
     if (!address) return;
@@ -98,17 +126,26 @@ export default function TreasuryPage() {
 
   if (!address) return null;
 
-  if (!treasury) {
+  if (!active) {
+    const loading = discovery.status === "loading";
     return (
       <div>
         <p className="eyebrow text-primary">Treasury</p>
-        <h1 className="mt-3 text-2xl font-semibold tracking-tight">No treasury configured</h1>
-        <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-          Add a <span className="font-mono">treasury</span> entry to{" "}
-          <span className="font-mono">NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS</span> after the
-          creation flow lands (story08 §0). The fund-request lifecycle renders here once a
-          treasury and a bound swarm are configured.
-        </p>
+        <h1 className="mt-3 text-2xl font-semibold tracking-tight">No treasury published</h1>
+        {selection.orgId ? (
+          <p className="mt-2 max-w-xl text-sm text-muted-foreground">
+            Nothing on the org&apos;s ENS <span className="font-mono">soulvault.treasuries</span> record
+            {" "}({selection.orgId}) yet{loading ? " — checking…" : ""}. Deploy one below: it publishes
+            the ENSIP-11 record for you, and this page becomes a live summary.
+          </p>
+        ) : (
+          <p className="mt-2 max-w-xl text-sm text-muted-foreground">
+            Select an organization first — the treasury is org-scoped and its ENSIP-11
+            record needs the org ENS name.
+          </p>
+        )}
+        {txError ? <p className="mt-3 text-sm text-destructive">{txError}</p> : null}
+        {selection.orgId && !loading ? <TreasuryWizard orgEnsName={selection.orgId} /> : null}
       </div>
     );
   }
@@ -135,8 +172,11 @@ export default function TreasuryPage() {
   return (
     <div>
       <p className="eyebrow text-primary">Treasury</p>
-      <h1 className="mt-3 text-2xl font-semibold tracking-tight">{treasury.label}</h1>
+      <h1 className="mt-3 text-2xl font-semibold tracking-tight">{active.label}</h1>
       <p className="mt-2 max-w-xl text-sm text-muted-foreground">
+        {active.source === "ens"
+          ? `Resolved from the org's ENS soulvault.treasuries record (${selection.orgId}).`
+          : "Configured via NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS."}{" "}
         Org-scoped custody for native value. Payouts follow the story08 loop: a member
         requests, the owner approves or rejects, funds move in the approval transaction.
         A paid-out request is final — no revoke.
@@ -146,8 +186,18 @@ export default function TreasuryPage() {
       <dl className="mt-8 grid gap-px border border-border bg-border sm:grid-cols-3">
         <Stat label="Balance" value={balance !== null ? `${formatEther(balance)} ETH` : "…"} mono />
         <Stat label="Owner" value={owner ? shortAddress(owner) : "…"} mono />
-        <Stat label="Bound swarm" value={swarmDep ? swarmDep.label : swarm.treasury ? shortAddress(swarm.treasury) : "—"} mono />
+        <Stat label="Chain" value={String(active.chainId)} mono />
       </dl>
+      <div className="mt-2 flex items-center gap-2">
+        <span className="font-mono text-xs text-muted-foreground">{active.address}</span>
+        <CopyableAddress address={active.address} chainId={active.chainId} />
+      </div>
+
+      <OrgTreasuriesSection
+        orgEnsName={selection.orgId}
+        discovery={discovery}
+        activeAddress={active.address}
+      />
 
       <section className="mt-8">
         <h2 className="text-sm font-semibold">Deposit</h2>
@@ -160,7 +210,11 @@ export default function TreasuryPage() {
             event.preventDefault();
             if (!depositAmount.trim()) return;
             void run("deposit", () =>
-              depositToTreasury({ from: address, amountWei: parseEthAmount(depositAmount) }),
+              depositToTreasury({
+                from: address,
+                amountWei: parseEthAmount(depositAmount),
+                treasury: active.address,
+              }),
             );
           }}
         >
@@ -226,6 +280,7 @@ export default function TreasuryPage() {
                                   from: address,
                                   swarm: swarmDep.address,
                                   requestId: request.requestId,
+                                  treasury: active.address,
                                 }),
                               )
                             }
@@ -246,6 +301,7 @@ export default function TreasuryPage() {
                                   swarm: swarmDep.address,
                                   requestId: request.requestId,
                                   reason: rejectReason.trim() || "no reason given",
+                                  treasury: active.address,
                                 }),
                               )
                             }
@@ -343,6 +399,7 @@ export default function TreasuryPage() {
                   from: address,
                   to: withdrawTo.trim() as Address,
                   amountWei: parseEthAmount(withdrawAmount),
+                  treasury: active.address,
                 }),
               );
             }}
@@ -373,6 +430,20 @@ export default function TreasuryPage() {
         consent on-chain (<span className="font-mono">swarm.treasury() == treasury</span>);
         insufficient balance reverts atomically.
       </p>
+
+      <div className="mt-10 border-t border-border pt-6">
+        <details>
+          <summary className="cursor-pointer text-sm font-semibold">Deploy another treasury</summary>
+          {selection.orgId ? (
+            <TreasuryWizard orgEnsName={selection.orgId} />
+          ) : (
+            <p className="mt-3 text-sm text-muted-foreground">
+              Select an organization first — the treasury is org-scoped and its ENSIP-11
+              record needs the org ENS name.
+            </p>
+          )}
+        </details>
+      </div>
     </div>
   );
 }
@@ -383,5 +454,60 @@ function Stat({ label, value, mono }: { label: string; value: string; mono?: boo
       <dt className="eyebrow text-muted-foreground">{label}</dt>
       <dd className={`mt-2 text-sm ${mono ? "font-mono" : ""}`}>{value}</dd>
     </div>
+  );
+}
+
+/**
+ * All treasuries published on the org's ENS `soulvault.treasuries` record, with
+ * live balances read per-chain (an org may hold treasuries on several chains —
+ * ENSIP-11 slot per chain). The active treasury (driving the flows above) is
+ * marked; the others are read-only entries.
+ */
+function OrgTreasuriesSection({
+  orgEnsName,
+  discovery,
+  activeAddress,
+}: {
+  orgEnsName: string | null;
+  discovery: ReturnType<typeof useOrgDiscovery>;
+  activeAddress: Address;
+}) {
+  const entries = discovery.treasuries;
+  const balances = discovery.treasuryBalances;
+
+  if (!orgEnsName) return null;
+
+  return (
+    <section className="mt-8">
+      <h2 className="text-sm font-semibold">Org treasuries (ENS)</h2>
+      <p className="mt-1 text-xs text-muted-foreground">
+        From <span className="font-mono">soulvault.treasuries</span> on{" "}
+        <span className="font-mono">{orgEnsName}</span>. Flows above operate on the active
+        treasury; one per chain is the intended shape (ENSIP-11 slot per chain).
+      </p>
+      {discovery.error ? (
+        <p className="mt-3 text-sm text-destructive">{discovery.error}</p>
+      ) : entries === null ? (
+        <p className="mt-3 text-sm text-muted-foreground">…</p>
+      ) : (
+        <ul className="mt-3 divide-y divide-border border border-border">
+          {entries.map((entry) => {
+            const isActive = entry.address.toLowerCase() === activeAddress.toLowerCase();
+            const bal = balances[entry.address.toLowerCase()];
+            return (
+              <li key={`${entry.chainId}:${entry.address}`} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 bg-card px-4 py-3">
+                <span className="font-mono text-xs text-muted-foreground">chain {entry.chainId}</span>
+                <CopyableAddress address={entry.address} chainId={entry.chainId} />
+                <span className="font-mono text-xs text-muted-foreground">
+                  {bal !== undefined ? `${formatEther(bal)} ETH` : "…"}
+                </span>
+                {entry.label ? <span className="text-xs text-muted-foreground">{entry.label}</span> : null}
+                {isActive ? <span className="chip text-primary">active</span> : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }

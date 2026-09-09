@@ -87,9 +87,19 @@ Register the organization's ENS root name on Sepolia. Two-step commit+register f
 --organization <nameOrEns> Target organization (defaults to active)
 ```
 
----
+### `soulvault organization set-resolver`
+Point a **registered** ENS name's resolver at the SoulVault PublicResolver. Idempotent — no-op (no tx, no signature) when the resolver is already correct. Repair for org names registered before the register flow wired the resolver atomically: without a resolver, `registry.resolver(orgNode) = 0x0`, standard ENS resolution of the org's records fails, and third-party ENS tooling sees nothing (SoulVault's own reads fall back to the pinned resolver, but that doesn't help external readers). Requires the name's owner as signer — 1 signature when a change is needed.
 
-## Swarm
+```
+--organization <nameOrEns> Target organization (defaults to active); its ensName is repaired
+--ens-name <name>          Explicit ENS name to repair (overrides --organization)
+```
+
+Example — defuse the org-node resolver landmine on an already-registered name:
+
+```
+soulvault organization set-resolver --organization soulvault-demo.eth
+```
 
 ### `soulvault swarm create`
 Create a swarm profile and deploy the `SoulVaultSwarm` contract on 0G Galileo. The contract's constructor takes `address initialTreasury`, which the CLI resolves using the following precedence:
@@ -263,6 +273,28 @@ Swarm owner binds the swarm to a `SoulVaultTreasury` contract. Re-settable. Emit
 
 After binding, refreshes the local swarm profile's cached `treasuryAddress` field.
 
+### `soulvault swarm set-lane`
+Re-point a swarm profile to a different ops lane (chainId + rpcUrl). The swarm contract itself is immovable — it lives where it was deployed — so this corrects where subsequent operations send transactions. Intended for the Sepolia-only ops-lane posture: the profile from an older run may still record 0G Galileo (16602) and would mis-route later commands.
+
+```
+--chain-id <id>            New ops-lane chain id (e.g. 11155111 for Sepolia)
+--rpc <url>                New ops-lane RPC endpoint
+--ens                      Also rewrite the `soulvault.chainId` AND `soulvault.swarmContract` text records on the swarm's ENS name (2 signatures)
+--swarm <nameOrEns>        Target swarm (defaults to active)
+```
+
+At least one of `--chain-id` / `--rpc` is required. Returns `{ slug, chainId, rpcUrl, ensTextTxHash?, ensContractTextTxHash?, ensTextError? }`.
+
+### `soulvault swarm list-sync`
+Repair org-level discoverability: append the swarm's label to the parent org's CBOR `soulvault.swarms` list (1 signature). Use when the subdomain is bound (`<label>.<org>.eth` resolves, contract + chainId records present) but the append step of `swarm create` never landed — the swarm exists yet ENS discovery (dashboard Overview/Swarms, `organization` reads) can't see it. Idempotent; only `public` swarms may be listed unless `--force`.
+
+```
+--swarm <nameOrEns>        Target swarm (defaults to active)
+--force                    List the swarm even though its visibility is not public
+```
+
+Returns `{ slug, organizationEnsName, label, alreadyListed, txHash?, swarms, appended }`.
+
 ### `soulvault swarm treasury-status`
 Read the currently-bound treasury address from the swarm contract.
 
@@ -321,18 +353,41 @@ Deploy a fresh `SoulVaultTreasury` contract on the ops lane (Sepolia as of 2026-
 
 ```
 --organization <nameOrEns> Parent organization (defaults to active)
---force                    Overwrite an existing treasury profile for this org
+--force                    Replace the treasury for this org on the CURRENT chain (other chains are unaffected)
 ```
 
-Treasury is org-scoped: exactly one per organization per chain. An org that operates on multiple chains deploys multiple treasuries, each under its own ENSIP-11 coinType slot on the same ENS name — setting one doesn't clobber the others. Re-running `treasury create` for an org that already has a treasury requires `--force` and will overwrite the coinType slot (the previous contract itself is untouched).
+Treasury is org-scoped, one per chain: an org that operates on multiple chains holds multiple treasuries, each under its own ENSIP-11 coinType slot on the same ENS name — setting one doesn't clobber the others. The local profile mirrors this: `~/.soulvault/treasuries/<orgSlug>.json` holds a `treasuries` array with one entry per chain (`chainId`, `contractAddress`, `ownerAddress`, `deployment`, `ensBinding`). All treasury commands resolve the entry matching the current `SOULVAULT_CHAIN_ID`, so binding a second treasury on another chain never requires `--force` and never touches the first chain's entry. Re-running `treasury create` for the SAME chain requires `--force` and replaces that chain's entry (the previous contract itself is untouched on-chain).
+
+Legacy profiles (a single treasury directly on the profile object) are migrated to the array shape automatically on first read.
 
 The legacy single-valued `soulvault.treasuryContract` / `soulvault.treasuryChainId` text records used in earlier prototypes have been removed in favor of ENSIP-11.
+
+### `soulvault treasury bind`
+Attach an **already-deployed** `SoulVaultTreasury` to an organization. Recovery path when `treasury create` deployed the contract but the ENS binding failed (e.g. a partial wizard failure), or for treasuries deployed outside the CLI entirely.
+
+Steps performed: validates the address, probes the contract on-chain (`owner()` must answer — anything else refuses to bind), publishes the address on the org ENS name via ENSIP-11 `addr` **and** upserts the `soulvault.treasuries` enumeration record (same 'planned' semantics as `create` when the org has no ENS name), and upserts the per-chain entry into the local treasury profile. If an entry for the CURRENT chain already exists pointing at a different address, it refuses unless `--force` is passed — entries for other chains are unaffected either way; rebinds of the same address keep the original `createdAt`. Warns when the on-chain owner differs from your signer.
+
+```
+--address <address>        Deployed SoulVaultTreasury contract address (required)
+--organization <nameOrEns> Parent organization (defaults to active)
+--force                    Replace the existing treasury entry for the CURRENT chain
+```
+
+Example recovery flow — binding the 0G Galileo treasury mined by the browser wizard while keeping the Sepolia entry intact (run from the ops lane for the target chain):
+
+```
+SOULVAULT_RPC_URL=https://evmrpc-testnet.0g.ai SOULVAULT_CHAIN_ID=16602 \
+  soulvault treasury bind --address 0xabc...def --organization soulvault-demo
+```
 
 ### `soulvault treasury list`
 List all local treasury profiles across all organizations.
 
+### `soulvault treasury list-sync`
+Rebuild the org's `soulvault.treasuries` ENS discovery record from the local treasury profile. **Adds** locally-known chains that are missing on-chain; never removes existing entries (on-chain entries win on conflicts). No-op when the record already matches — no transaction, no signature. Repair path when the record was partially clobbered by a failed bind cycle, or for publishing treasuries bound on another machine. Mirrors `swarm list-sync`.
+
 ### `soulvault treasury status`
-Show the treasury contract address, current balance, and owner.
+Show the treasury contract address, current balance, and owner — resolved for the current `SOULVAULT_CHAIN_ID`.
 
 ```
 --organization <nameOrEns> Target organization (defaults to active)

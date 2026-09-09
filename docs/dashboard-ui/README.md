@@ -24,6 +24,10 @@ File these on `nacmonad/soulvault` as GitHub issues. Same shape as #5–#12:
 | [008-treasury-tab.md](./008-treasury-tab.md) | Treasury tab: fund-request lifecycle in the browser | live |
 | [009-create-flows.md](./009-create-flows.md) | Creation wizards: treasury + swarm from the dashboard | live |
 | [010-browser-rpc-settings.md](./010-browser-rpc-settings.md) | Browser RPC override + rate-limit-safe log fetching | live |
+| [011-ens-native-state.md](./011-ens-native-state.md) | ENS-native state: eliminate `~/.soulvault` as a data layer | epic |
+| [012-ens-deployment-bootstrap.md](./012-ens-deployment-bootstrap.md) | ENS deployment bootstrap: derive deployments from ENS records | draft |
+| [013-ens-write-batching.md](./013-ens-write-batching.md) | ENS write batching: resolver multicall to cut wallet prompts | draft |
+| [014-cli-ens-first-reads.md](./014-cli-ens-first-reads.md) | CLI reads go ENS-first: profiles become caches | draft |
 
 Do not start Next work until the parent IA is locked in the GitHub issue.
 

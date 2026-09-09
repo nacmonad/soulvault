@@ -58,6 +58,14 @@ export const WIZARD_CHAINS: SoulVaultChain[] = [
     currency: { name: "Ether", symbol: "ETH", decimals: 18 },
     explorer: "https://sepolia-optimism.etherscan.io",
   },
+  {
+    id: 16602,
+    name: "0G Galileo Testnet",
+    label: "0G Galileo Testnet",
+    rpcUrl: "https://evmrpc-testnet.0g.ai",
+    currency: { name: "A0GI", symbol: "A0GI", decimals: 18 },
+    explorer: "https://chainscan-galileo.0g.ai",
+  },
 ];
 
 export function chainById(chainId: number): SoulVaultChain | undefined {

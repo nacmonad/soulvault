@@ -292,6 +292,33 @@ export async function getAddrMultichain(input: {
   return `0x${bytes.slice(-40)}` as Address;
 }
 
+/** Read a text record off any ENS name (Sepolia resolver). */
+export async function readEnsText(ensName: string, key: string): Promise<string | null> {
+  const client = publicClient();
+  const node = namehash(normalize(ensName));
+  const raw = (await client.readContract({
+    address: PUBLIC_RESOLVER,
+    abi: RESOLVER_ABI,
+    functionName: "text",
+    args: [node, key],
+  })) as string;
+  return raw || null;
+}
+
+/** Read the EVM (coinType 60) addr of any ENS name — what the two-arg setAddr writes. */
+export async function readEnsAddress(ensName: string): Promise<Address | null> {
+  const client = publicClient();
+  const node = namehash(normalize(ensName));
+  const bytes = (await client.readContract({
+    address: PUBLIC_RESOLVER,
+    abi: RESOLVER_ABI,
+    functionName: "addr",
+    args: [node, 60n],
+  })) as Hex;
+  if (!bytes || bytes === "0x" || bytes.length < 42) return null;
+  return getAddress(`0x${bytes.slice(-40)}` as Address);
+}
+
 // ---------------------------------------------------------------------------
 // Org treasury enumeration record (`soulvault.treasuries` text record)
 // ---------------------------------------------------------------------------

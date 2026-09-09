@@ -99,7 +99,7 @@ An on-chain request filed by an active swarm member for native value from the or
 An ENS standard for storing addresses on multiple chains under a single ENS name. Treasury discovery uses `addr(node, coinType)` where `coinType = 0x80000000 | chainId`. An org with treasuries on multiple chains gets one slot per chain.
 
 ## coinType
-The ENSIP-11 key used to index multichain addresses. For EVM chains: `0x80000000 | chainId` (unsigned). For Sepolia (chain 11155111): `coinType = 2158638759` (`0x80aa36a7`). For 0G Galileo (chain 16602): `coinType = 2147500250` (`0x800140fa`).
+The ENSIP-11 key used to index multichain addresses. For EVM chains: `0x80000000 | chainId` (unsigned). For Sepolia (chain 11155111): `coinType = 2158638759` (`0x80aa36a7`). For 0G Galileo (chain 16602, historical): `coinType = 2147500250` (`0x800140fa`) — orgs migrated off 0G may still carry this stale record on their ENS name; it does not affect Sepolia discovery. (An earlier revision of this glossary listed the 0G coinType as 2147500186 — a typo.)
 
 ## Self-Hosted Mode
 User runs their own infrastructure components (e.g., relay/control-plane, optional local storage/indexing services).

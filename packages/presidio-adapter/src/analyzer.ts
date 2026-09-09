@@ -10,7 +10,14 @@ const engine = new AnalyzerEngine({ registry: new RecognizerRegistry([
 
 type PresidioResult = { entityType: string; start: number; end: number; score: number; analysisExplanation?: { recognizer?: string } };
 
+export function analyzePatterns(text: string): AnalyzerFinding[] {
+  return (engine.analyze(text, 'en') as PresidioResult[]).map((item) => ({
+    ...item,
+    source: 'presidio' as const,
+    recognizer: item.analysisExplanation?.recognizer,
+  }));
+}
+
 export function analyzeText(text: string, semanticFindings: AnalyzerFinding[] = []) {
-  const patterns = (engine.analyze(text, 'en') as PresidioResult[]).map((item) => ({ ...item, source: 'presidio' as const, recognizer: item.analysisExplanation?.recognizer }));
-  return indexFindings(text, mergeFindings(patterns, semanticFindings));
+  return indexFindings(text, mergeFindings(analyzePatterns(text), semanticFindings));
 }

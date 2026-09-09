@@ -11,14 +11,20 @@ import {
   type RehydrationKeyStore,
   type SignedRehydrationKeyAttestation,
 } from "@soulvault/protocol";
-import type { Address } from "viem";
 
 import { Button } from "@/components/ui/button";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
 import { useDocumentEvents } from "@/hooks/useDocumentEvents";
 import { asDocHash, documentRegistryAddress } from "@/lib/document-registry";
+import {
+  assertBundleAnchoredOnChain,
+  evaluateSelfieProof,
+  getBrowserWorldRehydrateGate,
+  parsePastedSelfieProof,
+  publicHydrationError,
+  RehydrateGateError,
+} from "@/lib/document-rehydrate";
 import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
-import { signTypedData } from "@/lib/wallet-tx";
 
 class LocalRehydrationStore implements RehydrationKeyStore {
   constructor(private readonly wallet: string) {}
@@ -36,18 +42,43 @@ class LocalRehydrationStore implements RehydrationKeyStore {
   }
 }
 
+function nullifierStoreKey(appId: string, action: string) {
+  return `soulvault.world.nullifiers.${appId}.${action}`;
+}
+
+function loadConsumedNullifiers(appId: string, action: string): Set<string> {
+  try {
+    const raw = sessionStorage.getItem(nullifierStoreKey(appId, action));
+    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+    return new Set(Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveConsumedNullifier(appId: string, action: string, nullifier: string) {
+  const next = loadConsumedNullifiers(appId, action);
+  next.add(nullifier);
+  sessionStorage.setItem(nullifierStoreKey(appId, action), JSON.stringify([...next]));
+}
+
 export default function DocumentsRehydratePage() {
-  const { address } = useSoulVaultWallet();
+  const { address, connector, signTypedData } = useSoulVaultWallet();
   const { documents, activeGrants, status } = useDocumentEvents({
     recipient: address,
+    live: true,
   });
   const [bundle, setBundle] = useState<PublicDocumentBundle | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attestation, setAttestation] = useState<SignedRehydrationKeyAttestation | null>(null);
   const [key, setKey] = useState<RehydrationKey | null>(null);
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
+  const [selfieOk, setSelfieOk] = useState(false);
+  const [proofText, setProofText] = useState("");
   const config = getBrowserSoulVaultClientConfig();
   const registry = documentRegistryAddress();
+  const world = getBrowserWorldRehydrateGate();
+  const worldBlocking = world.mode === "error" || (world.mode === "required" && !selfieOk);
 
   const onChain = bundle ? documents.documents.get(asDocHash(bundle.artifact.documentId)) : undefined;
   const grants = useMemo(() => {
@@ -69,22 +100,14 @@ export default function DocumentsRehydratePage() {
   async function onUpload(file: File) {
     setError(null);
     setRevealed(new Set());
+    setBundle(null);
     try {
       const parsed = parsePublicDocumentBundle(await file.text());
-      const hash = asDocHash(parsed.artifact.documentId);
-      const published = documents.documents.get(hash);
-      if (!published) {
-        setError("docHash is not in the registry event cache. Scan events, then retry.");
-        setBundle(parsed);
-        return;
-      }
-      if (published.docHash !== hash) {
-        setError("Bundle documentId does not match the on-chain docHash.");
-        return;
-      }
+      const published = documents.documents.get(asDocHash(parsed.artifact.documentId));
+      assertBundleAnchoredOnChain({ bundle: parsed, published });
       setBundle(parsed);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Bundle parse failed");
+      setError(publicHydrationError(cause));
     }
   }
 
@@ -123,12 +146,33 @@ export default function DocumentsRehydratePage() {
       setKey(next);
       setAttestation(signed);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Attestation failed");
+      setError(publicHydrationError(cause));
+    }
+  }
+
+  function presentSelfie() {
+    if (world.mode !== "required" || !address) return;
+    setError(null);
+    try {
+      const result = evaluateSelfieProof({
+        proof: parsePastedSelfieProof(proofText),
+        expectedSignal: address,
+        consumedNullifiers: loadConsumedNullifiers(world.appId, world.action),
+      });
+      if (!result.ok) {
+        throw new RehydrateGateError("SELFIE_REJECTED", `Selfie Check failed (${result.reason}).`);
+      }
+      saveConsumedNullifier(world.appId, world.action, result.nullifier);
+      setSelfieOk(true);
+    } catch (cause) {
+      setSelfieOk(false);
+      setError(publicHydrationError(cause));
     }
   }
 
   function viewFor(revealedIds: Set<string>) {
     if (!bundle || !address || !key) return bundle?.artifact.content ?? "";
+    if (worldBlocking) return bundle.artifact.content;
     const subset = grants.filter((grant) => revealedIds.has(grant.slotId));
     if (subset.length === 0) return bundle.artifact.content;
     return rehydrateGrantedDocument({
@@ -147,6 +191,14 @@ export default function DocumentsRehydratePage() {
 
   function toggle(slotId: string) {
     if (!grants.some((grant) => grant.slotId === slotId)) return;
+    if (worldBlocking) {
+      setError(
+        world.mode === "error"
+          ? world.message
+          : "World Selfie Check is required before the first unwrap.",
+      );
+      return;
+    }
     setError(null);
     const next = new Set(revealed);
     if (next.has(slotId)) next.delete(slotId);
@@ -155,7 +207,7 @@ export default function DocumentsRehydratePage() {
       viewFor(next);
       setRevealed(next);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Rehydrate failed");
+      setError(publicHydrationError(cause));
     }
   }
 
@@ -171,9 +223,16 @@ export default function DocumentsRehydratePage() {
       <p className="eyebrow text-primary">Documents</p>
       <h1 className="mt-3 text-2xl font-semibold tracking-tight">Rehydrate</h1>
       <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-        Upload the public bundle. Ciphertexts never come from events. World Selfie
-        Check is off until that branch lands. A delivered READ grant is permanent.
+        Upload the public bundle. Ciphertexts never come from events. A delivered
+        READ grant is a permanent capability — there is no revoke.
       </p>
+      {connector === "ledger" ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Ledger session active — the rehydration-key attestation is clear-signed on
+          the device.
+        </p>
+      ) : null}
+      <WorldGateBanner world={world} selfieOk={selfieOk} />
       {status === "error" ? <p className="mt-3 text-sm text-destructive">Event config missing or scan failed.</p> : null}
       {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
 
@@ -191,23 +250,49 @@ export default function DocumentsRehydratePage() {
           />
         </label>
         <Button onClick={() => void attest()} disabled={!address}>
-          Attest rehydration key
+          {connector === "ledger" ? "Attest rehydration key on Ledger" : "Attest rehydration key"}
         </Button>
         {attestation ? (
           <Button
             variant="outline"
-            onClick={() => navigator.clipboard.writeText(JSON.stringify(attestation, (_k, v) => typeof v === "bigint" ? v.toString() : v, 2))}
+            onClick={() =>
+              navigator.clipboard.writeText(
+                JSON.stringify(attestation, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2),
+              )
+            }
           >
             Copy attestation JSON
           </Button>
         ) : null}
       </div>
 
+      {world.mode === "required" ? (
+        <div className="mt-4 border border-border bg-card p-4">
+          <p className="text-sm font-medium">World Selfie Check</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Present a credential 11 proof bound to this wallet before the first unwrap.
+            Scope: {world.appId} / {world.action}.
+          </p>
+          <textarea
+            value={proofText}
+            onChange={(event) => setProofText(event.target.value)}
+            placeholder='{"nullifier":"…","credentialId":11,"signal":"0x…"}'
+            className="mt-3 min-h-24 w-full border border-border bg-background p-3 font-mono text-xs outline-none focus:border-ring"
+            aria-label="Selfie Check proof JSON"
+          />
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button size="sm" onClick={presentSelfie} disabled={selfieOk}>
+              {selfieOk ? "Selfie Check presented" : "Present Selfie Check"}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       {bundle ? (
         <>
           <p className="mt-4 font-mono text-xs break-all">{bundle.artifact.documentId}</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            {onChain ? "docHash matches registry." : "Waiting for DocumentPublished in the cache."}
+            {onChain ? "docHash matches registry. Slot list covers the artifact." : "Waiting for DocumentPublished in the cache."}
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
             {bundle.artifact.slots.map((slot) => {
@@ -217,7 +302,7 @@ export default function DocumentsRehydratePage() {
                   key={slot.slotId}
                   size="xs"
                   variant={revealed.has(slot.slotId) ? "default" : "outline"}
-                  disabled={!granted || !key}
+                  disabled={!granted || !key || worldBlocking}
                   onClick={() => toggle(slot.slotId)}
                 >
                   {slot.slotId} {granted ? "" : "(no grant)"}
@@ -225,9 +310,43 @@ export default function DocumentsRehydratePage() {
               );
             })}
           </div>
-          <pre key={[...revealed].sort().join("|")} className="mt-4 whitespace-pre-wrap border border-border bg-card p-4 font-mono text-sm">{body}</pre>
+          <pre key={[...revealed].sort().join("|")} className="mt-4 whitespace-pre-wrap border border-border bg-card p-4 font-mono text-sm">
+            {body}
+          </pre>
         </>
       ) : null}
     </div>
+  );
+}
+
+function WorldGateBanner({
+  world,
+  selfieOk,
+}: {
+  world: ReturnType<typeof getBrowserWorldRehydrateGate>;
+  selfieOk: boolean;
+}) {
+  if (world.mode === "error") {
+    return <p className="mt-3 text-sm text-destructive">{world.message}</p>;
+  }
+  if (world.mode === "required") {
+    return (
+      <p className="mt-3 text-xs text-muted-foreground">
+        World Selfie Check: <span className="chip">{selfieOk ? "presented" : "required"}</span>
+      </p>
+    );
+  }
+  if (world.unconfigured) {
+    return (
+      <p className="mt-3 text-sm text-destructive">
+        World Selfie Check app id / verifier is unset. Gate is off — set{" "}
+        <span className="font-mono">NEXT_PUBLIC_WORLD_APP_ID</span> to require it.
+      </p>
+    );
+  }
+  return (
+    <p className="mt-3 text-xs text-muted-foreground">
+      World Selfie Check: <span className="chip">off</span>
+    </p>
   );
 }

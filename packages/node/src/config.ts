@@ -2,6 +2,7 @@ import path from 'node:path';
 import dotenv from 'dotenv';
 import { z } from 'zod';
 import { resolveRepoRoot } from './paths.js';
+import { WorldIdentityConfig } from './world-identity.js';
 
 const repoRoot = resolveRepoRoot();
 dotenv.config({ path: path.join(repoRoot, '.env') });
@@ -56,10 +57,36 @@ const envSchema = z.object({
   SOULVAULT_LEDGER_CLEAR_SIGN_MODE: z
     .enum(['strict-clear-sign', 'clear-sign-preferred', 'blind-only'])
     .default('clear-sign-preferred'),
+  /** World ID app_id from the Developer Portal (app_xxxxx). Enables the World identity layer when set. */
+  WORLD_APP_ID: z.string().optional(),
+  /** World ID 4.0 relying-party id from the Developer Portal (rp_xxxxx). */
+  WORLD_RP_ID: z.string().optional(),
+  /** RP signing key hex. Backend-only secret; never expose client-side or commit. */
+  WORLD_RP_SIGNING_KEY: z.string().optional(),
+  /** `staging` targets the simulator/sandbox, `production` the live World ID app. */
+  WORLD_ENVIRONMENT: z.enum(['staging', 'production']).default('staging'),
 });
 
 export type SoulVaultEnv = z.infer<typeof envSchema>;
 
 export function loadEnv(): SoulVaultEnv {
   return envSchema.parse(process.env);
+}
+
+/**
+ * Resolve the World ID identity config from the environment.
+ * Returns null when World integration is not configured (no app id / rp id),
+ * so callers can degrade gracefully.
+ */
+export function loadWorldIdentityConfig(env?: SoulVaultEnv): WorldIdentityConfig | null {
+  const e = env ?? loadEnv();
+  if (!e.WORLD_APP_ID || !e.WORLD_RP_ID || !e.WORLD_RP_SIGNING_KEY) {
+    return null;
+  }
+  return WorldIdentityConfig.parse({
+    appId: e.WORLD_APP_ID,
+    rpId: e.WORLD_RP_ID,
+    signingKeyHex: e.WORLD_RP_SIGNING_KEY,
+    environment: e.WORLD_ENVIRONMENT,
+  });
 }

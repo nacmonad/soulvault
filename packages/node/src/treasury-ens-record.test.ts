@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  mergeTreasuryEntries,
   parseTreasuryEntriesRecord,
   upsertTreasuryEntry,
   type TreasuryEnsEntry,
@@ -16,6 +17,32 @@ const GALILEO: TreasuryEnsEntry = {
   address: '0x9999999999999999999999999999999999999999',
   createdAt: '2026-09-09T17:00:00.000Z',
 };
+
+describe('mergeTreasuryEntries', () => {
+  it('adds local chains missing on-chain without touching existing entries (clobber repair)', () => {
+    // The exact repair case: the bind bug left only the 16602 entry on-chain;
+    // the local profile still knows the Sepolia treasury.
+    const onChain: TreasuryEnsEntry[] = [
+      { chainId: 16602, address: '0x00f412c40620997D32933c8E03629cd8811Fd2e2', createdAt: '2026-09-09T20:25:17.256Z' },
+    ];
+    const local: TreasuryEnsEntry[] = [
+      { chainId: 11155111, address: '0x315CaF1C715d87631172cF7Adf3730eed5383817', createdAt: '2026-09-09T16:16:15.741Z' },
+      { chainId: 16602, address: '0x00f412c40620997D32933c8E03629cd8811Fd2e2', createdAt: '2026-09-09T20:26:25.228Z' },
+    ];
+    const merged = mergeTreasuryEntries(onChain, local);
+    expect(merged.map((e) => e.chainId)).toEqual([16602, 11155111]);
+    // On-chain entry wins on conflict — its createdAt is preserved.
+    expect(merged.find((e) => e.chainId === 16602)?.createdAt).toBe('2026-09-09T20:25:17.256Z');
+  });
+
+  it('is a no-op when on-chain already covers the local profile', () => {
+    const onChain: TreasuryEnsEntry[] = [
+      { chainId: 16602, address: '0x00f412c40620997D32933c8E03629cd8811Fd2e2' },
+      { chainId: 11155111, address: '0x315CaF1C715d87631172cF7Adf3730eed5383817' },
+    ];
+    expect(mergeTreasuryEntries(onChain, [])).toEqual(onChain);
+  });
+});
 
 describe('parseTreasuryEntriesRecord', () => {
   it('parses a well-formed record', () => {

@@ -45,6 +45,30 @@ describe('structured-text document redaction and rehydration', () => {
     expect(rehydrateDocument({ ...parsed, slotKeys: result.slotKeys })).toBe(source);
   });
 
+  it('round-trips an optional registry hint and ignores malformed hints', () => {
+    const result = redactAndEncryptDocument({ text: source, spans });
+    const hint = { chainId: 11155111, address: '0x1111111111111111111111111111111111111111' };
+
+    const withHint = serializePublicDocumentBundle(result, { registry: hint });
+    expect(parsePublicDocumentBundle(withHint).registry).toEqual(hint);
+
+    // Hint passed on the bundle itself; absent from legacy bundles.
+    const viaBundle = serializePublicDocumentBundle({ ...result, registry: hint });
+    expect(parsePublicDocumentBundle(viaBundle).registry).toEqual(hint);
+    expect(parsePublicDocumentBundle(serializePublicDocumentBundle(result)).registry).toBeUndefined();
+
+    // Malformed hints do not reject the bundle; they are simply dropped.
+    const malformed = JSON.stringify({
+      ...JSON.parse(withHint),
+      registry: { chainId: -1, address: 'not-an-address' },
+    });
+    expect(parsePublicDocumentBundle(malformed).registry).toBeUndefined();
+
+    expect(() => serializePublicDocumentBundle(result, { registry: { chainId: 0, address: hint.address } })).toThrow(
+      expect.objectContaining({ code: 'INVALID_INPUT' }),
+    );
+  });
+
   it('allows partial hydration while preserving unavailable markers', () => {
     const result = redactAndEncryptDocument({ text: source, spans });
     expect(rehydrateDocument({

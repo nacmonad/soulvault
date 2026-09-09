@@ -9,7 +9,8 @@ import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-prov
 import { useDocumentEvents } from "@/hooks/useDocumentEvents";
 import { useEvents } from "@/hooks/useEvents";
 import { parseDocumentEvent } from "@/lib/onchain/watcher";
-import { documentRegistryAddress, grantSlotKey } from "@/lib/document-registry";
+import { grantSlotKey } from "@/lib/document-registry";
+import { useDocumentRegistryAddress } from "@/hooks/useDocumentRegistryAddress";
 import {
   assertRecipientMatchesAttestation,
   parsePastedAttestation,
@@ -39,7 +40,7 @@ export default function DocumentsGrantsPage() {
   const session = selectedDoc ? loadSessionDocument(selectedDoc.docHash) : null;
   const sessionSlots = session ? slotsFromPublicBundle(session.bundle) : [];
   const config = getBrowserSoulVaultClientConfig();
-  const registry = documentRegistryAddress();
+  const { address: registry } = useDocumentRegistryAddress();
   const isAuthor = Boolean(address && selectedDoc && isAddressEqual(selectedDoc.author, address));
 
   useEffect(() => {

@@ -22,7 +22,8 @@ File these on `nacmonad/soulvault` as GitHub issues. Same shape as #5–#12:
 | [006-documents-e2e.md](./006-documents-e2e.md) | Browser e2e: Alice/Charlie/Mallory + Ledger over Speculos | epic gate |
 | [007-sepolia-only-ops-lane.md](./007-sepolia-only-ops-lane.md) | Sepolia-only ops lane + config guard | ops backfill |
 | [008-treasury-tab.md](./008-treasury-tab.md) | Treasury tab: fund-request lifecycle in the browser | live |
-| [009-create-flows.md](./009-create-flows.md) | Creation wizards: treasury + swarm from the dashboard | spec |
+| [009-create-flows.md](./009-create-flows.md) | Creation wizards: treasury + swarm from the dashboard | live |
+| [010-browser-rpc-settings.md](./010-browser-rpc-settings.md) | Browser RPC override + rate-limit-safe log fetching | live |
 
 Do not start Next work until the parent IA is locked in the GitHub issue.
 

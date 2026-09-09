@@ -7,6 +7,7 @@
  * is Sepolia's.
  */
 import { createPublicClient, http, type Address, type PublicClient } from 'viem';
+import { getRpcUrlOverride } from '@/lib/rpc-settings';
 import type { SoulVaultContractKind, SoulVaultDeployment } from './types';
 
 export type SoulVaultClientConfig = {
@@ -45,8 +46,11 @@ export function parseSoulVaultClientConfig(input: {
 }
 
 export function getBrowserSoulVaultClientConfig(): SoulVaultClientConfig | null {
+  const envRpc = process.env.NEXT_PUBLIC_SOULVAULT_RPC_URL;
+  // Operator override (localStorage, /dashboard/settings) wins over build-time env.
+  const rpcUrl = getRpcUrlOverride() ?? envRpc;
   return parseSoulVaultClientConfig({
-    rpcUrl: process.env.NEXT_PUBLIC_SOULVAULT_RPC_URL,
+    rpcUrl,
     chainId: process.env.NEXT_PUBLIC_SOULVAULT_CHAIN_ID,
     deployments: process.env.NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS,
   });

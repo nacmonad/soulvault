@@ -13,6 +13,7 @@ export const dashboardNav: DashboardNavItem[] = [
   { href: "/dashboard/agents", label: "Agents" },
   { href: "/dashboard/events", label: "Events" },
   { href: "/dashboard/create", label: "Create" },
+  { href: "/dashboard/settings", label: "Settings" },
   {
     href: "/dashboard/documents",
     label: "Documents",

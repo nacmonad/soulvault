@@ -25,10 +25,19 @@ export type SoulVaultActivity = {
 /** Public-node eth_getLogs block-range cap (publicnode = 50_000; keep headroom). */
 export const GET_LOGS_MAX_RANGE = 40_000n;
 
+const CHUNK_PACE_MS = 250;
+const RATE_LIMIT_RETRIES = 3;
+const RATE_LIMIT_PATTERN = /rate limit|429|too many|exceed.*limit/i;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
- * Public RPCs commonly cap eth_getLogs block ranges (publicnode: 50_000).
- * Fetch in bounded slices and concatenate. Tolerates clients without
- * getBlockNumber by falling back to a single unchunked call.
+ * Public RPCs commonly cap eth_getLogs block ranges (publicnode: 50_000) and
+ * rate-limit request bursts. Fetch in bounded slices with pacing between
+ * chunks, retrying rate-limited slices with exponential backoff. Tolerates
+ * clients without getBlockNumber by falling back to a single unchunked call.
  */
 export async function getLogsChunked(
   client: Pick<PublicClient, 'getLogs' | 'getBlockNumber'>,
@@ -45,13 +54,28 @@ export async function getLogsChunked(
   if (target < input.fromBlock) return [];
   const chunks: Log[] = [];
   for (let start = input.fromBlock; start <= target; start += GET_LOGS_MAX_RANGE) {
+    if (start !== input.fromBlock) await sleep(CHUNK_PACE_MS);
     const end = start + GET_LOGS_MAX_RANGE - BigInt(1) > target
       ? target
       : start + GET_LOGS_MAX_RANGE - BigInt(1);
-    const page = await client.getLogs({ address: input.address, fromBlock: start, toBlock: end });
-    chunks.push(...page);
+    chunks.push(...(await fetchChunkWithRetry(client, { address: input.address, fromBlock: start, toBlock: end })));
   }
   return chunks;
+}
+
+async function fetchChunkWithRetry(
+  client: Pick<PublicClient, 'getLogs'>,
+  input: { address: Address; fromBlock: bigint; toBlock: bigint },
+): Promise<Log[]> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await client.getLogs(input);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (attempt >= RATE_LIMIT_RETRIES || !RATE_LIMIT_PATTERN.test(message)) throw error;
+      await sleep(1000 * 2 ** attempt);
+    }
+  }
 }
 
 function containsAddress(value: unknown, wallet: Address): boolean {

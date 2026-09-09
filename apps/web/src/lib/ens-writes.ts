@@ -9,9 +9,9 @@
  */
 import {
   encodeFunctionData,
+  getAddress,
   labelhash as viemLabelhash,
   namehash as viemNamehash,
-  toHex,
   type Address,
   type Hex,
   type PublicClient,
@@ -260,8 +260,10 @@ export async function setAddrMultichain(input: {
     data: encodeFunctionData({
       abi: RESOLVER_ABI,
       // 3-arg ENSIP-11 overload; args tuple disambiguates from the 2-arg setAddr.
+      // The address must be raw 20-byte data — toHex(address) ASCII-encodes the
+      // "0x…" string (42 bytes) and the resolver reverts on length.
       functionName: "setAddr",
-      args: [node, BigInt(coinType), toHex(input.address)],
+      args: [node, BigInt(coinType), getAddress(input.address)],
     }),
   });
   const receipt = await waitForWalletReceipt(txHash);

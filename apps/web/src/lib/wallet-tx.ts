@@ -1,5 +1,10 @@
 import type { Address, Hex } from "viem";
 
+import {
+  createSoulVaultPublicClient,
+  getBrowserSoulVaultClientConfig,
+} from "@/lib/onchain/client";
+
 type Injected = {
   request(args: { method: string; params?: unknown[] }): Promise<unknown>;
 };
@@ -36,6 +41,31 @@ export type TxChannel = {
   waitForReceipt(hash: Hex): Promise<WalletReceipt>;
   signTypedData?(input: { address: Address; payload: string }): Promise<string>;
 };
+
+/**
+ * Pre-estimate gas with the app's own public client before handing the tx to
+ * the injected wallet. MetaMask runs its internal estimator against whatever
+ * network RPC it has configured, which can fail (revert-timeout on large
+ * contract-creation payloads) even when the tx is perfectly valid; when `gas`
+ * is present in eth_sendTransaction params the wallet uses it and skips its
+ * own estimation. Returns `undefined` on any failure so the request falls
+ * back to wallet-side estimation.
+ */
+async function estimateGasUpfront(input: TxSubmitInput): Promise<bigint | undefined> {
+  try {
+    const config = getBrowserSoulVaultClientConfig();
+    if (!config) return undefined;
+    const client = createSoulVaultPublicClient(config);
+    return await client.estimateGas({
+      account: input.from,
+      ...(input.to !== null ? { to: input.to } : {}),
+      data: input.data,
+      ...(input.value !== undefined ? { value: input.value } : {}),
+    });
+  } catch {
+    return undefined;
+  }
+}
 
 /** Map raw wallet RPC rejections (EIP-1193 provider errors) to actionable copy. */
 function walletRequestError(cause: unknown): Error {
@@ -84,6 +114,7 @@ async function ensureWalletAuthorized(from?: Address): Promise<Injected> {
 const browserChannel: TxChannel = {
   async submit(input) {
     const provider = await ensureWalletAuthorized(input.from);
+    const gas = await estimateGasUpfront(input);
     let hash: unknown;
     try {
       hash = await provider.request({
@@ -94,6 +125,7 @@ const browserChannel: TxChannel = {
             ...(input.to !== null ? { to: input.to } : {}),
             data: input.data,
             ...(input.value !== undefined ? { value: `0x${input.value.toString(16)}` } : {}),
+            ...(gas !== undefined ? { gas: `0x${gas.toString(16)}` } : {}),
           },
         ],
       });

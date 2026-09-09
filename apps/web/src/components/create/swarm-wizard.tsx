@@ -9,7 +9,7 @@ import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-prov
 import { runSwarmCreate, type SwarmTreasuryMode, type WizardStep } from "@/lib/create-flows";
 import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 import { shortAddress } from "@/lib/format";
-import { DeploymentSnippet, PartialFailureNote, StepList } from "@/components/create/wizard-steps";
+import { DeploymentSnippet, ConnectorGate, PartialFailureNote, StepList } from "@/components/create/wizard-steps";
 
 const INITIAL_STEPS: WizardStep[] = [
   { id: "treasury", label: "Resolve treasury (ENSIP-11 read)", status: "pending" },
@@ -130,7 +130,8 @@ export function SwarmWizard({ orgEnsName }: { orgEnsName: string }) {
       ) : null}
 
       <div>
-        <Button onClick={() => void onCreate()} disabled={busy || !label.trim()}>
+        <ConnectorGate />
+        <Button onClick={() => void onCreate()} disabled={busy || !label.trim()} className="mt-3">
           {busy ? "Waiting for wallet…" : "Create swarm"}
         </Button>
         <StepList steps={steps} />

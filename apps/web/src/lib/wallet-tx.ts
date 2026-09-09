@@ -9,6 +9,46 @@ function injected(): Injected | undefined {
   return (window as typeof window & { ethereum?: Injected }).ethereum;
 }
 
+/** Map raw wallet RPC rejections (EIP-1193 provider errors) to actionable copy. */
+function walletRequestError(cause: unknown): Error {
+  const e = cause as { code?: number; message?: string };
+  if (e?.code === 4100) {
+    return new Error(
+      "This site is not authorized in your wallet. Approve the connection prompt (or reconnect from the wallet extension), then try again.",
+    );
+  }
+  if (e?.code === -32002) {
+    return new Error("A wallet request is already pending — open your wallet extension to continue.");
+  }
+  if (e?.code === 4001) {
+    return new Error("Request rejected in the wallet.");
+  }
+  return cause instanceof Error ? cause : new Error(e?.message ?? "Wallet request failed.");
+}
+
+/**
+ * Idempotently ensure the site holds account permission (eth_requestAccounts is
+ * a no-op prompt when already authorized) and that the target account is
+ * actually available in the injected wallet — eth_sendTransaction from an
+ * unauthorized site fails with 4100 otherwise.
+ */
+async function ensureWalletAuthorized(from?: Address): Promise<Injected> {
+  const provider = injected();
+  if (!provider) throw new Error("No injected browser wallet. Connect one to sign.");
+  let accounts: Address[];
+  try {
+    accounts = (await provider.request({ method: "eth_requestAccounts" })) as Address[];
+  } catch (cause) {
+    throw walletRequestError(cause);
+  }
+  if (from && accounts.length > 0 && !accounts.some((a) => a.toLowerCase() === from.toLowerCase())) {
+    throw new Error(
+      `${from} is not available in the injected wallet. Switch to a browser-wallet connection for that address.`,
+    );
+  }
+  return provider;
+}
+
 export async function sendWalletTransaction(input: {
   from: Address;
   /** `null` = contract creation (eth_sendTransaction with no `to`). */
@@ -16,19 +56,23 @@ export async function sendWalletTransaction(input: {
   data: Hex;
   value?: bigint;
 }): Promise<Hex> {
-  const provider = injected();
-  if (!provider) throw new Error("No injected browser wallet. Connect one to publish or grant.");
-  const hash = await provider.request({
-    method: "eth_sendTransaction",
-    params: [
-      {
-        from: input.from,
-        ...(input.to !== null ? { to: input.to } : {}),
-        data: input.data,
-        ...(input.value !== undefined ? { value: `0x${input.value.toString(16)}` } : {}),
-      },
-    ],
-  });
+  const provider = await ensureWalletAuthorized(input.from);
+  let hash: unknown;
+  try {
+    hash = await provider.request({
+      method: "eth_sendTransaction",
+      params: [
+        {
+          from: input.from,
+          ...(input.to !== null ? { to: input.to } : {}),
+          data: input.data,
+          ...(input.value !== undefined ? { value: `0x${input.value.toString(16)}` } : {}),
+        },
+      ],
+    });
+  } catch (cause) {
+    throw walletRequestError(cause);
+  }
   return hash as Hex;
 }
 
@@ -82,10 +126,13 @@ export async function waitForWalletReceipt(hash: Hex): Promise<{
 }
 
 export async function signTypedData(input: { address: Address; payload: string }): Promise<string> {
-  const provider = injected();
-  if (!provider) throw new Error("No injected browser wallet to sign the attestation.");
-  return (await provider.request({
-    method: "eth_signTypedData_v4",
-    params: [input.address, input.payload],
-  })) as string;
+  const provider = await ensureWalletAuthorized(input.address);
+  try {
+    return (await provider.request({
+      method: "eth_signTypedData_v4",
+      params: [input.address, input.payload],
+    })) as string;
+  } catch (cause) {
+    throw walletRequestError(cause);
+  }
 }

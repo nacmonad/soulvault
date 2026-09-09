@@ -3,7 +3,25 @@
 import { type Address } from "viem";
 
 import { shortAddress } from "@/lib/format";
+import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
 import type { WizardStep } from "@/lib/create-flows";
+
+/**
+ * Browser deploys submit eth_sendTransaction via the injected wallet — a DMK
+ * Ledger session can't do that, so warn before the wizard is run.
+ */
+export function ConnectorGate() {
+  const { connector, address } = useSoulVaultWallet();
+  if (connector !== "ledger") return null;
+  return (
+    <p className="border-l-2 border-amber-500 pl-3 text-sm">
+      The dashboard is connected to a Ledger device session, which can't submit
+      transactions from the browser. Connect a browser wallet (MetaMask etc.) holding
+      {address ? <span className="font-mono"> {shortAddress(address)}</span> : " the org owner address"} to run
+      this wizard.
+    </p>
+  );
+}
 
 export function StepList({ steps }: { steps: WizardStep[] }) {
   return (

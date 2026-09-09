@@ -8,7 +8,7 @@ import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-prov
 import { runTreasuryCreate, type WizardStep } from "@/lib/create-flows";
 import { coinTypeForChain } from "@/lib/ens-writes";
 import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
-import { DeploymentSnippet, PartialFailureNote, StepList } from "@/components/create/wizard-steps";
+import { DeploymentSnippet, ConnectorGate, PartialFailureNote, StepList } from "@/components/create/wizard-steps";
 
 const INITIAL_STEPS: WizardStep[] = [
   { id: "deploy", label: "Deploy SoulVaultTreasury (you become owner)", status: "pending" },
@@ -60,7 +60,8 @@ export function TreasuryWizard({ orgEnsName }: { orgEnsName: string }) {
         signatures; the connected wallet becomes the immutable owner.
       </p>
       <div className="mt-3">
-        <Button onClick={() => void onCreate()} disabled={busy}>
+        <ConnectorGate />
+        <Button onClick={() => void onCreate()} disabled={busy} className="mt-3">
           {busy ? "Waiting for wallet…" : "Create treasury"}
         </Button>
         <StepList steps={steps} />

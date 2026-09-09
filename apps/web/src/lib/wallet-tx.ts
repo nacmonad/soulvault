@@ -15,12 +15,20 @@ export async function sendWalletTransaction(input: {
   from: Address;
   to: Address;
   data: Hex;
+  value?: bigint;
 }): Promise<Hex> {
   const provider = injected();
   if (!provider) throw new Error("No injected browser wallet. Connect one to publish or grant.");
   const hash = await provider.request({
     method: "eth_sendTransaction",
-    params: [{ from: input.from, to: input.to, data: input.data }],
+    params: [
+      {
+        from: input.from,
+        to: input.to,
+        data: input.data,
+        ...(input.value !== undefined ? { value: `0x${input.value.toString(16)}` } : {}),
+      },
+    ],
   });
   return hash as Hex;
 }

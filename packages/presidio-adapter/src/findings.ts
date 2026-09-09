@@ -5,7 +5,7 @@ export type AnalyzerFinding = {
   start: number;
   end: number;
   score: number;
-  source: 'presidio' | 'semantic';
+  source: 'presidio' | 'semantic' | 'author';
   recognizer?: string;
 };
 
@@ -47,6 +47,27 @@ export function indexFindings(text: string, findings: AnalyzerFinding[]): Review
     const slotId = `pii-${finding.entityType.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${hashIdentity(identity)}`;
     return { ...finding, slotId, findingId: `${slotId}:${finding.start}:${finding.end}:${occurrence}` };
   });
+}
+
+export function findingFromAuthorSpan(input: {
+  text: string;
+  start: number;
+  end: number;
+  entityType: string;
+  slotId?: string;
+}): ReviewableFinding {
+  const [indexed] = indexFindings(input.text, [
+    {
+      entityType: input.entityType,
+      start: input.start,
+      end: input.end,
+      score: 1,
+      source: 'author',
+      recognizer: 'author',
+    },
+  ]);
+  if (input.slotId) indexed.slotId = input.slotId;
+  return indexed;
 }
 
 export function redactAcceptedFindings(input: {

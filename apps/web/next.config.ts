@@ -8,7 +8,7 @@ const isUiBuild = process.env.SOULVAULT_WEB_EXPORT === "1";
 
 const nextConfig: NextConfig = {
   // Workspace packages export TypeScript source directly; Next compiles them.
-  transpilePackages: ["@soulvault/protocol", "@soulvault/node"],
+  transpilePackages: ["@soulvault/protocol", "@soulvault/node", "@soulvault/presidio-adapter"],
   ...(isUiBuild && {
     output: "export" as const,
     trailingSlash: true,

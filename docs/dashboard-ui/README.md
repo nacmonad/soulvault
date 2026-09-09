@@ -28,6 +28,7 @@ File these on `nacmonad/soulvault` as GitHub issues. Same shape as #5–#12:
 | [012-ens-deployment-bootstrap.md](./012-ens-deployment-bootstrap.md) | ENS deployment bootstrap: derive deployments from ENS records | draft |
 | [013-ens-write-batching.md](./013-ens-write-batching.md) | ENS write batching: resolver multicall to cut wallet prompts | draft |
 | [014-cli-ens-first-reads.md](./014-cli-ens-first-reads.md) | CLI reads go ENS-first: profiles become caches | draft |
+| [015-ensv2-adoption.md](./015-ensv2-adoption.md) | ENSv2 adoption: agents as namespaces on the beta registry | draft |
 
 Do not start Next work until the parent IA is locked in the GitHub issue.
 

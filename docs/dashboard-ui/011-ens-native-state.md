@@ -88,3 +88,6 @@ until ENS bootstrap is verified in the dashboard.
   `multicall` batching to cut wallet prompts
 - [014-cli-ens-first-reads.md](./014-cli-ens-first-reads.md) — CLI reads go
   ENS-first, profiles become cache
+- [015-ensv2-adoption.md](./015-ensv2-adoption.md) — ENSv2 beta on Sepolia:
+  subname registries, Enhanced Access Control, agents as namespaces
+  (ETHOnline 2026 ENS track)

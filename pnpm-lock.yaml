@@ -246,6 +246,12 @@ importers:
       '@soulvault/protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@worldcoin/agentkit':
+        specifier: ^0.2.1
+        version: 0.2.1(bufferutil@4.1.0)(typescript@6.0.2)(utf-8-validate@5.0.10)
+      '@worldcoin/idkit-core':
+        specifier: ^4.2.4
+        version: 4.2.4
       dotenv:
         specifier: ^16.6.1
         version: 16.6.1
@@ -1156,6 +1162,9 @@ packages:
     resolution: {integrity: sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==}
     engines: {node: ^14.21.3 || >=16}
 
+  '@noble/secp256k1@2.3.0':
+    resolution: {integrity: sha512-0TQed2gcBbIrh7Ccyw+y/uZQvbJwm7Ao4scBUxqpBCcsOlZG0O4KGfjtNAy/li4W8n1xt3dxrwJ0beZ2h2G6Kw==}
+
   '@nodelib/fs.scandir@2.1.5':
     resolution: {integrity: sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g==}
     engines: {node: '>= 8'}
@@ -1827,6 +1836,22 @@ packages:
 
   '@vitest/utils@4.1.2':
     resolution: {integrity: sha512-xw2/TiX82lQHA06cgbqRKFb5lCAy3axQ4H4SoUFhUsg+wztiet+co86IAMDtF6Vm1hc7J6j09oh/rgDn+JdKIQ==}
+
+  '@worldcoin/agentkit-core@0.2.1':
+    resolution: {integrity: sha512-gfZf/GOP7DB8DVpXJZlYE58ZovrQrUezQ970NVd/oKu+XkwjY3CuLU3o304D4lrv5tdY4mqlhVroi6bELa3Meg==}
+
+  '@worldcoin/agentkit@0.2.1':
+    resolution: {integrity: sha512-UTq4BBBTP1bt2wfrxuIAMAJaqByR5neBb7TESJfSXDfFGETItm5kp+2MMqYFS32xG4xuRVk4BZw06cToemKgGw==}
+
+  '@worldcoin/idkit-core@4.2.4':
+    resolution: {integrity: sha512-R7nupFbXtk1h0ErnDDlarYlGqnFBLzy96xcMWOHqzkt7Wzs788cyxHZqgJHRsSnWx6LMToxp5kO3zr5N4rBatA==}
+
+  '@worldcoin/idkit-server@1.1.1':
+    resolution: {integrity: sha512-iO4Kd3QBLzJak3BPz5eIzRjW0kT8Px5c3LbNzvCKMnczLvVSKoWqdvGiJlkK8Dp29KstNI62iv4ak0z8nzui/Q==}
+    engines: {node: '>=18'}
+
+  '@x402/core@2.25.0':
+    resolution: {integrity: sha512-5Ys0XYz3FKutxVKoXC46R/XPT/oaAbuj7ahzrlVHwQxZJPH9u6u91IOh0ztz+7G/zYGsaXR8l3ety205QtEnUw==}
 
   '@xmldom/xmldom@0.9.10':
     resolution: {integrity: sha512-A9gOqLdi6cV4ibazAjcQufGj0B1y/vDqYrcuP6d/6x8P27gRS8643Dj9o1dEKtB6O7fwxb2FgBmJS2mX7gpvdw==}
@@ -5647,6 +5672,8 @@ snapshots:
 
   '@noble/hashes@1.8.0': {}
 
+  '@noble/secp256k1@2.3.0': {}
+
   '@nodelib/fs.scandir@2.1.5':
     dependencies:
       '@nodelib/fs.stat': 2.0.5
@@ -6211,6 +6238,40 @@ snapshots:
       '@vitest/pretty-format': 4.1.2
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.0
+
+  '@worldcoin/agentkit-core@0.2.1(bufferutil@4.1.0)(typescript@6.0.2)(utf-8-validate@5.0.10)':
+    dependencies:
+      '@noble/curves': 1.9.1
+      '@scure/base': 1.2.6
+      viem: 2.47.10(bufferutil@4.1.0)(typescript@6.0.2)(utf-8-validate@5.0.10)(zod@3.25.76)
+      zod: 3.25.76
+    transitivePeerDependencies:
+      - bufferutil
+      - typescript
+      - utf-8-validate
+
+  '@worldcoin/agentkit@0.2.1(bufferutil@4.1.0)(typescript@6.0.2)(utf-8-validate@5.0.10)':
+    dependencies:
+      '@worldcoin/agentkit-core': 0.2.1(bufferutil@4.1.0)(typescript@6.0.2)(utf-8-validate@5.0.10)
+      '@x402/core': 2.25.0
+    transitivePeerDependencies:
+      - bufferutil
+      - typescript
+      - utf-8-validate
+
+  '@worldcoin/idkit-core@4.2.4':
+    dependencies:
+      '@noble/hashes': 1.8.0
+      '@worldcoin/idkit-server': 1.1.1
+
+  '@worldcoin/idkit-server@1.1.1':
+    dependencies:
+      '@noble/hashes': 1.8.0
+      '@noble/secp256k1': 2.3.0
+
+  '@x402/core@2.25.0':
+    dependencies:
+      zod: 3.25.76
 
   '@xmldom/xmldom@0.9.10': {}
 

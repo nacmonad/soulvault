@@ -23,16 +23,24 @@ export function parseSoulVaultClientConfig(input: {
   deployments?: string;
 }): SoulVaultClientConfig | null {
   if (!input.rpcUrl || !input.deployments) return null;
-  const raw = JSON.parse(input.deployments) as Array<{
-    address: Address;
-    kind: SoulVaultContractKind;
-    fromBlock: string | number;
-    label?: string;
-  }>;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(input.deployments);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const deployments: SoulVaultDeployment[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') return null;
+    const row = item as { address?: Address; kind?: SoulVaultContractKind; fromBlock?: string | number; label?: string };
+    if (!row.address || !row.kind || row.fromBlock === undefined) return null;
+    deployments.push({ ...row, address: row.address, kind: row.kind, fromBlock: BigInt(row.fromBlock), label: row.label });
+  }
   return {
     rpcUrl: input.rpcUrl,
     chainId: Number(input.chainId ?? SOULVAULT_DEFAULT_CHAIN_ID),
-    deployments: raw.map((d) => ({ ...d, fromBlock: BigInt(d.fromBlock) })),
+    deployments,
   };
 }
 

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Hex } from "viem";
 
-import { sendWalletTransaction } from "./wallet-tx";
+import { sendWalletTransaction, asHex, ledgerSignature, yParityFromV } from "./wallet-tx";
 
 const FROM = "0x1111111111111111111111111111111111111111" as const;
 

@@ -317,7 +317,7 @@ List all fund requests on the swarm by querying `FundRequested` events and joini
 ## Treasury
 
 ### `soulvault treasury create`
-Deploy a fresh `SoulVaultTreasury` contract on 0G Galileo (one per organization per chain) and publish its address on the org's ENS name via an **ENSIP-11 multichain `addr` record** keyed by the chain's coinType (`0x80000000 | chainId`). For 0G Galileo, the coinType is `2147500186`. Requires an existing organization profile; the ENS binding step is best-effort and skipped if the org has no registered ENS name (the profile is saved with `ensBinding.status = 'planned'` for a later fix-up). Saves the treasury profile to `~/.soulvault/treasuries/<orgSlug>.json`.
+Deploy a fresh `SoulVaultTreasury` contract on the ops lane (Sepolia as of 2026-09; one per organization per chain) and publish its address on the org's ENS name via an **ENSIP-11 multichain `addr` record** keyed by the chain's coinType (`0x80000000 | chainId`; Sepolia = `2158638759`, historical 0G = `2147500250`). Requires an existing organization profile; the ENS binding step is best-effort and skipped if the org has no registered ENS name (the profile is saved with `ensBinding.status = 'planned'` for a later fix-up). Saves the treasury profile to `~/.soulvault/treasuries/<orgSlug>.json`.
 
 ```
 --organization <nameOrEns> Parent organization (defaults to active)

@@ -21,7 +21,7 @@ import {
   bindTreasuryEnsAddr,
   deploySoulVaultTreasuryContract,
 } from '../treasury-deploy.js';
-import { buildTreasuryProfile, writeTreasuryProfile } from '../treasury.js';
+import { buildTreasuryEntry, upsertLocalTreasuryEntry } from '../treasury.js';
 import { depositToTreasury } from '../treasury-contract.js';
 import { SOULVAULT_SWARM_ABI } from '../swarm-contract.js';
 import { resolveCliStateDir, resolveSwarmsDir } from '../paths.js';
@@ -152,15 +152,16 @@ describe('organization layer end-to-end flow', () => {
     expect(bound.addrTxHash).toBeDefined();
 
     // Persist the treasury profile so downstream lib calls can find it.
-    const treasuryProfile = buildTreasuryProfile({
+    await upsertLocalTreasuryEntry({
       organization: orgSlug,
       organizationEnsName: ORG_ENS_NAME,
-      contractAddress: treasuryAddress,
-      ownerAddress: owner.address,
-      deploymentTxHash: treasuryDeployment.txHash,
-      ensBinding: { status: 'bound', coinType: bound.coinType, addrTxHash: bound.addrTxHash },
+      entry: buildTreasuryEntry({
+        contractAddress: treasuryAddress,
+        ownerAddress: owner.address,
+        deploymentTxHash: treasuryDeployment.txHash,
+        ensBinding: { status: 'bound', coinType: bound.coinType, addrTxHash: bound.addrTxHash },
+      }),
     });
-    await writeTreasuryProfile(treasuryProfile);
 
     // Verify ENSIP-11 addr is readable back from the org root at the expected coinType.
     const env = await import('../config.js').then((m) => m.loadEnv());

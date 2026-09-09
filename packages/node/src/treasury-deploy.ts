@@ -7,8 +7,10 @@ import { createProvider, createSigner } from './signer.js';
 import {
   resolveTargetOrganization,
   getTreasuryProfile,
-  buildTreasuryProfile,
-  writeTreasuryProfile,
+  buildTreasuryEntry,
+  upsertLocalTreasuryEntry,
+  findTreasuryEntry,
+  type TreasuryProfile,
 } from './treasury.js';
 import { isAddress } from 'ethers';
 import {
@@ -125,6 +127,60 @@ async function writeOrgTreasuryEntries(organizationEnsName: string, entries: Tre
 }
 
 /**
+ * Pure merge used by `treasury list-sync`: fold the local profile's per-chain
+ * entries into the on-chain record. On-chain entries win on conflicts (the
+ * record is the discovery source of truth); local entries only ADD chains that
+ * are missing on-chain — repairing records clobbered by the historic
+ * read-via-registry bug without overwriting anything another operator published.
+ */
+export function mergeTreasuryEntries(
+  onChain: TreasuryEnsEntry[],
+  local: TreasuryEnsEntry[],
+): TreasuryEnsEntry[] {
+  let merged = onChain;
+  for (const entry of local) {
+    if (merged.some((e) => e.chainId === entry.chainId)) continue;
+    merged = upsertTreasuryEntry(merged, entry);
+  }
+  return merged;
+}
+
+/**
+ * Repair/rebuild the org's `soulvault.treasuries` ENS record from the local
+ * treasury profile. No-op (no tx) when the record already matches. Recovery
+ * path for records partially clobbered by the pre-fallback `readEnsText` bug,
+ * and for publishing entries bound on other machines.
+ */
+export async function syncOrgTreasuryList(input: { organization?: string }) {
+  const organization = await resolveTargetOrganization(input.organization);
+  if (!organization.ensName) {
+    throw new Error(
+      `Organization "${organization.slug}" has no ENS name — there is no discovery record to sync. ` +
+        `Run \`soulvault organization register-ens\` first.`,
+    );
+  }
+  const profile = await getTreasuryProfile(organization.slug);
+  const localEntries = (profile?.treasuries ?? []).map((entry) => ({
+    chainId: entry.chainId,
+    address: entry.contractAddress,
+    createdAt: entry.createdAt,
+  }));
+  if (localEntries.length === 0) {
+    throw new Error(
+      `No local treasury entries for organization "${organization.slug}" — run \`treasury create/bind\` first.`,
+    );
+  }
+
+  const onChain = await readOrgTreasuryEntries(organization.ensName);
+  const merged = mergeTreasuryEntries(onChain, localEntries);
+  if (JSON.stringify(merged) === JSON.stringify(onChain)) {
+    return { organizationEnsName: organization.ensName, alreadySynced: true, entries: merged };
+  }
+  const { txHash } = await writeOrgTreasuryEntries(organization.ensName, merged);
+  return { organizationEnsName: organization.ensName, alreadySynced: false, txHash, entries: merged };
+}
+
+/**
  * Publish the treasury's address on the org's ENS name via ENSIP-11 multichain `addr`.
  *
  * One org may hold treasuries on multiple chains (0G Galileo, Base, etc.) — each is
@@ -228,17 +284,19 @@ export async function bindExistingTreasury(input: {
   );
   }
 
-  const existing = await getTreasuryProfile(organization.slug);
-  if (existing && existing.contractAddress !== input.contractAddress && !input.force) {
+  const existingProfile = await getTreasuryProfile(organization.slug);
+  const existingEntry = findTreasuryEntry(existingProfile);
+  if (existingEntry && existingEntry.contractAddress !== input.contractAddress && !input.force) {
     throw new Error(
-      `Treasury already exists for organization "${organization.slug}" at ${existing.contractAddress}. ` +
-        `Pass --force to rebind to ${input.contractAddress}.`,
+      `Treasury already exists for organization "${organization.slug}" on chain ${existingEntry.chainId} ` +
+        `at ${existingEntry.contractAddress}. Pass --force to rebind to ${input.contractAddress}. ` +
+        `Treasures on other chains are unaffected.`,
     );
   }
 
   // Publish the address on the org's ENS name via ENSIP-11 multichain addr. Same
   // "planned" semantics as treasury create when the org has no ENS name yet.
-  let ensBinding: import('./treasury.js').TreasuryProfile['ensBinding'];
+  let ensBinding: import('./treasury.js').TreasuryEnsBinding;
   if (organization.ensName) {
     const bound = await bindTreasuryEnsAddr({
       organizationEnsName: organization.ensName,
@@ -257,18 +315,16 @@ export async function bindExistingTreasury(input: {
     );
   }
 
-  const profile = buildTreasuryProfile({
-    organization: organization.slug,
-    organizationEnsName: organization.ensName,
+  const entry = buildTreasuryEntry({
     contractAddress: input.contractAddress,
     ownerAddress: onChainOwner,
     ensBinding,
   });
-  if (existing?.createdAt) {
-    // Rebinds keep the original profile creation date.
-    profile.createdAt = existing.createdAt;
-  }
-  await writeTreasuryProfile(profile);
+  const { profile } = await upsertLocalTreasuryEntry({
+    organization: organization.slug,
+    organizationEnsName: organization.ensName,
+    entry,
+  });
 
   return { profile, onChainOwner };
 }

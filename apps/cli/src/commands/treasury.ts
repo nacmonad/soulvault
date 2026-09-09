@@ -8,16 +8,18 @@ import {
   withdrawFromTreasury,
 } from '@soulvault/node/treasury-contract';
 import {
-  buildTreasuryProfile,
+  buildTreasuryEntry,
+  findTreasuryEntry,
   getTreasuryProfile,
   listTreasuryProfiles,
   resolveTargetOrganization,
-  writeTreasuryProfile,
+  upsertLocalTreasuryEntry,
 } from '@soulvault/node/treasury';
 import {
   bindExistingTreasury,
   bindTreasuryEnsAddr,
   deploySoulVaultTreasuryContract,
+  syncOrgTreasuryList,
 } from '@soulvault/node/treasury-deploy';
 import { listFundRequests } from '@soulvault/node/swarm-contract';
 
@@ -47,14 +49,15 @@ export function registerTreasuryCommands(program: Command) {
         'via ENSIP-11 multichain addr (per-chain coinType = 0x80000000 | chainId).',
     )
     .option('--organization <nameOrEns>')
-    .option('--force', 'Overwrite an existing treasury profile for the organization', false)
+    .option('--force', 'Replace an existing treasury for this org on the CURRENT chain (other chains are unaffected)', false)
     .action(async (options) => {
       const organization = await resolveTargetOrganization(options.organization);
-      const existing = await getTreasuryProfile(organization.slug);
-      if (existing && !options.force) {
+      const existingEntry = findTreasuryEntry(await getTreasuryProfile(organization.slug));
+      if (existingEntry && !options.force) {
         throw new Error(
-          `Treasury already exists for organization "${organization.slug}" at ${existing.contractAddress}. ` +
-            `Pass --force to overwrite.`,
+          `Treasury already exists for organization "${organization.slug}" on chain ${existingEntry.chainId} ` +
+            `at ${existingEntry.contractAddress}. Pass --force to replace it. ` +
+            `Treasures on other chains are unaffected.`,
         );
       }
 
@@ -82,16 +85,16 @@ export function registerTreasuryCommands(program: Command) {
         }
       }
 
-      const profile = buildTreasuryProfile({
+      const { profile } = await upsertLocalTreasuryEntry({
         organization: organization.slug,
         organizationEnsName: organization.ensName,
-        contractAddress: deployment.address,
-        ownerAddress: deployment.ownerAddress,
-        deploymentTxHash: deployment.txHash,
-        ensBinding,
+        entry: buildTreasuryEntry({
+          contractAddress: deployment.address,
+          ownerAddress: deployment.ownerAddress,
+          deploymentTxHash: deployment.txHash,
+          ensBinding,
+        }),
       });
-
-      await writeTreasuryProfile(profile);
       console.log(JSON.stringify(profile, null, 2));
     });
 
@@ -121,6 +124,24 @@ export function registerTreasuryCommands(program: Command) {
     .action(async () => {
       const profiles = await listTreasuryProfiles();
       console.log(JSON.stringify(profiles, null, 2));
+    });
+
+  treasury
+    .command('list-sync')
+    .description(
+      'Rebuild the org\'s soulvault.treasuries ENS discovery record from the local treasury profile. ' +
+        'Adds locally-known chains that are missing on-chain; never removes existing entries. ' +
+        'Repair path when the record was clobbered by a partial bind or bound on another machine. No-op when already in sync.',
+    )
+    .option('--organization <nameOrEns>')
+    .action(async (options) => {
+      const result = await syncOrgTreasuryList({ organization: options.organization });
+      if (result.alreadySynced) {
+        console.error(`ENS record already matches the local profile — no transaction needed.`);
+      } else {
+        console.error(`Updated soulvault.treasuries on ${result.organizationEnsName}: ${result.txHash}`);
+      }
+      console.log(JSON.stringify(result, null, 2));
     });
 
   treasury

@@ -55,6 +55,8 @@ Inter + IBM Plex Mono). Do not invent a second look.
 3. Documents → Redact
 4. Documents → Grants (blocked by 3)
 5. Documents → Rehydrate (blocked by 4)
+6. Browser e2e over Speculos: Alice/Charlie/Mallory + Ledger clear-sign
+   (epic exit gate, blocked by 4 + 5)
 
 ## User Stories
 
@@ -117,6 +119,12 @@ Inter + IBM Plex Mono). Do not invent a second look.
   red only for irreversible actions (none of which exist on READ grants).
 - Current org/swarm live in browser storage keyed by wallet address, not in a
   server. Switching org updates the rest of the dashboard context.
+- Org discovery is a localStorage known-orgs registry per wallet (ENS
+  reverse record + manual add + CLI state import); chain history cannot
+  enumerate ENS names owned by an address.
+- Grants persist on-chain — wrapped keys ride `SlotKeyGranted` events — and
+  the public bundle is downloadable for the Rehydrate input path. Raw slot
+  keys never leave the session outside the wrap.
 - Documents sub-tabs are real routes, not query-param tabs, so static export and
   deep links work.
 
@@ -138,6 +146,10 @@ Inter + IBM Plex Mono). Do not invent a second look.
   when configured and fail closed when skipped.
 - `pnpm --filter soulvault-web typecheck` and `build:export` stay green.
 - Fixtures stay synthetic. No real PII.
+- Ticket 006 is the epic exit gate: a Playwright + Speculos suite drives
+  Alice → grant → Charlie rehydrate → Mallory fail-closed in the built app,
+  with Ledger clear-sign proven by device transcripts. Never auto-approve
+  device actions.
 
 ## Out of Scope
 
@@ -157,3 +169,6 @@ Inter + IBM Plex Mono). Do not invent a second look.
 - CLI stories 00–02 are the org/swarm/agent *read* model the placeholders
   should mirror, not rewrite.
 - Visual mockups are not a deliverable; the existing Next/shadcn stack is.
+- World Selfie Check gating is deferred to the World feature branch
+  (`feature/world-selfie-check-poc`); ticket 005 ships with the gate off
+  until it lands. Ticket 006 is the epic exit gate.

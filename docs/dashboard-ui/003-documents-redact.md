@@ -73,8 +73,11 @@ scan. Presidio findings are proposals. The author is the last word.
 8. CTA: “Continue to Grants” with the in-session document selected.
 
 Do **not** import `DemoVaultEntry` / the demo vault. Manual classification is
-a `ReviewableFinding` with `source: 'author'` (add that source on the
-adapter if missing — do not invent a second span type in the page).
+a `ReviewableFinding` with `source: 'author'`. This is a **confirmed adapter
+gap**: `AnalyzerFinding.source` is currently `'presidio' | 'semantic'` in
+`packages/presidio-adapter/src/findings.ts`. Extend the union with `'author'`
+there (and anywhere the worker protocol tightens it) as a prerequisite change
+in this PR — do not invent a second span type in the page.
 
 ## Acceptance criteria
 
@@ -96,6 +99,9 @@ adapter if missing — do not invent a second span type in the page).
       and accept a finalized `slotId` that becomes `{{sv:slotId}}`.
 - [ ] Manual spans and accepted detector spans share one slot list. Same
       `slotId` is allowed only for the same entity type + exact value.
+- [ ] `@soulvault/presidio-adapter` accepts `source: 'author'` findings;
+      manual spans pass through `indexFindings` / `redactAcceptedFindings`
+      unchanged.
 - [ ] Finalized accepted `slotId`s appear in `artifact.slots` and in the
       in-session `slotKeys` bundle used by Grants. Raw keys never shown.
 - [ ] Rejected findings do not appear as slots in the artifact; rejected

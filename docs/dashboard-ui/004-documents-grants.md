@@ -25,6 +25,10 @@ Author path at `/dashboard/documents/grants`.
 6. Show delivered grants for the selected document from the event cache. Copy
    must state plainly: a delivered READ grant is a permanent capability — no
    revoke button.
+7. Offer **Download bundle** once the document is published: the author (or
+   anyone holding the artifact) saves the public JSON bundle (and the
+   redacted text) and hands both to a consumer, who loads them into the
+   Rehydrate UI. The download contains no slot keys and no plaintext.
 
 Ledger: if the author connected via Ledger, the grant tx is clear-signed
 through the existing DMK session. Injected wallet uses `eth_sendTransaction`
@@ -41,6 +45,9 @@ through the existing DMK session. Injected wallet uses `eth_sendTransaction`
 - [ ] UI never prints raw slot keys or wrap private material. Event log may
       show `slotId`, recipient, tx hash.
 - [ ] No revoke/expiry control exists. Copy does not claim erasure.
+- [ ] Published documents offer a bundle download (public JSON + redacted
+      text) containing no slot keys and no plaintext; the downloaded files
+      load into the Rehydrate UI unchanged.
 - [ ] Ledger-connected author can sign the grant tx through the existing
       session (Speculos path acceptable for CI).
 - [ ] Typecheck + `build:export` green.
@@ -51,10 +58,15 @@ through the existing DMK session. Injected wallet uses `eth_sendTransaction`
 
 ## Implementation notes
 
-- Grant creation without in-session `slotKeys` cannot wrap. If the author
-  reloads, they must re-redact or we persist keys in sessionStorage keyed by
-  `docHash` for this browser only. Document that limitation; do not put keys
-  on chain beyond the wrapped grant event.
+- Persistence model (decided): grants persist on-chain — `SlotKeyGranted`
+  carries the protocol wrap, so a delivered grant never depends on
+  author-side storage. Raw `slotKeys` stay session-only (memory or
+  wallet-scoped sessionStorage) and are never uploaded anywhere. Consequence:
+  granting to a **new** recipient after a reload requires re-running redact
+  in v0; document that limitation. Do not put keys on chain beyond the
+  wrapped grant event.
+- The public JSON bundle is downloadable from this tab (step 7). Download is
+  the transport for Rehydrate inputs; no API route, no server storage.
 - Recipient attestation in v0 can be pasted JSON. A later polish can have
   Charlie’s browser export it from the Rehydrate tab.
 - World Selfie Check is **not** on this tab. It gates Charlie’s rehydrate, not

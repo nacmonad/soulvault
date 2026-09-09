@@ -8,7 +8,7 @@ import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-prov
 import { runTreasuryCreate, type WizardStep } from "@/lib/create-flows";
 import { coinTypeForChain } from "@/lib/ens-writes";
 import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
-import { DeploymentSnippet, ConnectorGate, DevicePromptHash, PartialFailureNote, StepList } from "@/components/create/wizard-steps";
+import { DeploymentSnippet, ConnectorGate, DevicePromptPanel, PartialFailureNote, StepList } from "@/components/create/wizard-steps";
 
 const INITIAL_STEPS: WizardStep[] = [
   { id: "deploy", label: "Deploy SoulVaultTreasury (you become owner)", status: "pending" },
@@ -61,7 +61,7 @@ export function TreasuryWizard({ orgEnsName }: { orgEnsName: string }) {
       </p>
       <div className="mt-3">
         <ConnectorGate />
-        <DevicePromptHash />
+        <DevicePromptPanel />
         <Button onClick={() => void onCreate()} disabled={busy} className="mt-3">
           {busy ? "Waiting for wallet…" : "Create treasury"}
         </Button>

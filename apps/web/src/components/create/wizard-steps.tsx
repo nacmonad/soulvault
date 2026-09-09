@@ -22,19 +22,30 @@ export function ConnectorGate() {
 }
 
 /**
- * While the device prompt is up, surface the keccak hash of the unsigned tx —
- * the same hash the device displays when it blind-signs (always the case for
- * contract deploys, which CAL cannot decode). Compare before approving.
+ * While the device prompt is up, show what is being approved: the decoded tx
+ * checklist (the device cannot render it — SoulVault selectors have no CAL
+ * descriptor, and deploys never can) plus the keccak hash of the unsigned tx,
+ * which matches what the device displays when it blind-signs.
  */
-export function DevicePromptHash() {
-  const { connector, devicePromptHash } = useSoulVaultWallet();
-  if (connector !== "ledger" || !devicePromptHash) return null;
+export function DevicePromptPanel() {
+  const { connector, devicePrompt } = useSoulVaultWallet();
+  if (connector !== "ledger" || !devicePrompt) return null;
   return (
-    <p className="border border-amber-500 p-3 text-xs">
-      <span className="font-medium">Blind signing:</span> no clear-sign descriptor exists for this
-      payload (contract deploys never have one). Verify the hash on your Ledger matches:
-      <span className="mt-1 block break-all font-mono">{devicePromptHash}</span>
-    </p>
+    <div className="border border-amber-500 p-3 text-xs">
+      <p>
+        <span className="font-medium">Confirm on Ledger:</span> {devicePrompt.summary.title}
+      </p>
+      <ul className="mt-1 space-y-0.5 font-mono">
+        {devicePrompt.summary.lines.map((line, i) => (
+          <li key={i} className="break-all">{line}</li>
+        ))}
+      </ul>
+      <p className="mt-2 text-muted-foreground">
+        No CAL descriptor exists for this payload — the device shows a blind-sign prompt.
+        Verify this hash on your Ledger matches before approving:
+      </p>
+      <p className="break-all font-mono">{devicePrompt.hash}</p>
+    </div>
   );
 }
 

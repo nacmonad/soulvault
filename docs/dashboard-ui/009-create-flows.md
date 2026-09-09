@@ -130,3 +130,13 @@ incomplete — re-run step 3").
   `lib/ledger-clear-sign.ts`) feeds CAL descriptors to the device, so txs and
   EIP-712 payloads render decoded where Ledger's descriptor service has a
   match; failures degrade to blind signing (clear-sign-preferred semantics).
+  Because SoulVault selectors have no CAL descriptor and contract deploys
+  never can, every wizard signing prompt is blind by default — so the trusted
+  UI renders a **decoded tx checklist** during the prompt (`lib/tx-decode.ts`,
+  `DevicePromptPanel` in `wizard-steps.tsx`): the browser port of the CLI's
+  `renderHumanChecklist` posture. The panel shows the action title, the
+  operator-readable argument lines (deploy initcode size, ENSIP-11
+  `addr[sepolia (11155111)]` chain labels, ETH amounts, fund-request ids), and
+  the keccak hash of the unsigned tx, which matches what the device displays.
+  The summary falls back to a selector/size line for unknown calldata and must
+  never throw — an unreadable checklist is worse than no checklist.

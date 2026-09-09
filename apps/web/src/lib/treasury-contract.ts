@@ -9,7 +9,7 @@ import { sendWalletTransaction } from "@/lib/wallet-tx";
  * the treasury checks `swarm.treasury() == address(this)` before any payout.
  * A delivered payout is final — the UI never offers revoke/un-send.
  */
-const TREASURY_ABI = [
+export const TREASURY_ABI = [
   {
     type: "function",
     name: "deposit",
@@ -50,7 +50,7 @@ const TREASURY_ABI = [
   },
 ] as const;
 
-const SWARM_ABI = [
+export const SWARM_ABI = [
   {
     type: "function",
     name: "requestFunds",

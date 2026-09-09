@@ -25,7 +25,7 @@ import { sendWalletTransaction, waitForWalletReceipt } from "@/lib/wallet-tx";
 const ENS_REGISTRY = "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e" as Address;
 const PUBLIC_RESOLVER = "0xE99638b40E4Fff0129D56f03b55b6bbC4BBE49b5" as Address;
 
-const REGISTRY_ABI = [
+export const REGISTRY_ABI = [
   {
     type: "function",
     name: "setSubnodeRecord",
@@ -48,7 +48,7 @@ const REGISTRY_ABI = [
   },
 ] as const;
 
-const RESOLVER_ABI = [
+export const RESOLVER_ABI = [
   {
     type: "function",
     name: "setAddr",

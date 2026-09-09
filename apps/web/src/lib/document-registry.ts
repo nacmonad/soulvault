@@ -4,7 +4,7 @@ import type { SecpWrappedKey } from "@soulvault/protocol";
 import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 import { sendWalletTransaction } from "@/lib/wallet-tx";
 
-const WRITE_ABI = [
+export const WRITE_ABI = [
   {
     type: "function",
     name: "publishDocument",

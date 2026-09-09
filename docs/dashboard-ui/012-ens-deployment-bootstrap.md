@@ -68,6 +68,25 @@ a build-time env var listing `{kind, address, fromBlock, label}`. That means:
 - [ ] Stealth swarms (no ENS binding) still work — they're simply not
       ENS-discoverable, exactly as today.
 
+### D. DocumentRegistry discovery (documents lane)
+
+The `SoulVaultDocumentRegistry` is a global per-chain singleton (not org-scoped —
+external consumers publish/verify/rehydrate without swarm membership), so it does not
+come from the org's records like treasuries/swarms. Discovery design lives in the
+ENSv2 integration spec (docs/ensv2-integration-spec.md §7 on feature/ensv2-integration):
+
+- `addr(soulvault.eth, coinType(chainId))` → DocumentRegistry for that chain (ENSIP-11,
+  same pattern as treasury discovery, on protocol infrastructure instead of org assets).
+- Public bundle gains an optional non-authoritative `registry: {chainId, address}` hint;
+  ENS is the trust anchor, the UI warns on mismatch.
+- Resolution preference: localStorage override → ENS → env var → bundle hint.
+- Attestation domain unchanged (`verifyingContract` = registry); rotation handled by
+  attestation expiry.
+
+Implement v1-side here first (readENSIP-11 fallback in `documentRegistryAddress()`),
+dispatching to ENSv2 via the same feature flag as `packages/node/src/ens.ts` so both
+sides migrate together.
+
 ## Blocked by
 
 None. Stacks on the `soulvault.treasuries` record (this branch).

@@ -350,8 +350,10 @@ allows only **three prize selections per submission** — final pick:
 ERC-8004 identity, World ID verifier, and now Subgraph Studio indexing — so one
 chain makes all three picks cheaper and collapses the two-lane demo into one.
 0G Storage keeps its one remaining job (oversized blobs, root hash in the
-event). The 0G ops lane stays valid for the swarm/continuity product; this is
-only about where the document contract lives.
+event). **Update (2026-09-09): the ops lane itself is Sepolia-only now too** —
+swarm and treasury contracts deploy to Sepolia via `SOULVAULT_RPC_URL` /
+`SOULVAULT_CHAIN_ID` (see `docs/dashboard-ui/007-sepolia-only-ops-lane.md`);
+0G references elsewhere in this document are historical.
 
 **Deliberately not picked:**
 

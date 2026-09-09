@@ -20,12 +20,12 @@ All variables are loaded from `.env` in the project root via `dotenv`.
 
 ---
 
-## 0G Galileo (SoulVault Operations Lane)
+## Ops Lane (swarm / treasury / epochs — Sepolia)
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `SOULVAULT_RPC_URL` | 0G Galileo RPC endpoint | `https://evmrpc-testnet.0g.ai` |
-| `SOULVAULT_CHAIN_ID` | 0G chain ID | `16602` |
+| `SOULVAULT_RPC_URL` | Ops-lane RPC endpoint. Sepolia-only posture: same RPC as the ENS lane. Previously 0G Galileo; changing these two vars re-points the whole ops lane (signer, deploys, ENSIP-11 discovery via `coinTypeForChain(SOULVAULT_CHAIN_ID)`) with no code changes. | `https://ethereum-sepolia-rpc.publicnode.com` |
+| `SOULVAULT_CHAIN_ID` | Ops-lane chain ID. Sepolia = `11155111`; the old 0G value was `16602`. | `11155111` |
 
 ---
 

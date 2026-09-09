@@ -5,8 +5,12 @@ import type { NextConfig } from "next";
 // docs/redaction-hydration-spec.md §4. `isUiBuild` lets the workspace CI build
 // (which checks @soulvault/node typechecks) run without export-only flags.
 const isUiBuild = process.env.SOULVAULT_WEB_EXPORT === "1";
+const basePath = isUiBuild ? "/soulvault" : "";
 
 const nextConfig: NextConfig = {
+  env: {
+    NEXT_PUBLIC_BASE_PATH: basePath,
+  },
   // Workspace packages export TypeScript source directly; Next compiles them.
   transpilePackages: ["@soulvault/protocol", "@soulvault/node", "@soulvault/presidio-adapter"],
   // Workspace packages use NodeNext-style `.js` specifiers over `.ts` files
@@ -24,8 +28,8 @@ const nextConfig: NextConfig = {
     output: "export" as const,
     trailingSlash: true,
     images: { unoptimized: true },
-    basePath: "/soulvault",
-    assetPrefix: "/soulvault/",
+    basePath,
+    assetPrefix: `${basePath}/`,
   }),
 };
 

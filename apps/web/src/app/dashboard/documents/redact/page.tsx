@@ -57,6 +57,21 @@ export default function DocumentsRedactPage() {
   const [menuPos, setMenuPos] = useState<MenuPos>({ x: 16, y: 16 });
   const [result, setResult] = useState<RedactedDocumentResult | null>(null);
   const [publishTx, setPublishTx] = useState<string | null>(null);
+  const [useGliner, setUseGliner] = useState(false);
+  const [webGpu, setWebGpu] = useState(false);
+  const [model, setModel] = useState({
+    installed: false,
+    bytes: 0,
+    usage: 0,
+    quota: 0,
+    runtimeReady: false,
+    backend: "",
+  });
+  const [inference, setInference] = useState<{ phase: string; message: string; backend?: string }>({
+    phase: "idle",
+    message: "Pattern engine ready",
+  });
+  const [modelProgress, setModelProgress] = useState<{ downloaded: number; total: number; file: string } | null>(null);
   const { address, sendTransaction } = useSoulVaultWallet();
 
   const reviewing = findings.length > 0;
@@ -70,10 +85,26 @@ export default function DocumentsRedactPage() {
       setError(event.message || "Analyzer worker failed to load");
       setWorkerReady(false);
     };
-    const client = new PresidioWorkerClient(worker);
+    const client = new PresidioWorkerClient(worker, {
+      onReady: (info) => {
+        setWorkerReady(true);
+        setWebGpu(info.webGpu);
+        client.requestModelStatus();
+      },
+      onModelStatus: (status) => {
+        setModel(status);
+        setModelProgress(null);
+      },
+      onModelProgress: (progress) => setModelProgress(progress),
+      onInferenceStatus: (status) => setInference(status),
+      onModelError: (message) => {
+        setError(message);
+        setModelProgress(null);
+        setBusy(false);
+      },
+    });
     workerRef.current = worker;
     clientRef.current = client;
-    setWorkerReady(true);
     return () => {
       client.dispose();
       worker.terminate();
@@ -118,7 +149,7 @@ export default function DocumentsRedactPage() {
     setDraft(null);
     setScanned(text);
     try {
-      const next = await clientRef.current.analyze(text);
+      const next = await clientRef.current.analyze(text, { useGliner });
       setFindings(next);
       setAccepted(new Set(next.map((item) => item.findingId)));
     } catch (cause) {
@@ -127,7 +158,7 @@ export default function DocumentsRedactPage() {
     } finally {
       setBusy(false);
     }
-  }, [text]);
+  }, [text, useGliner]);
 
   function openDraft(next: DraftSpan, event?: { clientX: number; clientY: number }) {
     if (event) placeMenu(event);
@@ -305,7 +336,16 @@ export default function DocumentsRedactPage() {
       )
     : [];
 
-  const scanLabel = busy ? "Running local detection…" : "Scan locally";
+  const scanLabel = !busy
+    ? "Scan locally"
+    : inference.phase === "loading"
+      ? "Preparing GLiNER…"
+      : inference.phase === "finalizing"
+        ? "Finalizing findings…"
+        : "Running local detection…";
+  const patternCount = findings.filter((item) => item.source === "presidio").length;
+  const glinerCount = findings.filter((item) => item.source === "semantic").length;
+  const authorCount = findings.filter((item) => item.source === "author").length;
 
   return (
     <div>
@@ -313,8 +353,9 @@ export default function DocumentsRedactPage() {
       <h1 className="mt-3 text-2xl font-semibold tracking-tight">Redact</h1>
       <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
         Same scan loop as presidio-web-demo: source → worker → findings → redacted
-        tokens. Engine stays in a module worker. Author can highlight anything
-        Presidio missed and finalize the slot id.
+        tokens. Engine stays in a module worker. Optional GLiNER runs as local
+        ONNX in that worker. Author can highlight anything Presidio missed and
+        finalize the slot id.
       </p>
 
       <div
@@ -326,10 +367,93 @@ export default function DocumentsRedactPage() {
           <StatusDot ok={workerReady} /> Analysis worker
         </span>
         <span>
+          <StatusDot ok={webGpu} warn={!webGpu} /> {webGpu ? "WebGPU available" : "WASM fallback"}
+        </span>
+        <span>
           {findings.length} detected · {accepted.size} accepted
         </span>
-        <span className="ml-auto">Patterns only · GLiNER off</span>
+        <span className="ml-auto">
+          <StatusDot
+            ok={model.runtimeReady}
+            warn={model.installed && !model.runtimeReady}
+          />{" "}
+          GLiNER ·{" "}
+          {busy && useGliner
+            ? "working"
+            : model.runtimeReady
+              ? `ready · ${model.backend || inference.backend}`
+              : model.installed
+                ? "stored offline"
+                : "not installed"}
+        </span>
       </div>
+
+      <section className="mt-4 border border-border bg-card p-4">
+        <p className="eyebrow text-muted-foreground">Optional enhanced detection</p>
+        <h2 className="mt-2 text-sm font-semibold">GLiNER language model</h2>
+        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+          Same Knowledgator <span className="font-mono">gliner-pii-edge-v1.0</span> fp32
+          model as the demo. Downloaded once into this origin&apos;s OPFS; document
+          text never leaves the worker.
+        </p>
+        <div className="mt-3 grid gap-px border border-border bg-border sm:grid-cols-3">
+          <div className="bg-background px-3 py-2">
+            <p className="text-[10px] tracking-wide text-muted-foreground uppercase">Model</p>
+            <p className="font-mono text-sm">{model.installed ? formatBytes(model.bytes) : "~180 MB"}</p>
+            <p className="text-xs text-muted-foreground">{model.installed ? "Ready offline" : "Not installed"}</p>
+          </div>
+          <div className="bg-background px-3 py-2">
+            <p className="text-[10px] tracking-wide text-muted-foreground uppercase">OPFS usage</p>
+            <p className="font-mono text-sm">{formatBytes(model.usage)}</p>
+            <p className="text-xs text-muted-foreground">of {formatBytes(model.quota)} available</p>
+          </div>
+          <div className="bg-background px-3 py-2">
+            <p className="text-[10px] tracking-wide text-muted-foreground uppercase">Runtime</p>
+            <p className="font-mono text-sm">{model.backend || (webGpu ? "WebGPU" : "WASM")}</p>
+            <p className="text-xs text-muted-foreground">{model.runtimeReady ? "Session loaded" : "Lazy until first GLiNER scan"}</p>
+          </div>
+        </div>
+        {modelProgress ? (
+          <p className="mt-3 font-mono text-xs text-muted-foreground">
+            Downloading {modelProgress.file} · {formatBytes(modelProgress.downloaded)}
+            {modelProgress.total ? ` / ${formatBytes(modelProgress.total)}` : ""}
+          </p>
+        ) : null}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {!model.installed ? (
+            <Button
+              onClick={() => {
+                setError(null);
+                void navigator.storage.persist();
+                clientRef.current?.installModel();
+              }}
+              disabled={!!modelProgress}
+            >
+              Install model for offline use
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              onClick={() => {
+                setUseGliner(false);
+                clientRef.current?.removeModel();
+              }}
+              disabled={busy}
+            >
+              Remove downloaded model
+            </Button>
+          )}
+          <label className={`inline-flex items-center gap-2 text-sm ${!model.installed ? "opacity-50" : ""}`}>
+            <input
+              type="checkbox"
+              checked={useGliner}
+              disabled={!model.installed || busy}
+              onChange={(event) => setUseGliner(event.target.checked)}
+            />
+            Use GLiNER enhanced detection
+          </label>
+        </div>
+      </section>
       {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
 
       <section
@@ -430,7 +554,7 @@ export default function DocumentsRedactPage() {
               <span className="font-mono text-xs text-muted-foreground">
                 {findings.length} detected
                 {findings.length > 0
-                  ? ` · ${findings.filter((item) => item.source === "presidio").length} rules + ${findings.filter((item) => item.source === "author").length} author`
+                  ? ` · ${patternCount} rules + ${glinerCount} ML${authorCount ? ` + ${authorCount} author` : ""}`
                   : ""}
               </span>
             </header>
@@ -531,13 +655,20 @@ export default function DocumentsRedactPage() {
   );
 }
 
-function StatusDot({ ok }: { ok: boolean }) {
+function StatusDot({ ok, warn = false }: { ok: boolean; warn?: boolean }) {
   return (
     <i
-      className={`mr-1.5 inline-block size-1.5 rounded-full ${ok ? "bg-primary" : "bg-muted-foreground"}`}
+      className={`mr-1.5 inline-block size-1.5 rounded-full ${
+        ok ? "bg-primary" : warn ? "bg-amber-500" : "bg-muted-foreground"
+      }`}
       aria-hidden="true"
     />
   );
+}
+
+function formatBytes(bytes: number) {
+  if (!bytes) return "0 MB";
+  return `${(bytes / 1024 / 1024).toFixed(bytes > 100 * 1024 * 1024 ? 0 : 1)} MB`;
 }
 
 function ClassifyMenu({

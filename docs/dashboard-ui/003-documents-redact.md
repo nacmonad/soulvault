@@ -124,13 +124,13 @@ in this PR — do not invent a second span type in the page.
 
 ## Implementation notes
 
-- Adapter README is the short version of this ticket. If the dashboard needs
-  `expandSemanticOccurrences`, add it to the adapter (port from
-  `presidio-web-demo/src/lib/semantic-occurrences.ts`) — do not paste it into
-  a React file.
-- GLiNER / OPFS installer is **not** this ticket. Patterns are enough for the
-  hack path. The `semanticFindings` argument is the extension point, same as
-  the demo’s `useGliner` flag.
+- Adapter README is the short version of this ticket. `expandSemanticOccurrences`
+  lives in the adapter (port from
+  `presidio-web-demo/src/lib/semantic-occurrences.ts`) — not in a React file.
+- GLiNER / OPFS installer is optional and lazy, same motor as the demo: worker
+  owns ONNX Runtime Web + Knowledgator `gliner-pii-edge-v1.0`. Toggle is off
+  until the author installs the model. `semanticFindings` remains the
+  extension point.
 - Overflow/located slots: protocol chooses inline vs locator. No extra UI
   control in v0; fail closed on unresolved locators.
 - Do not grant in this ticket.

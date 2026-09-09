@@ -8,5 +8,8 @@ encryption, and never use the demo's plaintext vault as storage.
 
 Construct a module worker from `@soulvault/presidio-adapter/worker`, pass it to
 `PresidioWorkerClient`, then send only accepted finding IDs to
-`redactAcceptedFindings`. Semantic findings may be supplied after a lazy model
-run; validated Presidio results win overlap conflicts.
+`redactAcceptedFindings`. Pattern/checksum analysis is immediate. Optional
+GLiNER uses the same Knowledgator `gliner-pii-edge-v1.0` ONNX model as
+`presidio-web-demo` (OPFS install, WebGPU then WASM, `expandSemanticOccurrences`
+before `indexFindings`). Validated Presidio results win overlap conflicts.
+Document text never leaves the worker.

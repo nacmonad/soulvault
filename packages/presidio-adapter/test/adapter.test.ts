@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { findingFromAuthorSpan, indexFindings, mergeFindings, PresidioWorkerClient, redactAcceptedFindings, type AnalyzerWorkerMessage, type WorkerPort } from '../src/index.js';
+import { expandSemanticOccurrences } from '../src/semantic-occurrences.js';
 
 const source = 'Contact TEST@EXAMPLE.COM then TEST@EXAMPLE.COM; ignore SECRET WORD.';
 
@@ -27,7 +28,8 @@ describe('presidio adapter', () => {
       acceptedFindingIds: [finding.findingId],
     });
     expect(result.artifact.slots[0].slotId).toBe(finding.slotId);
-    expect(result.artifact.content).not.toContain('TEST@EXAMPLE.COM');
+    expect(result.artifact.content.startsWith('Contact {{sv:')).toBe(true);
+    expect(result.artifact.content).toContain('then TEST@EXAMPLE.COM');
   });
 
   it('encrypts only reviewed findings and leaks neither rejected plaintext nor keys publicly', () => {
@@ -62,5 +64,35 @@ describe('presidio adapter', () => {
     expect(JSON.stringify({ type: 'error', requestId: 2, code: 'ANALYSIS_FAILED' })).not.toContain('NEW PRIVATE VALUE');
     expect(sent).toHaveLength(2);
     client.dispose();
+  });
+
+  it('ignores GLiNER status messages while an analysis is in flight', async () => {
+    const listeners = new Set<(event: MessageEvent<AnalyzerWorkerMessage>) => void>();
+    const port: WorkerPort = {
+      postMessage: () => {},
+      addEventListener: (_type, listener) => { listeners.add(listener); },
+      removeEventListener: (_type, listener) => { listeners.delete(listener); },
+    };
+    const client = new PresidioWorkerClient(port);
+    const pending = client.analyze('KEEP PRIVATE');
+    for (const listener of listeners) {
+      listener(new MessageEvent('message', { data: { type: 'ready', webGpu: false } }));
+      listener(new MessageEvent('message', { data: { type: 'inference-status', phase: 'scanning', message: 'Running Presidio + GLiNER…' } }));
+      listener(new MessageEvent('message', { data: { type: 'result', requestId: 1, findings: [] } }));
+    }
+    await expect(pending).resolves.toEqual([]);
+    client.dispose();
+  });
+});
+
+describe('expandSemanticOccurrences', () => {
+  it('propagates a GLiNER span to later exact whole-token matches', () => {
+    const text = 'Sarah Connor called. Sarah Connor confirmed.';
+    const expanded = expandSemanticOccurrences(text, [
+      { entityType: 'PERSON', start: 0, end: 12, score: 0.9, source: 'semantic', recognizer: 'GLiNER' },
+    ]);
+    expect(expanded).toHaveLength(2);
+    expect(expanded[1]).toMatchObject({ start: 21, end: 33, entityType: 'PERSON', recognizer: 'GLiNER exact match' });
+    expect(text.slice(expanded[1].start, expanded[1].end)).toBe('Sarah Connor');
   });
 });

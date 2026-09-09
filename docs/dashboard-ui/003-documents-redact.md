@@ -9,43 +9,85 @@
 Author path at `/dashboard/documents/redact` (and redirect `/dashboard/documents`
 here).
 
-1. Paste text or upload a `.txt` (structured text only; no PDF/DOCX this event).
-2. Run `PresidioWorkerClient.analyze` in a dedicated worker from
-   `@soulvault/presidio-adapter`. Pattern/checksum recognizers run immediately;
-   do not block the UI thread.
-3. Present reviewable findings (entity type, offsets, value). Author accepts or
-   rejects each occurrence. Only accepted spans enter encryption.
-4. Call `redactAndEncryptDocument`. Show the redacted artifact (stable slot
-   markers) beside the original.
-5. Download the public JSON bundle via `serializePublicDocumentBundle` (artifact
-   + encrypted slots, **no** `slotKeys`).
-6. Connected author publishes the integrity anchor:
-   `DocumentPublished(docHash, author, slotIds)` on the configured document
-   registry. `docHash` is the protocol document id.
-7. Keep `slotKeys` in memory (or wallet-scoped session storage) for the Grants
-   tab in the next ticket. Never log them, never put them in the bundle.
+**Programmatic source of truth:**
+[`nacmonad/presidio-web-demo`](https://github.com/nacmonad/presidio-web-demo)
+(`src/app/demo/page.tsx`, `src/workers/analyzer.worker.ts`,
+`src/lib/semantic-occurrences.ts`, `src/lib/demo-vault.ts` for
+`normalizeEntityValue` / `indexFindings` only).
 
-Stale worker results must not replace newer analysis (`requestId` already
-handled by the adapter).
+**Not the source of truth:** the demo’s layout, brand, statusbar, GLiNER
+marketing card, four-panel chrome, or vault panel. SoulVault uses
+`apps/web/brand/identity.md`. Do not import demo CSS or `BrandMark`.
+
+The motor is already ported to `@soulvault/presidio-adapter` (see that package
+README). The dashboard **calls the adapter**; it does not reimplement
+`AnalyzerEngine` in a page component.
+
+### Motor to follow (demo → adapter → UI)
+
+| Demo | Adapter | Dashboard must |
+|---|---|---|
+| `new Worker(new URL(..., import.meta.url), { type: "module" })` | `@soulvault/presidio-adapter/worker` | Same construction; pass the worker to `PresidioWorkerClient` |
+| `AnalyzerEngine` + Iban / Phone / CreditCard / Email recognizers | `analyzeText` | Do not fork a second registry in `apps/web` |
+| Pattern/checksum immediate; GLiNER optional and lazy | `semanticFindings?` on `analyze` | Patterns on every scan. GLiNER off by default; if enabled later, caller-controlled and never on the UI thread |
+| Monotonic `requestId`; drop stale `result` | `PresidioWorkerClient` | Ignore stale scans when the author edits and re-scans |
+| `analyzedText.current = text` before postMessage | — | Slice findings against the scanned snapshot, not later textarea edits |
+| `mergeFindings`: validated Presidio wins overlap | `mergeFindings` | Do not re-merge in the page |
+| `expandSemanticOccurrences` after GLiNER | not in adapter yet | If GLiNER is wired, expand in the adapter (not the page) before `indexFindings` |
+| `normalizeEntityValue` (phone digits, email domain) + stable id per `(entityType, normalizedValue)` | `indexFindings` → `slotId` | Use adapter `slotId`. Do **not** use demo `sv_*` vault ids as encryption identity |
+| Replace spans high offset → low | `redactAndEncryptDocument` | Do not hand-roll string splice in the page |
+| File `accept=".txt,.md,.json,.csv,text/*"` | — | Same accept list. No PDF/DOCX |
+| Text never leaves the browser | worker errors must not include source text | No analytics, no upload of plaintext |
+
+### Product delta vs the current demo UI
+
+The demo currently redacts **every** finding into `{{vaultId}}` and keeps
+plaintext in an in-memory vault (`demo-vault.ts`). SoulVault must not.
+
+1. Show reviewable findings (`findingId`, `slotId`, entity type, offsets,
+   value, recognizer, score). Author accepts or rejects per **occurrence**.
+2. Only `acceptedFindingIds` go to `redactAcceptedFindings`.
+3. Public bundle is `serializePublicDocumentBundle` (artifact + encrypted
+   slots, **no** `slotKeys`, **no** `originalValue`).
+4. `slotKeys` stay in memory (or wallet-scoped sessionStorage) for Grants.
+   Never log them.
+
+Then:
+
+5. Show protocol markers (`{{sv:...}}` from the artifact) beside the source
+   snapshot — that is the encrypted artifact, not the demo vault tokens.
+6. Connected author publishes `DocumentPublished(docHash, author, slotIds)`.
+   `docHash === artifact.documentId`.
+7. CTA: “Continue to Grants” with the in-session document selected.
 
 ## Acceptance criteria
 
-- [ ] Analyzing synthetic text yields reviewable findings without a backend.
-- [ ] Rejected findings do not appear as slots in the artifact.
-- [ ] Public bundle JSON contains none of the removed plaintext and no slot
-      keys. A test scans the serialized bundle and captured logs.
-- [ ] Repeated equivalent values share one `slotId` and survive reconstruction
-      with every key (protocol already does this; UI must not re-id slots).
-- [ ] Publish from the connected wallet as `author`. Registry event
-      `slotIds` match the artifact. Wrong wallet cannot publish under someone
-      else’s identity (contract rule; UI should disable publish when
-      disconnected).
-- [ ] `docHash` displayed in the UI equals `artifact.documentId` and the
-      on-chain `DocumentPublished.docHash`.
-- [ ] After publish, `useDocumentEvents` shows the new document without a
-      manual full-page reload if live watching is on.
+- [ ] Worker is a dedicated module worker from
+      `@soulvault/presidio-adapter/worker`, constructed like the demo
+      (`import.meta.url`, `{ type: "module" }`). Analysis does not run on the
+      UI thread.
+- [ ] Recognizer set is the adapter’s (Iban, Phone, CreditCard, Email) — the
+      same set as the demo worker. No page-local `AnalyzerEngine`.
+- [ ] Scanning synthetic text (reuse #12 Alice fixture) yields reviewable
+      findings with stable `slotId` for repeated normalized values and distinct
+      `findingId` per occurrence.
+- [ ] Stale `requestId` results are dropped; a second scan while the first is
+      in flight does not paint old offsets onto new text.
+- [ ] Findings are sliced from the **scanned** text snapshot, not from a
+      textarea that changed after `postMessage`.
+- [ ] Rejected findings do not appear as slots in the artifact; rejected
+      plaintext remains in `artifact.content`.
+- [ ] Public bundle JSON and captured logs contain none of the removed
+      plaintext and no slot keys. `DemoVaultEntry` / demo vault is not imported.
+- [ ] File picker accept list matches the demo: `.txt,.md,.json,.csv,text/*`.
+- [ ] Publish from the connected wallet as `author`. On-chain `slotIds` match
+      the artifact. Publish disabled when disconnected.
+- [ ] `docHash` in the UI equals `artifact.documentId` and
+      `DocumentPublished.docHash`.
+- [ ] Live `useDocumentEvents` shows the new document without a full reload.
+- [ ] No demo layout/CSS/brand in the PR. Brand is SoulVault identity.
 - [ ] Typecheck + `build:export` green. Add `@soulvault/presidio-adapter` to
-      `apps/web` dependencies and `transpilePackages` if needed.
+      `apps/web` dependencies and `transpilePackages`.
 
 ## Blocked by
 
@@ -53,12 +95,13 @@ handled by the adapter).
 
 ## Implementation notes
 
-- Follow `packages/presidio-adapter` and the #8 notes: no React inside the
-  adapter; do not import the demo’s plaintext vault.
-- Synthetic fixture text only in tests (the Alice/Charlie/Mallory strings from
-  the #12 integration test are the canonical source).
-- Overflow/located slots: if the author pastes a large field, the protocol
-  already chooses inline vs locator. The UI does not need a separate overflow
+- Adapter README is the short version of this ticket. If the dashboard needs
+  `expandSemanticOccurrences`, add it to the adapter (port from
+  `presidio-web-demo/src/lib/semantic-occurrences.ts`) — do not paste it into
+  a React file.
+- GLiNER / OPFS installer is **not** this ticket. Patterns are enough for the
+  hack path. The `semanticFindings` argument is the extension point, same as
+  the demo’s `useGliner` flag.
+- Overflow/located slots: protocol chooses inline vs locator. No extra UI
   control in v0; fail closed on unresolved locators.
-- Do not grant in this ticket. CTA at the bottom: “Continue to Grants” linking
-  to `/dashboard/documents/grants` with the in-session document selected.
+- Do not grant in this ticket.

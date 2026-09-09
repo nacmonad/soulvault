@@ -35,7 +35,7 @@ No API routes, no account database.
 | `/dashboard/swarm` | **placeholder** | `useSwarmEvents` (members, pending joins, epoch) |
 | `/dashboard/agents` | **placeholder** | `useAgentEvents` (ERC-8004 uri/metadata); edit `soon` |
 | `/dashboard/events` | live-enough | `useEvents` + kind/tx filter |
-| `/dashboard/documents/redact` | **live** | `PresidioWorkerClient` + `redactAndEncryptDocument` + `DocumentPublished` |
+| `/dashboard/documents/redact` | **live** | Demo **motor** (not look): module worker + adapter `PresidioWorkerClient` / `redactAcceptedFindings` + `DocumentPublished`. See child ticket. |
 | `/dashboard/documents/grants` | **live** | `createSlotKeyGrants` → `SlotKeyGranted` |
 | `/dashboard/documents/rehydrate` | **live** | upload bundle, verify `docHash` vs registry, toggle granted slots via `rehydrateGrantedDocument` |
 
@@ -98,6 +98,14 @@ Inter + IBM Plex Mono). Do not invent a second look.
 - Protocol stays headless. UI calls `@soulvault/protocol` and
   `@soulvault/presidio-adapter`. Slot keys never enter the public bundle, events,
   logs, or error strings.
+- Documents/redact follows
+  [`nacmonad/presidio-web-demo`](https://github.com/nacmonad/presidio-web-demo)
+  **programmatically** (module worker, recognizer set, requestId/stale drop,
+  overlap merge, value normalization, high-to-low replace, file accept list,
+  scan-text snapshot). It does **not** follow the demo aesthetically (no demo
+  layout/CSS/brand/vault panel). The demo’s in-memory plaintext vault is not
+  storage; adapter `slotId` + protocol encryption replace it. Per-occurrence
+  accept/reject is required (the current demo auto-redacts every finding).
 - A delivered READ grant is a permanent capability (spec §3). The UI must not
   offer revoke, expiry, or “un-read” copy.
 - World Selfie Check and Ledger clear-sign are grant/rehydrate *gates*. They are

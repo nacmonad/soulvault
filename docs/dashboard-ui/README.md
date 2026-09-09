@@ -16,7 +16,7 @@ File these on `nacmonad/soulvault` as GitHub issues. Same shape as #5–#12:
 | [000-parent.md](./000-parent.md) | Wallet-native dashboard: org/swarm/agent shell + documents UI | epic |
 | [001-shell.md](./001-shell.md) | Dashboard chrome: wallet session, sidebar, org/swarm context | live |
 | [002-placeholders.md](./002-placeholders.md) | Org / swarm / agents / events as navigable read-only views | placeholder + events |
-| [003-documents-redact.md](./003-documents-redact.md) | Documents → Redact | live |
+| [003-documents-redact.md](./003-documents-redact.md) | Documents → Redact (presidio-web-demo **motor**, not look) | live |
 | [004-documents-grants.md](./004-documents-grants.md) | Documents → Grants | live |
 | [005-documents-rehydrate.md](./005-documents-rehydrate.md) | Documents → Rehydrate | live |
 

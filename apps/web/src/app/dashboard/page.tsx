@@ -26,7 +26,7 @@ const panels = [
   },
   {
     title: "Documents & grants",
-    body: "Prepare redacted artifacts, issue per-field grants to wallets, and revoke them.",
+    body: "Prepare redacted artifacts, issue per-field grants to wallets and share the redacted bundle.",
   },
   {
     title: "Treasury",

@@ -11,6 +11,11 @@ File these on `nacmonad/soulvault` as GitHub issues. Same shape as #5–#12:
 - each child = one mergeable PR
 - `Blocked by` is a hard dependency, not a suggestion
 
+Status (2026-09-09): the create-wizards epic (#009 + treasury/swarm tabs) is
+merged to `main` via PR #21. Ticket 012 §D (DocumentRegistry discovery) has its
+v1 side on `main`: ENSIP-11 fallback in `documentRegistryAddress()` + optional
+`registry` hint on the public bundle. ENSv2 dispatch tracks 015.
+
 | File | Title | Hack status |
 |---|---|---|
 | [000-parent.md](./000-parent.md) | Wallet-native dashboard: org/swarm/agent shell + documents UI | epic |
@@ -25,7 +30,7 @@ File these on `nacmonad/soulvault` as GitHub issues. Same shape as #5–#12:
 | [009-create-flows.md](./009-create-flows.md) | Creation wizards: treasury + swarm from the dashboard | live |
 | [010-browser-rpc-settings.md](./010-browser-rpc-settings.md) | Browser RPC override + rate-limit-safe log fetching | live |
 | [011-ens-native-state.md](./011-ens-native-state.md) | ENS-native state: eliminate `~/.soulvault` as a data layer | epic |
-| [012-ens-deployment-bootstrap.md](./012-ens-deployment-bootstrap.md) | ENS deployment bootstrap: derive deployments from ENS records | draft |
+| [012-ens-deployment-bootstrap.md](./012-ens-deployment-bootstrap.md) | ENS deployment bootstrap: derive deployments from ENS records | draft — §D v1-side on main |
 | [013-ens-write-batching.md](./013-ens-write-batching.md) | ENS write batching: resolver multicall to cut wallet prompts | draft |
 | [014-cli-ens-first-reads.md](./014-cli-ens-first-reads.md) | CLI reads go ENS-first: profiles become caches | draft |
 | [015-ensv2-adoption.md](./015-ensv2-adoption.md) | ENSv2 adoption: agents as namespaces on the beta registry | draft |

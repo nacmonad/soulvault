@@ -8,11 +8,13 @@ import {
   redactAcceptedFindings,
   type ReviewableFinding,
 } from "@soulvault/presidio-adapter";
-import { serializePublicDocumentBundle, type RedactedDocumentResult } from "@soulvault/protocol";
+import { serializePublicDocumentBundle, type DocumentRegistryHint, type RedactedDocumentResult } from "@soulvault/protocol";
+
+import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 
 import { Button } from "@/components/ui/button";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
-import { publishDocument } from "@/lib/document-registry";
+import { publishDocument, resolveDocumentRegistryAddress } from "@/lib/document-registry";
 import { downloadText, saveSessionDocument } from "@/lib/document-session";
 
 const SAMPLE = `Patient Sarah Connor called from +1 415-555-2671.
@@ -57,6 +59,7 @@ export default function DocumentsRedactPage() {
   const [menuPos, setMenuPos] = useState<MenuPos>({ x: 16, y: 16 });
   const [result, setResult] = useState<RedactedDocumentResult | null>(null);
   const [publishTx, setPublishTx] = useState<string | null>(null);
+  const [registryHint, setRegistryHint] = useState<DocumentRegistryHint | undefined>(undefined);
   const [useGliner, setUseGliner] = useState(false);
   const [webGpu, setWebGpu] = useState(false);
   const [model, setModel] = useState({
@@ -274,7 +277,7 @@ export default function DocumentsRedactPage() {
     setDraft(null);
   }
 
-  function encrypt() {
+  async function encrypt() {
     try {
       const encrypted = redactAcceptedFindings({
         text: source,
@@ -283,10 +286,16 @@ export default function DocumentsRedactPage() {
       });
       setResult(encrypted);
       setPublishTx(null);
+      // Attach the (non-authoritative) registry hint so consumers can fall back
+      // to it when ENS/env discovery is unavailable (ticket 012 §D).
+      const { address: registry } = await resolveDocumentRegistryAddress();
+      const config = getBrowserSoulVaultClientConfig();
+      const hint = registry && config ? { chainId: config.chainId, address: registry } : undefined;
+      setRegistryHint(hint);
       saveSessionDocument({
         documentId: encrypted.artifact.documentId,
         slotKeys: encrypted.slotKeys,
-        bundle: serializePublicDocumentBundle(encrypted),
+        bundle: serializePublicDocumentBundle(encrypted, { registry: hint }),
       });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Encrypt failed");
@@ -297,7 +306,7 @@ export default function DocumentsRedactPage() {
     if (!result) return;
     downloadText(
       `${result.artifact.documentId.slice(0, 16)}.soulvault.json`,
-      serializePublicDocumentBundle(result),
+      serializePublicDocumentBundle(result, { registry: registryHint }),
     );
   }
 

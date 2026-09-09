@@ -274,12 +274,15 @@ export async function setAddrMultichain(input: {
   return { txHash, coinType };
 }
 
-/** ENSIP-11 read at the given chain's coinType. Returns null when unset. */
+/** ENSIP-11 read at the given chain's coinType. Returns null when unset.
+ * Pass `client` to read on a specific lane (defaults to the dashboard's
+ * configured Sepolia client — the only ENS lane). */
 export async function getAddrMultichain(input: {
   ensName: string;
   chainId: number;
+  client?: PublicClient;
 }): Promise<Address | null> {
-  const client = publicClient();
+  const client = input.client ?? publicClient();
   const node = namehash(normalize(input.ensName));
   const coinType = coinTypeForChain(input.chainId);
   const bytes = (await client.readContract({

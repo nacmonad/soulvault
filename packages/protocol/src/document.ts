@@ -133,9 +133,19 @@ export type DocumentSlotKey = {
   key: string;
 };
 
+/** Non-authoritative pointer to the DocumentRegistry that anchors the document.
+ * ENS (`addr(soulvault.eth, coinType)`) is the trust anchor; consumers warn on
+ * mismatch between this hint and their resolved address. */
+export type DocumentRegistryHint = {
+  chainId: number;
+  address: string;
+};
+
 export type PublicDocumentBundle = {
   artifact: RedactedDocumentArtifact;
   encryptedSlots: EncryptedDocumentSlot[];
+  /** Optional, non-authoritative discovery hint (see ticket 012 §D). */
+  registry?: DocumentRegistryHint;
 };
 
 export type RedactedDocumentResult = PublicDocumentBundle & {
@@ -270,7 +280,10 @@ export function rehydrateDocument(input: {
   return hydrated;
 }
 
-export function serializePublicDocumentBundle(bundle: PublicDocumentBundle): string {
+export function serializePublicDocumentBundle(
+  bundle: PublicDocumentBundle,
+  options?: { registry?: DocumentRegistryHint },
+): string {
   validateArtifact(bundle.artifact);
   for (const slot of bundle.encryptedSlots) {
     validateEncryptedSlot(slot, bundle.artifact.documentId, slot.slotId);
@@ -278,9 +291,12 @@ export function serializePublicDocumentBundle(bundle: PublicDocumentBundle): str
   // Build the public shape explicitly. Callers may pass a structurally compatible
   // RedactedDocumentResult containing slotKeys; those secrets must never leak
   // through serialization as excess runtime properties.
+  const registry = options?.registry ?? bundle.registry;
+  if (registry) validateRegistryHint(registry);
   return JSON.stringify({
     artifact: bundle.artifact,
     encryptedSlots: bundle.encryptedSlots,
+    ...(registry ? { registry } : {}),
   });
 }
 
@@ -299,7 +315,10 @@ export function parsePublicDocumentBundle(serialized: string): PublicDocumentBun
   validateArtifact(artifact);
   uniqueBySlot(encryptedSlots, 'encrypted slot');
   for (const slot of encryptedSlots) validateEncryptedSlot(slot, artifact.documentId, slot.slotId);
-  return { artifact, encryptedSlots };
+  // Optional hint: ignore absent/malformed values rather than rejecting legacy
+  // or third-party bundles that carry extra fields.
+  const registry = isRecord(parsed.registry) ? tryParseRegistryHint(parsed.registry) : undefined;
+  return registry ? { artifact, encryptedSlots, registry } : { artifact, encryptedSlots };
 }
 
 export function documentSlotAad(documentId: string, slotId: string): Uint8Array {
@@ -417,6 +436,27 @@ function uniqueBySlot<T extends { slotId: string }>(items: T[], description: str
     result.set(item.slotId, item);
   }
   return result;
+}
+
+function validateRegistryHint(hint: DocumentRegistryHint): void {
+  if (
+    !Number.isSafeInteger(hint.chainId) || hint.chainId < 1 ||
+    typeof hint.address !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(hint.address)
+  ) {
+    throw new DocumentProtocolError('INVALID_INPUT', 'Document registry hint has an invalid shape');
+  }
+}
+
+function tryParseRegistryHint(value: Record<string, unknown>): DocumentRegistryHint | undefined {
+  const chainId = value.chainId;
+  const address = value.address;
+  if (
+    typeof chainId !== 'number' || !Number.isSafeInteger(chainId) || chainId < 1 ||
+    typeof address !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(address)
+  ) {
+    return undefined;
+  }
+  return { chainId, address };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -15,7 +15,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
 import { useDocumentEvents } from "@/hooks/useDocumentEvents";
-import { asDocHash, documentRegistryAddress } from "@/lib/document-registry";
+import { useDocumentRegistryAddress } from "@/hooks/useDocumentRegistryAddress";
+import { asDocHash } from "@/lib/document-registry";
 import {
   assertBundleAnchoredOnChain,
   evaluateSelfieProof,
@@ -76,7 +77,7 @@ export default function DocumentsRehydratePage() {
   const [selfieOk, setSelfieOk] = useState(false);
   const [proofText, setProofText] = useState("");
   const config = getBrowserSoulVaultClientConfig();
-  const registry = documentRegistryAddress();
+  const { address: registry } = useDocumentRegistryAddress(bundle);
   const world = getBrowserWorldRehydrateGate();
   const worldBlocking = world.mode === "error" || (world.mode === "required" && !selfieOk);
 

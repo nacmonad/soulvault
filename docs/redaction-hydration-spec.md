@@ -338,16 +338,22 @@ allows only **three prize selections per submission** — final pick:
    policy tier with scoped nullifiers (§3). Requires World ID Sandbox App for
    remote testing plus a feedback document. Keep it a policy tier, never a hard
    requirement, so the Ledger demo survives sandbox issues.
-3. **The Graph** (Continuity AI track): a Subgraph Studio subgraph indexing
-   `DocumentPublished` / `SlotKeyGranted` — turns public event
-   transport into one GraphQL query for the browser UI ("docs granting slot-2
-   to verified humans") and gives agents a live structured source.
-   Requires the document contract on a Studio-supported chain → **deploy the
-   document contract on Sepolia** (see below).
+3. **ENS** (ENSv2 $4,500 / integration $500 — **promoted 2026-09-09, replacing The Graph**):
+   the ENSv2 integration spec (`docs/ensv2-integration-spec.md`, feature/ensv2-integration)
+   makes ENSv2 the config layer itself — custom SoulVault subname registry under the org
+   name, EAC record-level roles (agents self-serve their records, no org-Ledger
+   round-trip), Permissioned Resolvers, epoch-bound expiries, agents-as-namespaces with
+   the ERC-8004 bridge. The documents lane joins via DocumentRegistry discovery on the
+   protocol root name (§7 of that spec). Prizes checked: Best Use of ENSv2 (open) +
+   Best Integration (Continuity).
+4. ~~The Graph (Continuity AI track)~~ — **dropped 2026-09-09**: we are committing to
+   the ENS track instead (three-prize limit; ENSv2 is central to the product direction,
+   a subgraph is additive tooling). The subgraph remains an option post-hackathon for
+   agent-facing structured feeds; browser discovery goes ENS-first (ticket 011 epic).
 
 **Chain placement decision:** the document contract lives on **Sepolia**, not
 0G. Everything in the narrowed scope is already Ethereum-side — ENS discovery,
-ERC-8004 identity, World ID verifier, and now Subgraph Studio indexing — so one
+ERC-8004 identity, World ID verifier, and ENSv2 as the config layer — so one
 chain makes all three picks cheaper and collapses the two-lane demo into one.
 0G Storage keeps its one remaining job (oversized blobs, root hash in the
 event). **Update (2026-09-09): the ops lane itself is Sepolia-only now too** —
@@ -357,11 +363,13 @@ swarm and treasury contracts deploy to Sepolia via `SOULVAULT_RPC_URL` /
 
 **Deliberately not picked:**
 
-- **ENSv2** ($4,500/$500): advertising document redactions on ENS records is
-  the wrong shape — records are public and permanent, linking a wallet's name
-  to its redaction activity forever. Discovery belongs in the subgraph (§10.3),
-  which is queryable without creating identity-linked trails. ENS remains
-  optional naming infrastructure, not a prize target.
+- ~~**ENSv2**~~ — **promoted to pick #3 (2026-09-09)**; the privacy objection below is
+  answered by the documents lane's ENS usage being *infrastructure discovery only*
+  (DocumentRegistry address on the protocol root name, spec §7) — no per-wallet
+  redaction activity is advertised on names. See the ENSv2 integration spec for the
+  privacy posture of the custom registry (owner-approved registration, epoch expiries).
+- **The Graph** (Continuity AI track) — dropped 2026-09-09 in favor of ENS; see pick
+  note above. Revisit post-hackathon if agents need a structured feed.
 - **Hedera** (x402), **Chainlink** (USE), **Bazantic** (recipes/gateways):
   re-enter if/when x402 or USE un-defer (see `TODO_2.md`).
 - **Arc, 1inch, Uniswap Foundation, Privy**: no fit — Privy in particular would

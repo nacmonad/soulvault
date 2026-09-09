@@ -70,6 +70,8 @@ events yet”, etc. Never invent rows.
 ## Blocked by
 
 - Dashboard chrome (shell + `SoulVaultEventsProvider` mount)
+- Real swarm/treasury rows: Sepolia-only ops lane + config guard (007).
+  Until then these views render empty states from the event cache, not errors.
 
 ## Implementation notes
 

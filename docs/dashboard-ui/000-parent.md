@@ -57,6 +57,17 @@ Inter + IBM Plex Mono). Do not invent a second look.
 5. Documents → Rehydrate (blocked by 4)
 6. Browser e2e over Speculos: Alice/Charlie/Mallory + Ledger clear-sign
    (epic exit gate, blocked by 4 + 5)
+7. Sepolia-only ops lane + config guard: redeploy swarm + treasury on
+   Sepolia (ops lane follows `SOULVAULT_RPC_URL`/`SOULVAULT_CHAIN_ID`),
+   retire the 0G swarm, and guard empty/malformed `DEPLOYMENTS` into the
+   config-error state (blocks 002 from showing real swarm data)
+
+**Priority note (2026-09-09):** the project is **Sepolia-only** — swarm,
+treasury, ENS, ERC-8004, and documents share one chain and one watcher.
+Org/swarm/agent discovery (007 → 002 with real data) is the operator
+backfill. Document flow (003–006) stays in progress on this branch;
+`SoulVaultDocumentRegistry` can share the same `DEPLOYMENTS` config once
+deployed.
 
 ## User Stories
 
@@ -125,6 +136,10 @@ Inter + IBM Plex Mono). Do not invent a second look.
 - Grants persist on-chain — wrapped keys ride `SlotKeyGranted` events — and
   the public bundle is downloadable for the Rehydrate input path. Raw slot
   keys never leave the session outside the wrap.
+- The event layer is single-chain (Sepolia): swarm, treasury, identity, and
+  document contracts all live on one lane, watched by one `PublicClient`.
+  The 0G ops lane is retired — it is a config change (`SOULVAULT_RPC_URL` /
+  `SOULVAULT_CHAIN_ID`), not code, if it ever returns. See ticket 007.
 - Documents sub-tabs are real routes, not query-param tabs, so static export and
   deep links work.
 

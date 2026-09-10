@@ -133,6 +133,21 @@ Contracts repo: `ensdomains/contracts-v2` (Foundry remappings per the official t
 
 - **Beta churn:** contracts-v2 addresses may move; pin the commit hash (97a5729) and
   re-verify before demo.
+- **v1-mirror read path (verified 2026-09-10):** for v2 names that are unregistered on
+  v2 (e.g. `soulvault.eth` while owned only in v1), the v2 hierarchy's resolver slot
+  points at an ENSV1Resolver-style mirror (`0xae66…b2ba`, `REGISTRY_V1` = flat v1
+  registry). Its `resolve(bytes,bytes)` is the ONLY supported entry point — direct
+  `text()`/`addr()` calls revert with `require(false)`. However, the v1 chain for such
+  names is also empty (`v1.resolver(soulvault.eth) = 0x0`, root resolver = `0x0`), and
+  v1's `eth` node resolver was repointed at the ENSV2Resolver (`0x508c…56b5`, whose
+  `ETH_RESOLVER` override = `0x6f98…` and REGISTRY_V1 = flat v1 registry) — so both
+  sides bounce into each other and `resolve()` reverts empty for these names. Net:
+  **v1-records reads for v2-unregistered names are genuinely unavailable**, not a
+  client bug. Phase 1 scope holds: text/addr reads via v2 only make sense for names
+  registered on v2 (need Scott-funded test wallet + ETHRegistrar
+  `0xa88553f454b77203b0d036a05c894d555eaaa2cc` registration to prove end-to-end).
+  Confirmed independent: `viem`'s stock `getEnsText`/`getEnsAddress` for
+  `soulvault.eth` on Sepolia also return null (no records exist to find).
 - **Existing org name migration:** `soulvault.eth`-style names registered via the v1
   ETHRegistrar on Sepolia need the v1→v2 migration flow (Graveyard / DNSV1 mirror paths) —
   validate whether a *fresh* v2 registration is simpler for the demo.

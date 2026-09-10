@@ -24,3 +24,10 @@ coverage/
 # Speculos — Ledger app ELFs are proprietary; operator drops them locally
 cli/test/speculos/apps/*.elf
 packages/node/test/speculos/apps/*.elf
+
+# Documents e2e (ticket 006) — local run state, Playwright artifacts
+apps/web/e2e/.state/
+apps/web/e2e/.artifacts/
+apps/web/e2e/playwright.config.local.ts
+packages/dmk-speculos-browser/playwright.config.local.ts
+packages/dmk-speculos-browser/artifacts/

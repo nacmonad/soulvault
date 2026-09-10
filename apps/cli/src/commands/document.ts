@@ -10,6 +10,7 @@ import {
   publishDocumentOnRegistry,
   publishTargetFromBundle,
 } from '@soulvault/node/document-registry';
+import { registerDocumentRehydrationCommands } from './document-rehydration.js';
 
 export function registerDocumentCommands(program: Command) {
   const document = program
@@ -191,4 +192,6 @@ export function registerDocumentCommands(program: Command) {
           `addr(${rootEnsName}, coinType ${announce.coinType}).`,
       );
     });
+
+  registerDocumentRehydrationCommands(document);
 }

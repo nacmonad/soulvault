@@ -84,10 +84,10 @@ export async function resolveOrgEventSources(
 ): Promise<SoulVaultDeployment[]> {
   const watcherChainId = options?.watcherChainId;
   const onWatcherChain = (chainId: number) => watcherChainId === undefined || chainId === watcherChainId;
-  const [treasuries, swarms] = await Promise.all([
-    readOrgTreasuries(orgEnsName).catch(() => []),
-    readOrgSwarms(orgEnsName).catch(() => [] as OrgSwarmEntry[]),
-  ]);
+  // Failures propagate — a transient ENS read error must not masquerade as
+  // "org has no contracts" (that used to silently drop the swarm source from
+  // event discovery while the page's own discovery still listed it).
+  const [treasuries, swarms] = await Promise.all([readOrgTreasuries(orgEnsName), readOrgSwarms(orgEnsName)]);
   const sources = await Promise.all([
     ...treasuries
       .filter((entry) => onWatcherChain(entry.chainId))
@@ -99,17 +99,22 @@ export async function resolveOrgEventSources(
         label: entry.label ?? `${orgEnsName} treasury`,
       })),
     ...swarms
-      .filter(
-        (entry): entry is OrgSwarmEntry & { address: Address; chainId: number } =>
-          entry.address !== null && entry.chainId !== null && onWatcherChain(entry.chainId),
-      )
-      .map(async (entry): Promise<SoulVaultDeployment> => ({
-        address: getAddress(entry.address),
-        kind: "swarm" as const,
-        chainId: entry.chainId,
-        fromBlock: await contractScanStartBlock({ address: getAddress(entry.address), chainId: entry.chainId }),
-        label: entry.label,
-      })),
+      .map(async (entry): Promise<SoulVaultDeployment | null> => {
+        if (entry.address === null || entry.chainId === null) {
+          console.warn(
+            `[ens-discovery] swarm "${entry.label}" is listed on ${orgEnsName} but its addr/soulvault.chainId reads failed — excluded from event discovery`,
+          );
+          return null;
+        }
+        if (!onWatcherChain(entry.chainId)) return null;
+        return {
+          address: getAddress(entry.address),
+          kind: "swarm" as const,
+          chainId: entry.chainId,
+          fromBlock: await contractScanStartBlock({ address: getAddress(entry.address), chainId: entry.chainId }),
+          label: entry.label,
+        };
+      }),
   ]);
-  return sources;
+  return sources.filter((source): source is SoulVaultDeployment => source !== null);
 }

@@ -12,7 +12,7 @@ import type { Address, PublicClient } from "viem";
 import { publicClientForChainId } from "@/lib/chains";
 import { createSoulVaultPublicClient, getBrowserSoulVaultClientConfig } from "./client";
 
-const FROM_BLOCK_CACHE_PREFIX = "soulvault.fromBlock.";
+const FROM_BLOCK_CACHE_PREFIX = "soulvault.fromBlock.v2.";
 /** When neither a hint nor a code search yields a deploy block, scan a recent window. */
 const FALLBACK_SCAN_WINDOW = 1_000_000n;
 
@@ -25,7 +25,8 @@ function clientForChain(chainId: number): PublicClient {
 /**
  * Find the first block where `address` has code via binary search over
  * eth_getCode (~log2(latest) calls). Returns null when the address has no code
- * at latest or the RPC refuses historical reads.
+ * at latest, the RPC refuses historical reads (non-archive), or the search is
+ * defeated by sustained rate-limiting.
  */
 export async function findContractDeployBlock(
   client: PublicClient,
@@ -41,18 +42,29 @@ export async function findContractDeployBlock(
   }
   let lo = 0n;
   let hi = latest;
+  let transientRetries = 0;
   while (lo < hi) {
     const mid = (lo + hi) / 2n;
+    let code: string | null;
     try {
-      const code = await client.getBytecode({ address, blockNumber: mid });
-      if (code && code !== "0x") {
-        hi = mid;
-      } else {
-        lo = mid + 1n;
+      code = (await client.getBytecode({ address, blockNumber: mid })) ?? null;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // A transient rejection (rate limit, hiccup) must not masquerade as
+      // "non-archive RPC" — that used to fall back to a ~1M-block scan window
+      // on a healthy provider. Retry a few times before giving up.
+      if (/rate limit|429|too many|timeout|temporarily/i.test(message) && transientRetries < 4) {
+        transientRetries += 1;
+        await new Promise((resolve) => setTimeout(resolve, 500 * transientRetries));
+        continue;
       }
-    } catch {
       // Historical getCode unavailable (non-archive RPC) — don't guess.
       return null;
+    }
+    if (code && code !== "0x") {
+      hi = mid;
+    } else {
+      lo = mid + 1n;
     }
   }
   return lo;
@@ -86,8 +98,13 @@ export async function contractScanStartBlock(input: {
     fromBlock = await findContractDeployBlock(client, input.address);
   }
   if (fromBlock === null) {
+    // Fallback estimates are NOT cached (under the deploy-block key): on
+    // non-archive RPCs this would pin every future scan to a ~1M-block window
+    // even after switching to an archive provider. Recomputing costs one
+    // getBlockNumber call.
     const latest = await client.getBlockNumber().catch(() => null);
     fromBlock = latest === null ? 0n : latest > FALLBACK_SCAN_WINDOW ? latest - FALLBACK_SCAN_WINDOW : 0n;
+    return fromBlock;
   }
   try {
     window.localStorage.setItem(cacheKey, fromBlock.toString());

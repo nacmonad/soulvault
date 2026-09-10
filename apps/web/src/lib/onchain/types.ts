@@ -52,9 +52,22 @@ export type SlotKeyGrantedEvent = EventMeta & {
   wrap: SecpWrappedKey;
 };
 
+/** A consumer's onchain request for hydration (registry `requestRehydration`).
+ * The tx signature binds `recipient` (msg.sender) to `rehydrationPublicKey`,
+ * so the event is the wallet-attested key binding — the author wraps grants
+ * straight from it, no out-of-band attestation exchange. */
+export type RehydrationRequestedEvent = EventMeta & {
+  eventName: 'RehydrationRequested';
+  docHash: Hex;
+  recipient: Address;
+  /** Uncompressed secp256k1 public key (hex), the grant-wrap target. */
+  rehydrationPublicKey: string;
+};
+
 export type SoulVaultDocumentEvent =
   | DocumentPublishedEvent
-  | SlotKeyGrantedEvent;
+  | SlotKeyGrantedEvent
+  | RehydrationRequestedEvent;
 
 export type SoulVaultEvent = GenericContractEvent | SoulVaultDocumentEvent;
 

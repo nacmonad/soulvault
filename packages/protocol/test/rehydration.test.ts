@@ -5,11 +5,13 @@ import {
   buildRehydrationKeyTypedData,
   bytesToHex,
   createSlotKeyGrants,
+  createSlotKeyGrantsForRecipient,
   ethereumAddressFromPrivateKey,
   hashRehydrationKeyTypedData,
   loadOrCreateRehydrationKey,
   redactAndEncryptDocument,
   rehydrateGrantedDocument,
+  rehydrationKeyFingerprint,
   type SignedRehydrationKeyAttestation,
 } from '../src/index.js';
 
@@ -103,6 +105,73 @@ describe('wallet-attested rehydration keys and selective grants', () => {
       expectedVerifyingContract: expected.expectedVerifyingContract ?? registry,
       now,
     })).toThrow(expect.objectContaining({ code: 'INVALID_ATTESTATION' }));
+  });
+
+  it('builds the same grants from an onchain request as from a verified attestation', async () => {
+    const document = redactAndEncryptDocument({ text: source, spans });
+    const store = new MemoryRehydrationKeyStore();
+    const charlieKey = await loadOrCreateRehydrationKey({ store, keyId: 'charlie' });
+    const charlieWalletKey = secp256k1.utils.randomPrivateKey();
+    const charlieWallet = ethereumAddressFromPrivateKey(bytesToHex(charlieWalletKey));
+    const attestation = signAttestation(charlieWalletKey, charlieKey.publicKey);
+    const attested = createSlotKeyGrants({
+      slotKeys: document.slotKeys,
+      slotIds: ['person-1', 'phone-1'],
+      attestation,
+      expectedChainId: chainId,
+      expectedVerifyingContract: registry,
+      now,
+    });
+    const fromRequest = createSlotKeyGrantsForRecipient({
+      slotKeys: document.slotKeys,
+      slotIds: ['person-1', 'phone-1'],
+      recipient: charlieWallet,
+      recipientPublicKey: charlieKey.publicKey,
+    });
+
+    // Wraps use a fresh ephemeral key per call, so compare semantics: the
+    // request path must hydrate identically to the attestation path.
+    expect(fromRequest.map(({ wrap, ...rest }) => rest)).toEqual(
+      attested.map(({ wrap, ...rest }) => rest),
+    );
+    expect(fromRequest).toHaveLength(attested.length);
+    expect(rehydrationKeyFingerprint(charlieKey.publicKey)).toBe(charlieKey.fingerprint);
+    const hydrated = (grants: typeof fromRequest) => rehydrateGrantedDocument({
+      artifact: document.artifact,
+      encryptedSlots: document.encryptedSlots,
+      grants,
+      recipientWallet: charlieWallet,
+      rehydrationKey: charlieKey,
+    });
+    expect(hydrated(fromRequest)).toBe('Patient TEST PERSON called 555-0100.');
+    expect(hydrated(attested)).toBe(hydrated(fromRequest));
+  });
+
+  it('rejects malformed recipients and public keys on the request path', async () => {
+    const document = redactAndEncryptDocument({ text: source, spans });
+    const key = await loadOrCreateRehydrationKey({ store: new MemoryRehydrationKeyStore() });
+    const wallet = ethereumAddressFromPrivateKey(bytesToHex(secp256k1.utils.randomPrivateKey()));
+
+    expect(() => createSlotKeyGrantsForRecipient({
+      slotKeys: document.slotKeys,
+      slotIds: ['person-1'],
+      recipient: 'not-an-address',
+      recipientPublicKey: key.publicKey,
+    })).toThrow(expect.objectContaining({ code: 'INVALID_INPUT' }));
+
+    expect(() => createSlotKeyGrantsForRecipient({
+      slotKeys: document.slotKeys,
+      slotIds: ['person-1'],
+      recipient: wallet,
+      recipientPublicKey: '0x1234',
+    })).toThrow(expect.objectContaining({ code: 'INVALID_INPUT' }));
+
+    expect(() => createSlotKeyGrantsForRecipient({
+      slotKeys: document.slotKeys,
+      slotIds: ['unknown-slot'],
+      recipient: wallet,
+      recipientPublicKey: key.publicKey,
+    })).toThrow(expect.objectContaining({ code: 'MISSING_SLOT' }));
   });
 
   it('rejects wrong-wallet, wrong-key, and tampered signatures', async () => {

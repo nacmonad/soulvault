@@ -27,7 +27,10 @@ export function CopyableAddress({
         type="button"
         title="Copy address"
         className="font-mono text-sm hover:underline"
-        onClick={() => {
+        onClick={(event) => {
+          // Don't trigger a clickable ancestor (e.g. a selectable row) — copy
+          // is its own affordance.
+          event.stopPropagation();
           void navigator.clipboard.writeText(address).catch(() => undefined);
           setCopied(true);
           setTimeout(() => setCopied(false), 1200);

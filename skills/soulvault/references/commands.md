@@ -690,6 +690,11 @@ swarm membership. On-chain events are the transport:
 
 - `DocumentPublished(docHash, author, slotIds)` — integrity anchor; docHash =
   `artifact.documentId`, never the document itself.
+- `RehydrationRequested(docHash, recipient, rehydrationPublicKey)` — a consumer's
+  onchain hydration request: the request tx signature binds msg.sender to the
+  rehydration public key, so the author's client wraps grants straight from the
+  event (no pasted attestation JSON). Key rotation = re-request with a fresh key;
+  the author grants against the latest request per recipient.
 - `SlotKeyGranted(docHash, slotId, recipient, wrappedKey, ...)` — the grant event IS
   the key delivery (wrapped slot keys, `secp256k1-ecdh-aes-256-gcm`). No revocation.
 
@@ -767,6 +772,124 @@ Example — publish straight from a downloaded bundle:
 
 ```bash
 pnpm soulvault document publish --bundle c9cde9591206cac5.soulvault.json
+Prints `{registry, docHash, slotIds, txHash, blockNumber}`.
+
+### `soulvault document rehydration-key`
+Print (or create) the **local rehydration key** for the active signer — persisted at
+`~/.soulvault/keys/rehydration-<keyId>.json` (0600) and reused across restarts. The
+public key + fingerprint are safe to share; this is what authors wrap grants to.
+```
+--key-id <id>     Rehydration key slot (default: "default")
+--replace-key     Generate a FRESH key (key-loss recovery only — grants wrapped to
+                  the old key will no longer unwrap; fail closed)
+--json            Machine-readable JSON {keyId, publicKey, fingerprint}
 ```
 
-Prints `{registry, docHash, slotIds, txHash, blockNumber}`.
+### `soulvault document request-rehydrate`
+**Recipient side.** Ask for hydration of a published document:
+`requestRehydration(docHash, rehydrationPublicKey)` from the active signer. The tx
+signature binds `msg.sender` to the rehydration public key — the `RehydrationRequested`
+event is the wallet-attested key binding, so no EIP-712 attestation file is needed on
+this path. Idempotent-ish: re-running re-announces the same key (fine); use
+`--replace-key` only for key-loss recovery.
+```
+--doc-hash <hash>       32-byte document hash (the bundle artifact.documentId) (required)
+--registry <addr>       Registry address (default: ENS discovery on the protocol root name)
+--root-ens-name <name>  Protocol root ENS name (default: active org's ensName)
+--chain-id <id>         Chain (default: 11155111)
+--key-id <id>           Rehydration key slot (default: "default")
+--replace-key           Fresh key (key-loss recovery only)
+```
+Prints `{registry, docHash, recipient, rehydrationPublicKey, rehydrationKeyFingerprint,
+txHash, blockNumber}`.
+
+### `soulvault document requests`
+**Author side (read-only).** List `RehydrationRequested` events — who wants hydration
+and the public key to wrap to. No wallet prompt.
+```
+--doc-hash <hash>       Filter to one document
+--recipient <addr>      Filter to one recipient wallet
+--registry <addr>       Registry address (default: ENS discovery)
+--root-ens-name <name>  Protocol root ENS name (default: active org's ensName)
+--chain-id <id>         Chain (default: 11155111)
+--from-block <n>        Scan start (default: recent window — public RPCs reject
+                        unbounded historic scans)
+--json                  Machine-readable JSON
+```
+
+### `soulvault document grants`
+Read `SlotKeyGranted` events — the permanent capability log (spec §3: no revoke, no
+expiry in v0). Recipients check what they can unwrap; authors audit deliveries.
+```
+--doc-hash <hash>       Filter to one document
+--recipient <addr>      Filter to one recipient wallet
+--slot-id <id>          Filter to one slot
+--registry <addr>       Registry address (default: ENS discovery)
+--root-ens-name <name>  Protocol root ENS name (default: active org's ensName)
+--chain-id <id>         Chain (default: 11155111)
+--from-block <n>        Scan start (default: recent window)
+--json                  Machine-readable JSON
+```
+
+### `soulvault document grant`
+**Author side.** Wrap slot keys to the recipient's rehydration public key and deliver
+via `grantSlotKey` — one tx per slot (the v0 contract shape; signing costs dominate,
+keep lists short). By default the recipient's pubkey is read from their latest
+`RehydrationRequested` event; pass `--recipient-public-key` to override. Requires the
+**in-session slot keys** from the redact run: pass `--session` (a JSON export of the
+redact page's `{slotKeys: [{slotId, key}…]}`) or explicit `--slot-key slotId=hex`
+pairs. **Only the publishing author can grant** (contract-enforced). Grants are
+permanent once delivered — double-check the slot list before signing.
+```
+--doc-hash <hash>             32-byte document hash (required)
+--recipient <addr>            Recipient wallet = the requester (required)
+--slot-id <id...>             Slots to grant (repeatable; defaults to all provided keys)
+--slot-key <slotId=hex...>    Explicit slot keys (repeatable)
+--session <path>              JSON file with {"slotKeys":[{"slotId","key"}…]}
+--recipient-public-key <hex>  Recipient rehydration public key (default: from their
+                              RehydrationRequested event)
+--registry <addr>             Registry address (default: ENS discovery)
+--root-ens-name <name>        Protocol root ENS name
+--chain-id <id>               Chain (default: 11155111)
+```
+**Session-key warning:** slot keys are minted fresh per redact run and live only in
+the redacting tab's `sessionStorage` (dashboard). Grants made from a session whose
+bundle was never exported are undecryptable orphans — export the bundle and the slot
+keys **from the same run** before granting.
+
+### `soulvault document rehydrate`
+**Recipient side.** Rehydrate a public document bundle from onchain grants: pulls
+`SlotKeyGranted` events for the wallet, unwraps each with the local rehydration key,
+and substitutes the granted slots. **Partial by design** — ungranted slots keep their
+`{{sv:…}}` markers (selective disclosure). This is the terminal step of the
+publish → request → grant → rehydrate loop.
+```
+--bundle <path>         Public document bundle JSON file (*.soulvault-*.json) (required)
+--doc-hash <hash>       Filter grants to one document (default: any)
+--recipient <addr>      Recipient wallet (default: active signer address)
+--registry <addr>       Registry address (default: ENS discovery)
+--root-ens-name <name>  Protocol root ENS name
+--chain-id <id>         Chain (default: 11155111)
+--key-id <id>           Rehydration key slot (default: "default")
+--from-block <n>        Scan start for grant events (default: recent window)
+--json                  Emit the full result {registry, recipient, grantedSlotIds, document}
+```
+Example — the full loop as two agents (author = `soulvault.eth` owner, recipient =
+Charlie):
+
+```bash
+# recipient (Charlie) — once, then reuse across restarts:
+soulvault document rehydration-key                       # print/share the pubkey
+soulvault document request-rehydrate --doc-hash 0xc9cd…   # onchain request
+
+# author — after redact + publish (same session as the bundle!):
+soulvault document requests                              # see who's waiting
+soulvault document grant --doc-hash 0xc9cd… \
+  --recipient 0xdC48… \
+  --session redact-session.json --slot-id pii-email-address-1jtoanl
+
+# recipient — reveal granted slots only:
+soulvault document rehydrate --bundle c9cde959…soulvault.json
+```
+Prints the rehydrated document with granted slots in plaintext and ungranted slots as
+`{{sv:…}}` markers.

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { isAddressEqual, type Address, type Hex } from "viem";
-import { createSlotKeyGrants, parsePublicDocumentBundle } from "@soulvault/protocol";
+import { createSlotKeyGrants, createSlotKeyGrantsForRecipient, parsePublicDocumentBundle } from "@soulvault/protocol";
 
 import { Button } from "@/components/ui/button";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
@@ -13,8 +13,11 @@ import { grantSlotKey } from "@/lib/document-registry";
 import { useDocumentRegistryAddress } from "@/hooks/useDocumentRegistryAddress";
 import {
   assertRecipientMatchesAttestation,
+  latestRehydrationRequests,
   parsePastedAttestation,
+  pendingRehydrationRequests,
   slotsFromPublicBundle,
+  type PendingRehydrationRequest,
 } from "@/lib/document-grants";
 import { currentSessionDocumentId, downloadText, loadSessionDocument } from "@/lib/document-session";
 import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
@@ -24,6 +27,10 @@ export default function DocumentsGrantsPage() {
   const { address, connector, sendTransaction } = useSoulVaultWallet();
   const { documents, status, refresh } = useDocumentEvents();
   const { events } = useEvents({ kinds: ["document"] });
+  const docEvents = useMemo(
+    () => events.map(parseDocumentEvent).filter((e) => e !== null),
+    [events],
+  );
   const authored = useMemo(() => {
     if (!address) return [];
     return [...documents.documents.values()].filter((doc) => isAddressEqual(doc.author, address));
@@ -70,6 +77,14 @@ export default function DocumentsGrantsPage() {
       })
     : [];
 
+  const requests = selectedDoc
+    ? latestRehydrationRequests(docEvents, selectedDoc.docHash)
+    : [];
+  const pendingAcrossDocs = useMemo(
+    () => pendingRehydrationRequests(docEvents, authored.map((doc) => doc.docHash)),
+    [docEvents, authored],
+  );
+
   async function sendGrants() {
     if (!selectedDoc || !address || !config || !registry) return;
     if (!isAuthor) {
@@ -92,6 +107,48 @@ export default function DocumentsGrantsPage() {
         expectedChainId: config.chainId,
         expectedVerifyingContract: registry,
         now: BigInt(Math.floor(Date.now() / 1000)),
+      });
+      setBusy(true);
+      const hashes: string[] = [];
+      for (const grant of grants) {
+        hashes.push(
+          await grantSlotKey({
+            from: address,
+            documentId: selectedDoc.docHash,
+            slotId: grant.slotId,
+            recipient: grant.recipient as Address,
+            wrap: grant.wrap,
+            send: sendTransaction,
+          }),
+        );
+      }
+      setTxs(hashes);
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Grant failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function grantToRequest(request: PendingRehydrationRequest) {
+    if (!selectedDoc || !address || !config || !registry) return;
+    if (!isAuthor) {
+      setError("Only the publishing author can grant slots.");
+      return;
+    }
+    const keys = session?.slotKeys;
+    if (!keys) {
+      setError("No in-session slot keys. Re-run Redact in this browser, then grant. v0 cannot re-grant after reload.");
+      return;
+    }
+    setError(null);
+    try {
+      const grants = createSlotKeyGrantsForRecipient({
+        slotKeys: keys,
+        slotIds: [...selected],
+        recipient: request.recipient,
+        recipientPublicKey: request.rehydrationPublicKey,
       });
       setBusy(true);
       const hashes: string[] = [];
@@ -148,6 +205,34 @@ export default function DocumentsGrantsPage() {
       {status === "error" ? <p className="mt-3 text-sm text-destructive">Event config missing or scan failed.</p> : null}
       {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
 
+      {pendingAcrossDocs.length > 0 ? (
+        <div className="mt-4 border border-amber-600/40 bg-amber-50 p-4 dark:border-amber-400/40 dark:bg-amber-950/30">
+          <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
+            {pendingAcrossDocs.length} pending rehydration request{pendingAcrossDocs.length === 1 ? "" : "s"}
+          </p>
+          <ul className="mt-2">
+            {pendingAcrossDocs.map((request) => (
+              <li key={`${request.docHash}:${request.recipient}:${request.txHash}:${request.logIndex}`}>
+                <button
+                  type="button"
+                  className="font-mono text-xs text-amber-700 underline decoration-dotted dark:text-amber-300"
+                  onClick={() => {
+                    setDocHash(request.docHash as Hex);
+                    const doc = authored.find((d) => d.docHash.toLowerCase() === request.docHash.toLowerCase());
+                    setSelected(new Set(doc?.slotIds ?? []));
+                  }}
+                >
+                  {request.docHash.slice(0, 14)}… · {shortAddress(request.recipient)} · block {request.blockNumber}
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-amber-600/80 dark:text-amber-400/80">
+            Click a request to select that document and grant. Requests stay listed until at least one slot grant reaches the recipient.
+          </p>
+        </div>
+      ) : null}
+
       {authored.length === 0 ? (
         <p className="mt-8 text-sm text-muted-foreground">No documents published by this wallet yet.</p>
       ) : (
@@ -198,25 +283,75 @@ export default function DocumentsGrantsPage() {
               );
             })}
           </ul>
-          <label className="mt-4 block text-xs text-muted-foreground">
-            Recipient wallet
-            <input
-              value={recipient}
-              onChange={(event) => setRecipient(event.target.value)}
-              placeholder="0x… (optional if the attestation already names them)"
-              className="mt-1 block h-8 w-full border border-border bg-card px-2 font-mono text-xs outline-none focus:border-ring"
-            />
-          </label>
-          <label className="mt-4 block text-xs text-muted-foreground">
-            Recipient attestation JSON
-            <textarea
-              value={attestationText}
-              onChange={(event) => setAttestationText(event.target.value)}
-              className="mt-1 min-h-32 w-full border border-border bg-card p-3 font-mono text-xs outline-none focus:border-ring"
-            />
-          </label>
-          <div className="mt-4 flex flex-wrap gap-2">
+          <h2 className="mt-8 text-sm font-semibold">Rehydration requests</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Consumers request on-chain from the Rehydrate tab — the request tx
+            binds their wallet to their rehydration key. Select slots above,
+            then grant to a request. One tx per slot.
+          </p>
+          {requests.length === 0 ? (
+            <p className="mt-2 text-sm text-muted-foreground">No requests in the event cache yet.</p>
+          ) : (
+            <ul className="mt-2 border border-border">
+              {requests.map((request) => {
+                const grantedCount = delivered.filter(
+                  (grant) => grant.recipient.toLowerCase() === request.recipient.toLowerCase(),
+                ).length;
+                return (
+                  <li
+                    key={`${request.recipient}:${request.txHash}:${request.logIndex}`}
+                    className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-2 last:border-b-0"
+                  >
+                    <span className="font-mono text-xs">{shortAddress(request.recipient)}</span>
+                    <span className="font-mono text-xs text-muted-foreground">
+                      key {request.rehydrationPublicKey.slice(0, 10)}…
+                    </span>
+                    <span className="text-xs text-muted-foreground">block {request.blockNumber}</span>
+                    {grantedCount > 0 ? (
+                      <span className="chip">{grantedCount} granted</span>
+                    ) : null}
+                    <span className="ml-auto" />
+                    <Button
+                      size="sm"
+                      disabled={busy || !isAuthor || selected.size === 0 || !session}
+                      onClick={() => void grantToRequest(request)}
+                    >
+                      {busy ? "Granting…" : `Grant ${selected.size} slot${selected.size === 1 ? "" : "s"}`}
+                    </Button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          <details className="mt-6 border border-border bg-card p-4">
+            <summary className="cursor-pointer text-sm font-medium">
+              Manual attestation (paste recipient JSON)
+            </summary>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Fallback for recipients who have not requested on-chain: paste the
+              signed rehydration-key attestation they copied from their Rehydrate
+              tab.
+            </p>
+            <label className="mt-4 block text-xs text-muted-foreground">
+              Recipient wallet
+              <input
+                value={recipient}
+                onChange={(event) => setRecipient(event.target.value)}
+                placeholder="0x… (optional if the attestation already names them)"
+                className="mt-1 block h-8 w-full border border-border bg-background px-2 font-mono text-xs outline-none focus:border-ring"
+              />
+            </label>
+            <label className="mt-4 block text-xs text-muted-foreground">
+              Recipient attestation JSON
+              <textarea
+                value={attestationText}
+                onChange={(event) => setAttestationText(event.target.value)}
+                className="mt-1 min-h-32 w-full border border-border bg-background p-3 font-mono text-xs outline-none focus:border-ring"
+              />
+            </label>
             <Button
+              className="mt-4"
               onClick={() => void sendGrants()}
               disabled={busy || !isAuthor || selected.size === 0 || !attestationText}
             >
@@ -228,6 +363,8 @@ export default function DocumentsGrantsPage() {
                   ? "Grant selected slots on Ledger"
                   : "Grant selected slots"}
             </Button>
+          </details>
+          <div className="mt-4 flex flex-wrap gap-2">
             <Button variant="outline" onClick={downloadBundle} disabled={!selectedDoc}>
               Download bundle
             </Button>

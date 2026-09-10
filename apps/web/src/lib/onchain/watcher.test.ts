@@ -288,6 +288,50 @@ describe('scanHistory bounds', () => {
     expect(events).toHaveLength(1);
     expect(events[0].blockNumber).toBe(39_999n);
   });
+
+  it('shrinks getLogs ranges when the provider caps them (Infura-style 10_000)', async () => {
+    const log = makeRawLog({ kind: 'document', address: DOC_ADDRESS, eventName: 'DocumentPublished', args: { docHash: DOC_HASH, author: ALICE, slotIds: [] }, blockNumber: 21_000n, logIndex: 0 });
+    const base = mockClient([log], 25_000n);
+    const getLogs = vi.fn(async (args: { address: Address; fromBlock: bigint; toBlock: bigint | 'latest' }) => {
+      if (args.toBlock !== 'latest' && args.toBlock - args.fromBlock >= 10_000n) {
+        throw new Error(`Invalid parameters were provided to the RPC method. Details: range ${args.toBlock - args.fromBlock + 1n} exceeds limit of 10000`);
+      }
+      return base.getLogs(args);
+    });
+    const client = { getLogs, getBlockNumber: base.getBlockNumber } as unknown as PublicClient;
+    const watcher = new SoulVaultEventWatcher({
+      publicClient: client,
+      sources: [{ address: DOC_ADDRESS, kind: 'document', fromBlock: 0n }],
+    });
+
+    const events = await watcher.scanHistory();
+    expect(events).toHaveLength(1);
+    expect(events[0].blockNumber).toBe(21_000n);
+
+    // First call probes at the default 40_000 width (clamped to head), then
+    // the scan continues in ≤10_000 slices — no retry loop, no data loss.
+    const calls = getLogs.mock.calls.map((c) => c[0]);
+    expect(calls[0].fromBlock).toBe(0n);
+    expect(calls[0].toBlock).toBe(25_000n);
+    for (const { fromBlock: from, toBlock: to } of calls.slice(1)) {
+      expect(to).not.toBe('latest');
+      expect(to as bigint - from).toBeLessThan(10_000n);
+    }
+    expect(calls[calls.length - 1].toBlock).toBe(25_000n);
+  });
+
+  it('rethrows errors that are neither rate-limit nor a parseable range cap', async () => {
+    const getLogs = vi.fn(async () => {
+      throw new Error('execution reverted');
+    });
+    const client = { getLogs, getBlockNumber: async () => 100n } as unknown as PublicClient;
+    const watcher = new SoulVaultEventWatcher({
+      publicClient: client,
+      sources: [{ address: DOC_ADDRESS, kind: 'document', fromBlock: 0n }],
+    });
+    await expect(watcher.scanHistory()).rejects.toThrow('execution');
+    expect(getLogs).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('zero sources', () => {

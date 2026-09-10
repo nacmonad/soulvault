@@ -25,19 +25,48 @@ export type SoulVaultActivity = {
 /** Public-node eth_getLogs block-range cap (publicnode = 50_000; keep headroom). */
 export const GET_LOGS_MAX_RANGE = 40_000n;
 
-const CHUNK_PACE_MS = 250;
+const CHUNK_PACE_MS = 100;
+/** Concurrent getLogs slice fetches. Public providers tolerate a small burst;
+ * 429s are absorbed by the per-chunk backoff and (with a multi-provider list)
+ * by failover. Sequential fetching made a ~1M-block source take minutes. */
+const CHUNK_CONCURRENCY = 3;
 const RATE_LIMIT_RETRIES = 3;
-const RATE_LIMIT_PATTERN = /rate limit|429|too many|exceed.*limit/i;
+const RATE_LIMIT_PATTERN = /rate limit|429|too many/i;
+
+/** Providers announce their getLogs range cap in the error text — Infura:
+ * "range 1082183 exceeds limit of 10000"; others phrase it "limited to N".
+ * These are deterministic: retrying the same range never helps, shrinking does. */
+const RANGE_LIMIT_PATTERNS = [/exceeds limit of (\d+)/i, /limit(?:ed)? to (\d+)/i];
+
+/** Learned per-client range caps — a provider's cap is stable, so once a client
+ * reveals it, later scans skip the failed-probe cost. WeakMap so per-test mock
+ * clients (and discarded clients) neither share nor leak the learned value. */
+const learnedRangeByClient = new WeakMap<object, bigint>();
+
+export function parseGetLogsRangeLimit(error: unknown): bigint | null {
+  const message = error instanceof Error ? error.message : String(error);
+  for (const pattern of RANGE_LIMIT_PATTERNS) {
+    const match = pattern.exec(message);
+    if (match) {
+      const limit = BigInt(match[1]);
+      if (limit > 0n) return limit;
+    }
+  }
+  return null;
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
- * Public RPCs commonly cap eth_getLogs block ranges (publicnode: 50_000) and
- * rate-limit request bursts. Fetch in bounded slices with pacing between
- * chunks, retrying rate-limited slices with exponential backoff. Tolerates
- * clients without getBlockNumber by falling back to a single unchunked call.
+ * Public RPCs commonly cap eth_getLogs block ranges (publicnode: 50_000,
+ * Infura: 10_000) and rate-limit request bursts. Fetch in bounded slices with
+ * bounded concurrency and pacing, retrying rate-limited slices with
+ * exponential backoff. When a provider rejects a slice for exceeding its range
+ * cap, the cap is learned (per client) and the scan is rebuilt at that width.
+ * Tolerates clients without getBlockNumber by falling back to a single
+ * unchunked call.
  */
 export async function getLogsChunked(
   client: Pick<PublicClient, 'getLogs' | 'getBlockNumber'>,
@@ -52,15 +81,41 @@ export async function getLogsChunked(
     }
   }
   if (target < input.fromBlock) return [];
-  const chunks: Log[] = [];
-  for (let start = input.fromBlock; start <= target; start += GET_LOGS_MAX_RANGE) {
-    if (start !== input.fromBlock) await sleep(CHUNK_PACE_MS);
-    const end = start + GET_LOGS_MAX_RANGE - BigInt(1) > target
-      ? target
-      : start + GET_LOGS_MAX_RANGE - BigInt(1);
-    chunks.push(...(await fetchChunkWithRetry(client, { address: input.address, fromBlock: start, toBlock: end })));
+  let range = learnedRangeByClient.get(client) ?? GET_LOGS_MAX_RANGE;
+  for (;;) {
+    const chunks: Array<{ address: Address; fromBlock: bigint; toBlock: bigint }> = [];
+    for (let start = input.fromBlock; start <= target; start += range) {
+      const end = start + range - BigInt(1) > target ? target : start + range - BigInt(1);
+      chunks.push({ address: input.address, fromBlock: start, toBlock: end });
+    }
+    try {
+      return await fetchChunksWithConcurrency(client, chunks);
+    } catch (error) {
+      const limit = parseGetLogsRangeLimit(error);
+      if (limit === null || limit >= range) throw error;
+      // Cap revealed — rebuild the whole scan at the narrower width.
+      range = limit;
+      learnedRangeByClient.set(client, limit);
+    }
   }
-  return chunks;
+}
+
+async function fetchChunksWithConcurrency(
+  client: Pick<PublicClient, 'getLogs'>,
+  chunks: Array<{ address: Address; fromBlock: bigint; toBlock: bigint }>,
+): Promise<Log[]> {
+  const results: Log[][] = new Array(chunks.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(CHUNK_CONCURRENCY, chunks.length) }, async () => {
+    for (;;) {
+      const index = next++;
+      if (index >= chunks.length) return;
+      if (index > 0) await sleep(CHUNK_PACE_MS);
+      results[index] = await fetchChunkWithRetry(client, chunks[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results.flat();
 }
 
 async function fetchChunkWithRetry(
@@ -71,6 +126,9 @@ async function fetchChunkWithRetry(
     try {
       return await client.getLogs(input);
     } catch (error) {
+      // Range-cap errors are deterministic — the caller shrinks and retries;
+      // burning backoff retries on them only delays the recovery.
+      if (parseGetLogsRangeLimit(error) !== null) throw error;
       const message = error instanceof Error ? error.message : String(error);
       if (attempt >= RATE_LIMIT_RETRIES || !RATE_LIMIT_PATTERN.test(message)) throw error;
       await sleep(1000 * 2 ** attempt);

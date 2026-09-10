@@ -228,6 +228,30 @@ Treasury owner drained value from the treasury. Informational for off-chain moni
 
 ---
 
+## Document Event Catalog
+
+Emitted by `SoulVaultDocumentRegistry` — a global per-chain singleton on the identity lane (Sepolia), discovered via ENSIP-11 `addr(rootName, coinType(chainId))` on the protocol root ENS name. These events are the redact → grant → rehydrate transport (docs/redaction-hydration-spec.md): the chain carries docHashes, slot lists, and wrapped keys — never ciphertexts. Dashboard consumers listen through the same watcher (`kind: 'document'` sources).
+
+| Event | Emitted By | Key Fields |
+|-------|-----------|------------|
+| `DocumentPublished` | `publishDocument` | docHash, author, slotIds |
+| `RehydrationRequested` | `requestRehydration` | docHash, recipient (msg.sender), rehydrationPublicKey |
+| `SlotKeyGranted` | `grantSlotKey` | docHash, slotId, recipient, wrappedKey, algorithm, ephemeralPublicKey, nonce |
+
+### `DocumentPublished`
+
+Integrity anchor and grant-authority anchor: the first publisher of a docHash is its author of record permanently — only that address may grant slots for it. Republishing your own docHash is idempotent.
+
+### `RehydrationRequested`
+
+A consumer asked for hydration of a published document. The tx signature binds `recipient` (msg.sender) to `rehydrationPublicKey` — the event is the wallet-attested key binding, so the author's client wraps slot keys straight from it with no out-of-band attestation exchange. Re-requesting with a fresh key is the key-loss recovery story: the author grants against the latest request per recipient. Requests for unpublished docHashes revert (`NotPublished`).
+
+### `SlotKeyGranted`
+
+The grant event IS the key delivery: the wrapped slot key (`secp256k1-ecdh-aes-256-gcm`, fields map 1:1 onto `SecpWrappedKey`) rides in the event. A delivered READ grant is a permanent capability — there is no revocation and no expiry; the author's controls are the file lane and rotate-and-republish.
+
+---
+
 ## Watcher Patterns
 
 ### Basic event monitoring

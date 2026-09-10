@@ -3,6 +3,7 @@ import { createJsonRpcProvider } from './provider.js';
 import { namehash, normalize } from 'viem/ens';
 import { loadEnv } from './config.js';
 import { createSignerForProvider } from './signer.js';
+import { isEnsV2Enabled, readEnsV2NameState, getEnsV2ResolverAddress, ENSV2_RESOLVER_ABI } from './ensv2.js';
 
 const ENS_REGISTRY_ABI = [
   'function owner(bytes32 node) view returns (address)',
@@ -114,6 +115,14 @@ export function normalizeEnsName(name: string) {
 export async function readEnsNodeOwner(name: string) {
   const fullName = normalizeEnsName(name);
   const node = namehash(fullName);
+  // ENSv2 dispatch: ownership is ERC-1155 token ownership on the Permissioned
+  // Registry (latestOwnerOf), not a v1 registry mapping. Returns the same shape;
+  // unregistered names yield a zero owner like v1.
+  if (isEnsV2Enabled()) {
+    const state = await readEnsV2NameState(fullName);
+    if (!state) return { fullName, node, owner: ZeroAddress };
+    return { fullName, node, owner: state.latestOwner };
+  }
   const registry = await getEnsRegistry(false);
   const owner = await registry.owner(node);
   return { fullName, node, owner: String(owner) };
@@ -150,6 +159,16 @@ export async function setEnsResolver(ensName: string) {
 /** Read a single text record via the name's current resolver. */
 export async function readEnsText(ensName: string, key: string) {
   const { node } = await readEnsNodeOwner(ensName);
+  // ENSv2 dispatch: resolve the per-label resolver from the v2 hierarchy and read
+  // there. The record ABI (text/addr) is unchanged from v1.
+  if (isEnsV2Enabled()) {
+    const resolverAddress = await getEnsV2ResolverAddress(ensName);
+    if (!resolverAddress) return '';
+    const provider = await createEnsProvider();
+    const resolver = new Contract(resolverAddress, ENSV2_RESOLVER_ABI, provider);
+    const value = await resolver.text(node, key);
+    return String(value ?? '');
+  }
   const registry = await getEnsRegistry(false);
   const resolverAddress = await registry.resolver(node);
   const resolverStr = String(resolverAddress);

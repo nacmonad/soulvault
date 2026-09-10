@@ -9,3 +9,7 @@
 
 # Gitleaks generic-api-key FP: algorithm-name string in docs (not a secret).
 skills/soulvault/references/commands.md:generic-api-key:694
+
+# Gitleaks generic-api-key FP: fabricated test-vector pubkey in the
+# DocumentRegistry unit test (not a real key).
+test/SoulVaultDocumentRegistry.t.sol:generic-api-key:33

@@ -278,6 +278,21 @@ wallet-attested browser keypair**, not an ephemeral session key:
    key, decrypts the slot ciphertext (AAD-bound to docHash/slotId), splices the
    plaintext into the redacted artifact. Plaintext exists only in his tab.
 
+**Onchain request path (v1) — the attestation rides the chain.** Step 1's
+attestation JSON no longer travels out-of-band: Charlie posts
+`requestRehydration(docHash, rehydrationPublicKey)` to the registry, and the
+**request tx signature** does the attestation work — `msg.sender` on the
+`RehydrationRequested(docHash, recipient, rehydrationPublicKey)` event is
+tx-authenticated exactly like the author's publish/grant txs ("the onchain
+record already carries 'Charlie said so'"). Alice's Grants view reads the
+latest request per recipient from the event log and wraps against it
+(`createSlotKeyGrantsForRecipient` — the chain is the attestation). This makes
+the loop: publish → request → grant → rehydrate, all event-driven, no manual
+key exchange. The EIP-712 paste flow remains as a fallback for authors not
+watching onchain requests; requests require the docHash to be published
+(`NotPublished` reverts) and re-requesting with a fresh key is the key-loss
+recovery story.
+
 Key-loss story: lost browser storage = lost keypair = grant re-issued wrapped to
 the newly attested key. There is no revocation: a delivered wrapped key is a
 permanent capability (§3) — Alice's control lives entirely in the file lane and

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { clearRpcUrlOverride, getRpcUrlOverride, setRpcUrlOverride } from "./rpc-settings";
+import { clearRpcUrlOverride, getRpcUrlOverride, parseRpcUrlList, setRpcUrlOverride } from "./rpc-settings";
 
 // Minimal localStorage over a Map — jsdom is not configured for this project.
 const store = new Map<string, string>();
@@ -38,5 +38,23 @@ describe("rpc-settings", () => {
     setRpcUrlOverride("https://rpc.example");
     clearRpcUrlOverride();
     expect(getRpcUrlOverride()).toBeNull();
+  });
+
+  it("accepts a comma-separated provider list, normalized and deduped", () => {
+    expect(setRpcUrlOverride("https://a.example/v3/key , https://b.example/ , https://a.example/v3/key/")).toBe(
+      "https://a.example/v3/key,https://b.example",
+    );
+    expect(getRpcUrlOverride()).toBe("https://a.example/v3/key,https://b.example");
+  });
+
+  it("list parsing skips garbage entries but keeps valid ones", () => {
+    expect(parseRpcUrlList("ftp://x, not a url , https://ok.example")).toEqual(["https://ok.example"]);
+    expect(parseRpcUrlList("garbage")).toEqual([]);
+  });
+
+  it("rejects a list with no valid entries without persisting", () => {
+    expect(setRpcUrlOverride("https://ok.example,ftp://x")).toBe("https://ok.example");
+    expect(setRpcUrlOverride("ftp://x,not a url")).toBeNull();
+    expect(getRpcUrlOverride()).toBe("https://ok.example");
   });
 });

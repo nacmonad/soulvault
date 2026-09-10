@@ -35,6 +35,16 @@ export const WRITE_ABI = [
     ],
     outputs: [],
   },
+  {
+    type: "function",
+    name: "requestRehydration",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "docHash", type: "bytes32" },
+      { name: "rehydrationPublicKey", type: "string" },
+    ],
+    outputs: [],
+  },
 ] as const;
 
 /**
@@ -177,6 +187,27 @@ export async function grantSlotKey(input: {
       input.wrap.ephemeralPublicKey,
       input.wrap.nonce,
     ],
+  });
+  return input.send({ from: input.from, to, data });
+}
+
+/**
+ * Post the consumer's hydration request: `requestRehydration(docHash, pubkey)`
+ * emits `RehydrationRequested`, whose msg.sender is tx-authenticated — the
+ * author's client wraps slot keys to the event's rehydration public key.
+ */
+export async function requestRehydration(input: {
+  from: Address;
+  documentId: string;
+  rehydrationPublicKey: string;
+  send: ChainSender;
+}): Promise<Hex> {
+  const to = (await resolveDocumentRegistryAddress()).address;
+  if (!to) throw new Error("No document registry discovered on ENS. Deploy one from the Documents page first.");
+  const data = encodeFunctionData({
+    abi: WRITE_ABI,
+    functionName: "requestRehydration",
+    args: [asDocHash(input.documentId), input.rehydrationPublicKey],
   });
   return input.send({ from: input.from, to, data });
 }

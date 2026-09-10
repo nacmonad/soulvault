@@ -1,13 +1,13 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { createPublicClient, http, type Address } from "viem";
+import { type Address } from "viem";
 import { sepolia } from "viem/chains";
 
 import { Button } from "@/components/ui/button";
 import { useDashboardSelection } from "@/components/dashboard/selection-provider";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
-import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
+import { createSepoliaEnsClient, getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 import { shortAddress } from "@/lib/format";
 
 type EnsRecord = {
@@ -39,7 +39,7 @@ export default function OrgPage() {
   useEffect(() => {
     const config = getBrowserSoulVaultClientConfig();
     if (!address || !config || config.chainId !== sepolia.id) return;
-    const client = createPublicClient({ chain: sepolia, transport: http(config.rpcUrl) });
+    const client = createSepoliaEnsClient(config);
     void client
       .getEnsName({ address })
       .then((name) => setReverseName(name))
@@ -57,7 +57,7 @@ export default function OrgPage() {
       setRecord({ name, owner: null, resolver: null, addr: null, texts: {} });
       return;
     }
-    const client = createPublicClient({ chain: sepolia, transport: http(config.rpcUrl) });
+    const client = createSepoliaEnsClient(config);
     setStatus("loading");
     void (async () => {
       try {

@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { CopyableAddress } from "@/components/dashboard/copyable-address";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
 import { useEvents } from "@/hooks/useEvents";
 import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
@@ -13,7 +14,7 @@ const KINDS: SoulVaultContractKind[] = ["document", "swarm", "treasury", "identi
 
 export default function EventsPage() {
   const { address } = useSoulVaultWallet();
-  const { events, status, isLive, startLive, stopLive, error } = useEvents();
+  const { events, status, isLive, startLive, stopLive, error, sources, refresh } = useEvents();
   const [kind, setKind] = useState<SoulVaultContractKind | "all">("all");
   const [txQuery, setTxQuery] = useState("");
   const [addressQuery, setAddressQuery] = useState("");
@@ -45,6 +46,39 @@ export default function EventsPage() {
         Client-side filter over the shared watcher cache. No backend.
       </p>
       {error instanceof Error ? <p className="mt-3 text-sm text-destructive">{error.message}</p> : null}
+
+      <details className="mt-4 border border-border bg-card px-4 py-3">
+        <summary className="cursor-pointer text-sm font-semibold">
+          Event pipeline — {sources.length} source{sources.length === 1 ? "" : "s"} on the watcher
+          <span className={`ml-2 chip ${status === "error" ? "text-destructive" : "text-primary"}`}>{status}</span>
+        </summary>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Contracts whose events this dashboard scans. Document/identity registries are
+          discovered on the protocol root ENS name; swarm/treasury come from the selected
+          org&apos;s records. If a contract you expect is missing here, its events are
+          invisible everywhere — fix discovery, not the pages.
+        </p>
+        {sources.length === 0 ? (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Nothing registered yet — the org bridge resolves ENS records shortly after mount.
+          </p>
+        ) : (
+          <ul className="mt-2 divide-y divide-border border border-border">
+            {sources.map((source, index) => (
+              <li key={`${source.kind}:${source.address}:${index}`} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-2 py-2">
+                <span className="chip">{source.kind}</span>
+                <CopyableAddress address={source.address} />
+                {source.label ? <span className="text-xs text-muted-foreground">{source.label}</span> : null}
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="mt-3">
+          <Button size="xs" variant="outline" onClick={() => void refresh()} disabled={status === "loading"}>
+            Rescan now
+          </Button>
+        </div>
+      </details>
 
       <div className="mt-6 flex flex-wrap gap-2">
         <FilterChip label="all" active={kind === "all"} onClick={() => setKind("all")} />
@@ -144,6 +178,9 @@ function summarize(event: SoulVaultEvent) {
   }
   if (event.eventName === "SlotKeyGranted" && "recipient" in event) {
     return `${event.slotId} → ${shortAddress(event.recipient)}`;
+  }
+  if (event.eventName === "RehydrationRequested" && "rehydrationPublicKey" in event) {
+    return `${shortAddress(event.recipient)} requested · key ${event.rehydrationPublicKey.slice(0, 10)}…`;
   }
   if ("args" in event) {
     const entries = Object.entries(event.args)

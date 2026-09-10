@@ -67,6 +67,23 @@ export const SWARM_ABI = [
     inputs: [{ name: "requestId", type: "uint256" }],
     outputs: [],
   },
+  {
+    type: "function",
+    name: "approveJoin",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "requestId", type: "uint256" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "rejectJoin",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "requestId", type: "uint256" },
+      { name: "reason", type: "string" },
+    ],
+    outputs: [],
+  },
 ] as const;
 
 /**
@@ -196,5 +213,46 @@ export async function cancelFundRequest(input: {
       functionName: "cancelFundRequest",
       args: [input.requestId],
     }),
+  });
+}
+
+/** Approve a pending join request. Owner-only, enforced by the swarm contract. */
+export async function approveJoin(input: {
+  from: Address;
+  requestId: bigint;
+  swarm?: Address;
+  chainId?: number;
+}): Promise<Hex> {
+  const swarm = resolveSwarm(input.swarm);
+  return sendWalletTransaction({
+    from: input.from,
+    to: swarm,
+    data: encodeFunctionData({
+      abi: SWARM_ABI,
+      functionName: "approveJoin",
+      args: [input.requestId],
+    }),
+    ...(input.chainId !== undefined ? { chainId: input.chainId } : {}),
+  });
+}
+
+/** Reject a pending join request with a reason. Owner-only, enforced by the swarm contract. */
+export async function rejectJoin(input: {
+  from: Address;
+  requestId: bigint;
+  reason: string;
+  swarm?: Address;
+  chainId?: number;
+}): Promise<Hex> {
+  const swarm = resolveSwarm(input.swarm);
+  return sendWalletTransaction({
+    from: input.from,
+    to: swarm,
+    data: encodeFunctionData({
+      abi: SWARM_ABI,
+      functionName: "rejectJoin",
+      args: [input.requestId, input.reason],
+    }),
+    ...(input.chainId !== undefined ? { chainId: input.chainId } : {}),
   });
 }

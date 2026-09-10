@@ -8,6 +8,7 @@
  * JSON list still parses when present (legacy bootstrap), defaulting to [].
  */
 import { createPublicClient, fallback, http, type Address, type PublicClient } from 'viem';
+import { sepolia } from 'viem/chains';
 import { getRpcUrlOverride, parseRpcUrlList } from '@/lib/rpc-settings';
 import type { SoulVaultContractKind, SoulVaultDeployment } from './types';
 
@@ -81,6 +82,24 @@ export function createSoulVaultPublicClient(config: SoulVaultClientConfig): Publ
       nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
       rpcUrls: { default: { http: endpoints } },
     },
+    transport: transports.length === 1 ? transports[0] : fallback(transports, { rank: false }),
+  });
+}
+
+/**
+ * Public client for viem's high-level ENS actions (getEnsName, getEnsAddress,
+ * getEnsResolver, getEnsText). Same failover policy as
+ * `createSoulVaultPublicClient`, but built on the real `sepolia` chain object —
+ * those actions read the chain's ENS universal-resolver contract addresses,
+ * which the synthetic chain above does not carry. Only valid while the
+ * identity lane is Sepolia (callers already guard `config.chainId`).
+ */
+export function createSepoliaEnsClient(config: SoulVaultClientConfig): PublicClient {
+  const urls = parseRpcUrlList(config.rpcUrl);
+  const endpoints = urls.length > 0 ? urls : [config.rpcUrl];
+  const transports = endpoints.map((url) => http(url, { retryCount: 0 }));
+  return createPublicClient({
+    chain: sepolia,
     transport: transports.length === 1 ? transports[0] : fallback(transports, { rank: false }),
   });
 }

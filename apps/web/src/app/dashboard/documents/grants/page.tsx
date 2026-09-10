@@ -5,11 +5,11 @@ import { isAddressEqual, type Address, type Hex } from "viem";
 import { createSlotKeyGrants, createSlotKeyGrantsForRecipient, parsePublicDocumentBundle } from "@soulvault/protocol";
 
 import { Button } from "@/components/ui/button";
+import { GrantWizard, type GrantWizardRequest } from "@/components/documents/grant-wizard";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
 import { useDocumentEvents } from "@/hooks/useDocumentEvents";
 import { useEvents } from "@/hooks/useEvents";
 import { parseDocumentEvent } from "@/lib/onchain/watcher";
-import { grantSlots } from "@/lib/document-registry";
 import { useDocumentRegistryAddress } from "@/hooks/useDocumentRegistryAddress";
 import {
   assertRecipientMatchesAttestation,
@@ -24,7 +24,7 @@ import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 import { shortAddress } from "@/lib/format";
 
 export default function DocumentsGrantsPage() {
-  const { address, connector, sendTransaction } = useSoulVaultWallet();
+  const { address, connector } = useSoulVaultWallet();
   const { documents, status, refresh } = useDocumentEvents();
   const { events } = useEvents({ kinds: ["document"] });
   const docEvents = useMemo(
@@ -40,8 +40,8 @@ export default function DocumentsGrantsPage() {
   const [recipient, setRecipient] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
-  const [txs, setTxs] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [pendingGrant, setPendingGrant] = useState<GrantWizardRequest | null>(null);
 
   const selectedDoc = docHash ? documents.documents.get(docHash) : undefined;
   const session = selectedDoc ? loadSessionDocument(selectedDoc.docHash) : null;
@@ -127,23 +127,19 @@ export default function DocumentsGrantsPage() {
         expectedVerifyingContract: registry,
         now: BigInt(Math.floor(Date.now() / 1000)),
       });
-      setBusy(true);
-      const result = await grantSlots({
+      setPendingGrant({
+        docHash: selectedDoc.docHash,
         from: address,
-        documentId: selectedDoc.docHash,
+        recipient: grants[0].recipient as Address,
+        recipientKeyFingerprint: grants[0].recipientKeyFingerprint,
         grants: grants.map((grant) => ({
           slotId: grant.slotId,
           wrap: grant.wrap,
           recipient: grant.recipient as Address,
         })),
-        send: sendTransaction,
       });
-      setTxs(result.hashes);
-      await refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Grant failed");
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -166,23 +162,19 @@ export default function DocumentsGrantsPage() {
         recipient: request.recipient,
         recipientPublicKey: request.rehydrationPublicKey,
       });
-      setBusy(true);
-      const result = await grantSlots({
+      setPendingGrant({
+        docHash: selectedDoc.docHash,
         from: address,
-        documentId: selectedDoc.docHash,
+        recipient: grants[0].recipient as Address,
+        recipientKeyFingerprint: grants[0].recipientKeyFingerprint,
         grants: grants.map((grant) => ({
           slotId: grant.slotId,
           wrap: grant.wrap,
           recipient: grant.recipient as Address,
         })),
-        send: sendTransaction,
       });
-      setTxs(result.hashes);
-      await refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Grant failed");
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -217,6 +209,16 @@ export default function DocumentsGrantsPage() {
 
       {status === "error" ? <p className="mt-3 text-sm text-destructive">Event config missing or scan failed.</p> : null}
       {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
+      {pendingGrant ? (
+        <GrantWizard
+          request={pendingGrant}
+          onComplete={() => {
+            setPendingGrant(null);
+            void refresh();
+          }}
+          onCancel={() => setPendingGrant(null)}
+        />
+      ) : null}
 
       {pendingAcrossDocs.length > 0 ? (
         <div className="mt-4 border border-amber-600/40 bg-amber-50 p-4 dark:border-amber-400/40 dark:bg-amber-950/30">
@@ -417,11 +419,6 @@ export default function DocumentsGrantsPage() {
               ) : null}
             </p>
           ) : null}
-          {txs.map((hash) => (
-            <p key={hash} className="mt-2 font-mono text-xs break-all">
-              {hash}
-            </p>
-          ))}
 
           <h2 className="mt-8 text-sm font-semibold">Delivered grants</h2>
           <p className="mt-1 text-xs text-muted-foreground">

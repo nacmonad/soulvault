@@ -15,6 +15,7 @@ vi.mock("@/lib/onchain/client", () => ({
   getBrowserSoulVaultClientConfig: vi.fn(() => config),
   createSoulVaultPublicClient: vi.fn(() => ({
     estimateGas: vi.fn(async () => 12345n),
+    getGasPrice: vi.fn(async () => 1_000_000_000n),
   })),
 }));
 
@@ -31,6 +32,7 @@ vi.mock("@/lib/chains", () => ({
   }),
   publicClientForChainId: vi.fn(() => ({
     estimateGas: vi.fn(async () => 12345n),
+    getGasPrice: vi.fn(async () => 1_000_000_000n),
   })),
 }));
 
@@ -71,6 +73,7 @@ describe("browser channel gas pre-estimation", () => {
     const hash = await sendWalletTransaction({ from: FROM, to: null, data: "0x6080" });
     expect(hash).toBe("0xabc");
     expect(sent?.gas).toBe("0x3039");
+    expect(sent?.gasPrice).toBe("0x3b9aca00");
     expect(sent?.to).toBeUndefined();
   });
 
@@ -78,6 +81,7 @@ describe("browser channel gas pre-estimation", () => {
     const { createSoulVaultPublicClient } = await import("@/lib/onchain/client");
     vi.mocked(createSoulVaultPublicClient).mockImplementationOnce(() => ({
       estimateGas: vi.fn(async () => { throw new Error("rpc down"); }),
+      getGasPrice: vi.fn(async () => 1_000_000_000n),
     }) as never);
 
     let sent: SendParams | undefined;
@@ -85,6 +89,24 @@ describe("browser channel gas pre-estimation", () => {
 
     await sendWalletTransaction({ from: FROM, to: null, data: "0x6080" });
     expect(sent?.gas).toBeUndefined();
+    expect(sent?.gasPrice).toBe("0x3b9aca00");
+  });
+
+  it("maps WalletConnect free-plan RPC failures to a Sepolia RPC hint", async () => {
+    injectWallet({
+      sendTransaction: async () => {
+        throw Object.assign(
+          new Error(
+            "RPC Request failed. URL: https://rpc.walletconnect.org/v1/?chainId=eip155%3A11155111 Details: chain is not available on free plan, please upgrade to paid plan",
+          ),
+          { code: -32603 },
+        );
+      },
+    });
+
+    await expect(sendWalletTransaction({ from: FROM, to: null, data: "0x6080" })).rejects.toThrow(
+      /WalletConnect/,
+    );
   });
 
   it("wraps a wallet estimation failure with app-side context when the app estimate succeeded", async () => {
@@ -107,6 +129,7 @@ describe("browser channel gas pre-estimation", () => {
     const { createSoulVaultPublicClient } = await import("@/lib/onchain/client");
     vi.mocked(createSoulVaultPublicClient).mockImplementationOnce(() => ({
       estimateGas: vi.fn(async () => { throw new Error("rpc down"); }),
+      getGasPrice: vi.fn(async () => 1_000_000_000n),
     }) as never);
 
     injectWallet({

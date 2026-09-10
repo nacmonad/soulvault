@@ -6,17 +6,16 @@ import { type Address } from "viem";
 import { Button } from "@/components/ui/button";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
 import { runTreasuryCreate, type WizardStep } from "@/lib/create-flows";
+import { errorMessage, wizardStepFailed } from "@/lib/error-message";
 import { chainById, SEPOLIA_CHAIN_ID, WIZARD_CHAINS } from "@/lib/chains";
 import { coinTypeForChain } from "@/lib/ens-writes";
-import { DeploymentSnippet, CliRecoveryHint, ConnectorGate, DevicePromptPanel, PartialFailureNote, StepList } from "@/components/create/wizard-steps";
+import { CliRecoveryHint, ConnectorGate, DevicePromptPanel, PartialFailureNote, StepList } from "@/components/create/wizard-steps";
 
 const INITIAL_STEPS: WizardStep[] = [
   { id: "deploy", label: "Deploy SoulVaultTreasury (you become owner)", status: "pending" },
   { id: "ens", label: "Publish ENSIP-11 addr on the org ENS name", status: "pending" },
   { id: "treasuryList", label: "Add to the org's soulvault.treasuries ENS record", status: "pending" },
 ];
-
-type Outcome = { address: Address; blockNumber: bigint };
 
 /** Treasury creation wizard (ticket 009), embeddable in the Treasury tab. */
 export function TreasuryWizard({ orgEnsName }: { orgEnsName: string }) {
@@ -53,7 +52,8 @@ export function TreasuryWizard({ orgEnsName }: { orgEnsName: string }) {
       });
       setOutcome({ address: result.treasuryAddress, blockNumber: result.blockNumber });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Treasury creation failed.");
+      setSteps((prev) => prev.map(wizardStepFailed));
+      setError(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -108,14 +108,9 @@ export function TreasuryWizard({ orgEnsName }: { orgEnsName: string }) {
             <p className="text-sm font-medium">Treasury deployed</p>
             <p className="mt-1 font-mono text-xs">{outcome.address}</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              {chainById(chainId)?.name ?? `chain ${chainId}`} · deploy block {outcome.blockNumber.toString()}
+              {chainById(chainId)?.name ?? `chain ${chainId}`} · deploy block {outcome.blockNumber.toString()} ·
+              published on the org ENS record — events flow automatically, no env entry needed.
             </p>
-            <DeploymentSnippet>
-{`NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS=[
-  {"kind":"treasury","address":"${outcome.address}","fromBlock":"${outcome.blockNumber}","label":"${orgEnsName}"},
-  …existing entries…
-]`}
-            </DeploymentSnippet>
           </div>
         ) : null}
       </div>

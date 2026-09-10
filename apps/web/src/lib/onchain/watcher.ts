@@ -107,14 +107,28 @@ function decodeDocumentEvent(
 
 export class SoulVaultEventWatcher {
   private readonly publicClient: PublicClient;
+  private readonly _sources: SoulVaultDeployment[];
+  /** Live view — addSource() extends it for subsequent scans. */
   readonly sources: readonly SoulVaultDeployment[];
 
   constructor(config: SoulVaultWatcherConfig) {
-    if (config.sources.length === 0) {
-      throw new Error('SoulVaultEventWatcher needs at least one deployment source');
-    }
+    // Zero sources is valid: runtime discovery (ENS) populates sources after
+    // mount via addSource(). Scans with no sources simply return nothing.
     this.publicClient = config.publicClient;
-    this.sources = config.sources;
+    this._sources = [...config.sources];
+    this.sources = this._sources;
+  }
+
+  /**
+   * Register a deployment discovered at runtime (e.g. the DocumentRegistry via
+   * ENS, which cannot be a build-time env entry). Dedupes by address; returns
+   * whether the source was new — callers rescan only when it was.
+   */
+  addSource(source: SoulVaultDeployment): boolean {
+    const key = source.address.toLowerCase();
+    if (this._sources.some((s) => s.address.toLowerCase() === key)) return false;
+    this._sources.push(source);
+    return true;
   }
 
   async latestBlock(): Promise<bigint> {

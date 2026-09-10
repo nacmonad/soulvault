@@ -10,7 +10,6 @@ import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-prov
 import { useOrgDiscovery } from "@/hooks/useOrgDiscovery";
 import { useSwarmEvents } from "@/hooks/useSwarmEvents";
 import { SwarmWizard } from "@/components/create/swarm-wizard";
-import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 import { shortAddress } from "@/lib/format";
 
 type SwarmListItem = {
@@ -18,7 +17,7 @@ type SwarmListItem = {
   label: string;
   address: Address | null;
   chainId: number | null;
-  source: "env" | "ens";
+  source: "ens";
 };
 
 export default function SwarmPage() {
@@ -26,38 +25,25 @@ export default function SwarmPage() {
   const { selection, setSwarm } = useDashboardSelection();
   const swarm = useSwarmEvents();
   const discovery = useOrgDiscovery(selection.orgId);
-  const config = getBrowserSoulVaultClientConfig();
 
-  /** ENS-published swarms first (web3-native), env deployments merged in. */
-  const items = useMemo<SwarmListItem[]>(() => {
-    const envSwarms =
-      config?.deployments.filter((item) => item.kind === "swarm") ?? [];
-    const ensItems: SwarmListItem[] = (discovery.swarms ?? []).map((entry) => ({
-      id: entry.label,
-      label: entry.label,
-      address: entry.address,
-      chainId: entry.chainId,
-      source: "ens" as const,
-    }));
-    const envItems: SwarmListItem[] = envSwarms
-      .filter((d) => !ensItems.some((e) => e.address?.toLowerCase() === d.address.toLowerCase()))
-      .map((d) => ({
-        id: d.label ?? d.address,
-        label: d.label ?? shortAddress(d.address),
-        address: d.address,
-        chainId: config?.chainId ?? null,
-        source: "env" as const,
-      }));
-    return [...ensItems, ...envItems];
-  }, [config, discovery.swarms]);
+  /** Swarms published on the org's ENS soulvault.swarms record. */
+  const items = useMemo<SwarmListItem[]>(
+    () =>
+      (discovery.swarms ?? []).map((entry) => ({
+        id: entry.label,
+        label: entry.label,
+        address: entry.address,
+        chainId: entry.chainId,
+        source: "ens" as const,
+      })),
+    [discovery.swarms],
+  );
 
   if (!address) return null;
 
   const members = [...swarm.members.values()];
   const pending = [...swarm.pendingJoins.values()];
   const empty = swarm.status === "ready" && members.length === 0 && pending.length === 0 && swarm.currentEpoch === null;
-  const selected = items.find((item) => item.id === selection.swarmId) ?? null;
-  const selectedIsEnsOnly = selected?.source === "ens";
 
   return (
     <div>
@@ -97,17 +83,9 @@ export default function SwarmPage() {
       ) : (
         <p className="mt-6 text-sm text-muted-foreground">
           No swarms published on the org&apos;s ENS <span className="font-mono">soulvault.swarms</span>{" "}
-          record and none in config. Create one below.
+          record. Create one below.
         </p>
       )}
-
-      {selectedIsEnsOnly ? (
-        <p className="mt-4 text-sm text-muted-foreground">
-          {selected?.label} is discovered via ENS but not in the event-cache config, so
-          members/epoch below follow the env-configured swarm. Live events for ENS-discovered
-          swarms land with deployment bootstrap (ticket 012).
-        </p>
-      ) : null}
 
       {empty ? (
         <p className="mt-8 text-sm text-muted-foreground">No swarm events yet.</p>

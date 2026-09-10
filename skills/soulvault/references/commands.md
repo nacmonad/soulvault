@@ -678,3 +678,95 @@ nullifier replay within the 90-day validity window. Exits non-zero on rejection.
 Note: PoC scope — proof verification runs through the pluggable verifier boundary
 (`@soulvault/node/world-identity`, mock implementation). The real Developer Portal
 verification call drops in once the Selfie Check feature flag is enabled for the app.
+
+---
+
+## Documents
+
+The documents lane (redact → publish → grant → rehydrate) runs on the identity lane
+(Sepolia) against the global `SoulVaultDocumentRegistry` singleton — a per-chain
+registry, not org-scoped: external consumers publish, verify, and rehydrate without
+swarm membership. On-chain events are the transport:
+
+- `DocumentPublished(docHash, author, slotIds)` — integrity anchor; docHash =
+  `artifact.documentId`, never the document itself.
+- `SlotKeyGranted(docHash, slotId, recipient, wrappedKey, ...)` — the grant event IS
+  the key delivery (wrapped slot keys, `secp256k1-ecdh-aes-256-gcm`). No revocation.
+
+Discovery (v1 / ENSv1 track, ticket 012 §D): the registry address is published on the
+**protocol root ENS name** (default `soulvault.eth`, not org assets) as ENSIP-11
+`addr(rootNode, coinType(chainId))` — the record `resolveDocumentRegistryAddress()` in
+the dashboard reads. Resolution preference: localStorage override → ENS →
+`NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS` (kind `document`) → bundle hint. A
+`soulvault.documentRegistry` text record on the root name holds a **chain-keyed JSON
+array** (mirroring `soulvault.treasuries`): one `{chainId, address, deployedAtBlock,
+deployedAt}` entry per chain, so a second-chain deploy extends the record instead of
+clobbering the first, and watchers know where to start
+scanning. ENSv2 adoption is tracked in `docs/dashboard-ui/015-ensv2-adoption.md`.
+
+Dashboard consumers: Overview and Organization panels derive document state from these
+events via `useDocumentEvents` (reduced into a docHash → author/slots registry), and
+authors/consumers listen through the same watcher (`kind: 'document'` sources).
+
+### `soulvault document deploy-registry`
+Deploy the `SoulVaultDocumentRegistry` singleton on the identity lane (Sepolia) and
+announce it on the protocol root ENS name. The announce step writes the ENSIP-11
+`addr` record (discovery source of truth) and the `soulvault.documentRegistry` text
+record (enumeration + `deployedAtBlock` for event scan windows). **The signer must
+own the root ENS name.** Run `forge build` from the repo root first (the deploy loads
+the Foundry artifact).
+
+```
+--root-ens-name <name>  Protocol root ENS name (default: the active organization's
+                        ensName, then soluvault.eth)
+--chain-id <id>         Chain to announce for (default: 11155111 Sepolia)
+--skip-ens              Deploy only; skip the ENS announce step
+```
+
+### `soulvault document announce-registry`
+Announce an **already-deployed** registry — the recovery path when the dashboard
+wizard's deploy step landed on-chain but a later step (ENS addr / text record) failed.
+Same two ENS writes as `deploy-registry`, but no contract deploy: pass the wizard's
+registry address plus the deploy tx hash (its receipt supplies the scan-start block).
+
+```
+--address <addr>        Deployed SoulVaultDocumentRegistry address (required)
+--root-ens-name <name>  Protocol root ENS name (default: active org's ensName)
+--chain-id <id>         Chain to announce for (default: 11155111 Sepolia)
+--deployed-at-tx <hash> Deploy tx hash; receipt supplies deployedAtBlock
+--deployed-at-block <n> Alternative to --deployed-at-tx
+```
+
+Prints the deployment `{registry, owner, txHash, blockNumber}`, the ENS announce tx
+hashes, and an optional `NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS` snippet
+(`{"kind":"document",...}`) as a fallback for dashboards without ENS discovery.
+
+### `soulvault document publish`
+Anchor a redacted document on the DocumentRegistry: `publishDocument(docHash,
+slotIds)` emits `DocumentPublished(docHash, author, slotIds)` — the integrity
+anchor and the grant-authority anchor. The document itself never touches the
+chain; the redacted artifact + encrypted slots travel as the public JSON bundle.
+This is the recovery path for the dashboard redact page's publish wizard (same
+registry resolution: ENSIP-11 `addr` on the protocol root name, then the text
+record). Idempotent for the same author — the contract allows republishing your
+own docHash, so a failed confirmation can be retried. Registry resolution:
+ENSIP-11 `addr(rootName, coinType(chainId))` → `soulvault.documentRegistry` text
+record entry for the chain.
+
+```
+--doc-hash <hash>       32-byte document hash (the bundle artifact.documentId)
+--slot-id <id...>       Slot ids to publish (repeatable)
+--bundle <path>         Public document bundle JSON file — derives --doc-hash and
+                        --slot-id from artifact (overrides the individual flags)
+--registry <addr>       Registry address (default: ENS discovery on the protocol root name)
+--root-ens-name <name>  Protocol root ENS name (default: active org's ensName)
+--chain-id <id>         Chain the registry is announced for (default: 11155111)
+```
+
+Example — publish straight from a downloaded bundle:
+
+```bash
+pnpm soulvault document publish --bundle c9cde9591206cac5.soulvault.json
+```
+
+Prints `{registry, docHash, slotIds, txHash, blockNumber}`.

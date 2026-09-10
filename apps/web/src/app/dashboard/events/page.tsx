@@ -98,7 +98,7 @@ export default function EventsPage() {
                         <button
                           type="button"
                           className="text-primary"
-                          onClick={() => void navigator.clipboard.writeText(event.txHash)}
+                          onClick={() => void navigator.clipboard.writeText(event.txHash).catch(() => undefined)}
                         >
                           {shortTx(event.txHash)}
                         </button>

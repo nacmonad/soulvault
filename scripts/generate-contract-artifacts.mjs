@@ -8,6 +8,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const targets = [
   { name: 'TREASURY_ARTIFACT', artifact: 'out/SoulVaultTreasury.sol/SoulVaultTreasury.json' },
   { name: 'SWARM_ARTIFACT', artifact: 'out/SoulVaultSwarm.sol/SoulVaultSwarm.json' },
+  { name: 'DOCUMENT_REGISTRY_ARTIFACT', artifact: 'out/SoulVaultDocumentRegistry.sol/SoulVaultDocumentRegistry.json' },
 ];
 
 const header = `// AUTO-GENERATED from forge artifacts — do not edit by hand.

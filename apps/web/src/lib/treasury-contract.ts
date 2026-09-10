@@ -1,6 +1,5 @@
 import { encodeFunctionData, parseUnits, type Address, type Hex } from "viem";
 
-import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 import { sendWalletTransaction } from "@/lib/wallet-tx";
 
 /**
@@ -70,40 +69,22 @@ export const SWARM_ABI = [
   },
 ] as const;
 
-export function treasuryDeployment(): { address: Address; label: string } | null {
-  const config = getBrowserSoulVaultClientConfig();
-  const entry = config?.deployments.find((item) => item.kind === "treasury");
-  return entry ? { address: entry.address, label: entry.label ?? entry.address } : null;
-}
-
-export function swarmDeployment(): { address: Address; label: string } | null {
-  const config = getBrowserSoulVaultClientConfig();
-  const entry = config?.deployments.find((item) => item.kind === "swarm");
-  return entry ? { address: entry.address, label: entry.label ?? entry.address } : null;
-}
-
 /**
- * Resolve the treasury to target: an explicit address (from ENS-derived state)
- * wins, otherwise fall back to the env-configured deployment.
+ * Resolve the treasury to target: callers pass the address resolved from the
+ * org's ENS `soulvault.treasuries` record (see useOrgDiscovery).
  */
 function resolveTreasury(explicit?: Address): Address {
-  const target = explicit ?? treasuryDeployment()?.address;
-  if (!target) {
-    throw new Error(
-      "No treasury target — publish one on the org ENS (soulvault.treasuries) or set NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS.",
-    );
+  if (!explicit) {
+    throw new Error("No treasury target — create one on the Treasury page (published on the org ENS soulvault.treasuries record).");
   }
-  return target;
+  return explicit;
 }
 
 function resolveSwarm(explicit?: Address): Address {
-  const target = explicit ?? swarmDeployment()?.address;
-  if (!target) {
-    throw new Error(
-      "No swarm target — publish one on the org ENS (soulvault.swarms) or set NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS.",
-    );
+  if (!explicit) {
+    throw new Error("No swarm target — create one on the Swarm page (published on the org ENS soulvault.swarms record).");
   }
-  return target;
+  return explicit;
 }
 
 export function parseEthAmount(input: string): bigint {

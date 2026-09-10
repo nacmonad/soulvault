@@ -1,10 +1,11 @@
 /**
- * viem client + deployment config for the browser.
+ * viem client + config for the browser.
  *
- * Config shape mirrors what the dashboard already parses: NEXT_PUBLIC_ env vars
- * carrying the RPC endpoint, chain id, and a JSON deployment list. The document
- * contract lands on Sepolia alongside ENS / ERC-8004, so the default chain id
- * is Sepolia's.
+ * Operative contract info (which contracts to listen to) comes from ENS
+ * metadata — the org's records plus per-chain singletons announced on the
+ * protocol root name — discovered at runtime. `NEXT_PUBLIC_ env vars carry
+ * only transport (RPC endpoint, chain id). The legacy build-time deployments
+ * JSON list still parses when present (legacy bootstrap), defaulting to [].
  */
 import { createPublicClient, http, type Address, type PublicClient } from 'viem';
 import { getRpcUrlOverride } from '@/lib/rpc-settings';
@@ -23,20 +24,25 @@ export function parseSoulVaultClientConfig(input: {
   chainId?: string;
   deployments?: string;
 }): SoulVaultClientConfig | null {
-  if (!input.rpcUrl || !input.deployments) return null;
-  let raw: unknown;
-  try {
-    raw = JSON.parse(input.deployments);
-  } catch {
-    return null;
-  }
-  if (!Array.isArray(raw) || raw.length === 0) return null;
+  if (!input.rpcUrl) return null;
+  // Legacy build-time deployments list: optional bootstrap, never required —
+  // event sources are discovered from ENS at runtime instead. A missing,
+  // empty, or malformed list parses to [].
   const deployments: SoulVaultDeployment[] = [];
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') return null;
-    const row = item as { address?: Address; kind?: SoulVaultContractKind; fromBlock?: string | number; label?: string };
-    if (!row.address || !row.kind || row.fromBlock === undefined) return null;
-    deployments.push({ ...row, address: row.address, kind: row.kind, fromBlock: BigInt(row.fromBlock), label: row.label });
+  if (input.deployments) {
+    try {
+      const raw: unknown = JSON.parse(input.deployments);
+      if (Array.isArray(raw)) {
+        for (const item of raw) {
+          if (!item || typeof item !== 'object') continue;
+          const row = item as { address?: Address; kind?: SoulVaultContractKind; fromBlock?: string | number; label?: string };
+          if (!row.address || !row.kind || row.fromBlock === undefined) continue;
+          deployments.push({ ...row, address: row.address, kind: row.kind, fromBlock: BigInt(row.fromBlock), label: row.label });
+        }
+      }
+    } catch {
+      // legacy list is best-effort
+    }
   }
   return {
     rpcUrl: input.rpcUrl,

@@ -6,11 +6,24 @@
  */
 import { encodeFunctionData, type Address, type Hex } from "viem";
 
-import { SWARM_ARTIFACT, TREASURY_ARTIFACT } from "@/lib/contracts-artifacts";
+import { SWARM_ARTIFACT, TREASURY_ARTIFACT, DOCUMENT_REGISTRY_ARTIFACT } from "@/lib/contracts-artifacts";
 import { publicClientForChainId } from "@/lib/chains";
-import { addSwarmToOrgList, bindSwarmEnsSubdomain, getAddrMultichain, setAddrMultichain, upsertOrgTreasury } from "@/lib/ens-writes";
+import {
+  addSwarmToOrgList,
+  bindSwarmEnsSubdomain,
+  getAddrMultichain,
+  setAddrMultichain,
+  upsertDocumentRegistryEnsRecord,
+  upsertOrgTreasury,
+} from "@/lib/ens-writes";
 import { createSoulVaultPublicClient, getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
-import { deployWalletContract } from "@/lib/wallet-tx";
+import { sendWalletTransaction, deployWalletContract, waitForWalletReceipt } from "@/lib/wallet-tx";
+import {
+  asDocHash,
+  WRITE_ABI,
+  resolveDocumentRegistryAddress,
+  type DocumentRegistrySource,
+} from "@/lib/document-registry";
 
 const SWARM_ABI = [
   {
@@ -236,4 +249,136 @@ function publicClient() {
   const config = getBrowserSoulVaultClientConfig();
   if (!config) throw new Error("Dashboard config missing — set NEXT_PUBLIC_SOULVAULT_* env vars.");
   return createSoulVaultPublicClient(config);
+}
+
+// ---------------------------------------------------------------------------
+// Wizard 3: DocumentRegistry deploy (ticket 012 §D v1)
+// ---------------------------------------------------------------------------
+
+export type DocumentRegistryDeployResult = {
+  registryAddress: Address;
+  deployTxHash: Hex;
+  blockNumber: bigint;
+  coinType: number;
+  ensAddrTxHash: Hex;
+  recordTxHash: Hex | null;
+};
+
+/**
+ * Deploy the global SoulVaultDocumentRegistry singleton and announce it on the
+ * protocol root ENS name: ENSIP-11 addr(root, coinType(chainId)) — the record
+ * `resolveDocumentRegistryAddress()` reads — plus the `soulvault.documentRegistry`
+ * text record carrying the deploy block for event scan windows. The connected
+ * wallet must own the root name (protocol infrastructure, not an org asset).
+ */
+export async function runDocumentRegistryDeploy(input: {
+  from: Address;
+  rootEnsName: string;
+  chainId: number;
+  onStep: (stepId: string, update: Partial<WizardStep>) => void;
+}): Promise<DocumentRegistryDeployResult> {
+  input.onStep("deploy", { status: "signing" });
+  const deployed = await deployWalletContract({
+    from: input.from,
+    bytecode: DOCUMENT_REGISTRY_ARTIFACT.bytecode as Hex,
+    chainId: input.chainId,
+  });
+  input.onStep("deploy", {
+    status: "done",
+    txHash: deployed.txHash,
+    detail: deployed.contractAddress,
+  });
+
+  input.onStep("ens", { status: "signing" });
+  const ens = await setAddrMultichain({
+    from: input.from,
+    ensName: input.rootEnsName,
+    chainId: input.chainId,
+    address: deployed.contractAddress,
+  });
+  input.onStep("ens", {
+    status: "done",
+    txHash: ens.txHash,
+    detail: `coinType ${ens.coinType}`,
+  });
+
+  input.onStep("record", { status: "signing" });
+  const recordTxHash = await upsertDocumentRegistryEnsRecord({
+    from: input.from,
+    rootEnsName: input.rootEnsName,
+    entry: {
+      chainId: input.chainId,
+      address: deployed.contractAddress,
+      deployedAtBlock: Number(deployed.blockNumber),
+      deployedAt: new Date().toISOString(),
+    },
+  });
+  input.onStep("record", {
+    status: "done",
+    txHash: recordTxHash ?? undefined,
+    detail: recordTxHash ? "soulvault.documentRegistry updated" : "already recorded — no write needed",
+  });
+
+  return {
+    registryAddress: deployed.contractAddress,
+    deployTxHash: deployed.txHash,
+    blockNumber: deployed.blockNumber,
+    coinType: ens.coinType,
+    ensAddrTxHash: ens.txHash,
+    recordTxHash,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Wizard 4: Document publish (redact page — ticket 012 documents lane)
+// ---------------------------------------------------------------------------
+
+export type DocumentPublishResult = {
+  registry: Address;
+  registrySource: DocumentRegistrySource;
+  docHash: Hex;
+  txHash: Hex;
+  blockNumber: bigint;
+};
+
+/**
+ * Anchor a redacted document on the DocumentRegistry:
+ * publishDocument(docHash, slotIds) → DocumentPublished. One wallet signature.
+ * Routes through the shared transaction channel (same signer + preflight as the
+ * deploy wizards, not a bespoke inline path), then waits for the receipt — a
+ * publish is only "done" when the event is actually on-chain.
+ */
+export async function runDocumentPublish(input: {
+  from: Address;
+  documentId: string;
+  slotIds: string[];
+  onStep: (stepId: string, update: Partial<WizardStep>) => void;
+}): Promise<DocumentPublishResult> {
+  input.onStep("resolve", { status: "signing" });
+  const { address: registry, source } = await resolveDocumentRegistryAddress();
+  if (!registry) {
+    input.onStep("resolve", { status: "failed" });
+    throw new Error(
+      "No document registry discovered on ENS. Deploy one from the Documents page first.",
+    );
+  }
+  input.onStep("resolve", { status: "done", detail: `${registry} · via ${source}` });
+
+  const docHash = asDocHash(input.documentId);
+  const data = encodeFunctionData({
+    abi: WRITE_ABI,
+    functionName: "publishDocument",
+    args: [docHash, input.slotIds],
+  });
+
+  input.onStep("publish", { status: "signing" });
+  const txHash = await sendWalletTransaction({ from: input.from, to: registry, data });
+  input.onStep("publish", { status: "mining", txHash });
+  const receipt = await waitForWalletReceipt(txHash);
+  if (receipt.status !== "success") {
+    throw new Error(`Publish transaction reverted (tx ${txHash}).`);
+  }
+  input.onStep("publish", { status: "done", txHash, detail: `block ${receipt.blockNumber}` });
+
+  return { registry, registrySource: source, docHash, txHash, blockNumber: receipt.blockNumber };
 }

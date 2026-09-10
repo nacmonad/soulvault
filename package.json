@@ -7,6 +7,7 @@
 		"build": "pnpm -r build",
 		"test": "pnpm -r test",
 		"typecheck": "pnpm -r typecheck",
+		"artifacts:check": "pnpm -r run artifacts:check",
 		"slides:html": "mkdir -p slides/dist && marp slides/DECK.md --html --output slides/dist/deck.html",
 		"slides:pdf": "mkdir -p slides/dist && marp slides/DECK.md --pdf --allow-local-files --output slides/dist/deck.pdf",
 		"slides:pptx": "mkdir -p slides/dist && marp slides/DECK.md --pptx --allow-local-files --output slides/dist/deck.pptx",

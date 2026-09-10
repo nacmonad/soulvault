@@ -37,6 +37,21 @@ export const WRITE_ABI = [
   },
   {
     type: "function",
+    name: "grantSlotKeys",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "docHash", type: "bytes32" },
+      { name: "recipient", type: "address" },
+      { name: "slotIds", type: "string[]" },
+      { name: "wrappedKeys", type: "string[]" },
+      { name: "algorithm", type: "string" },
+      { name: "ephemeralPublicKeys", type: "string[]" },
+      { name: "nonces", type: "string[]" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
     name: "requestRehydration",
     stateMutability: "nonpayable",
     inputs: [
@@ -189,6 +204,77 @@ export async function grantSlotKey(input: {
     ],
   });
   return input.send({ from: input.from, to, data });
+}
+
+export type GrantSlotsResult = {
+  /** true when a single batch tx was sent; false when it fell back per-slot */
+  batched: boolean;
+  hashes: Hex[];
+};
+
+/**
+ * Grant every slot in one tx via `grantSlotKeys` when the deployed registry
+ * supports it (detected by simulating the call — no signature needed for the
+ * probe), falling back to one `grantSlotKey` tx per slot for registries
+ * deployed before the batch function existed. Event format is identical in
+ * both paths, so consumers cannot tell the difference.
+ */
+export async function grantSlots(input: {
+  from: Address;
+  documentId: string;
+  grants: { slotId: string; wrap: SecpWrappedKey; recipient: Address }[];
+  send: ChainSender;
+}): Promise<GrantSlotsResult> {
+  const to = (await resolveDocumentRegistryAddress()).address;
+  if (!to) throw new Error("No document registry discovered on ENS. Deploy one from the Documents page first.");
+  if (input.grants.length === 0) throw new Error("No slots selected to grant.");
+
+  const docHash = asDocHash(input.documentId);
+  const batchData = encodeFunctionData({
+    abi: WRITE_ABI,
+    functionName: "grantSlotKeys",
+    args: [
+      docHash,
+      input.grants[0].recipient,
+      input.grants.map((grant) => grant.slotId),
+      input.grants.map((grant) => grant.wrap.wrappedKey),
+      input.grants[0].wrap.algorithm,
+      input.grants.map((grant) => grant.wrap.ephemeralPublicKey),
+      input.grants.map((grant) => grant.wrap.nonce),
+    ],
+  });
+
+  const client = publicClientForChainId(getBrowserSoulVaultClientConfig()?.chainId ?? SEPOLIA_CHAIN_ID);
+  let supportsBatch = false;
+  if (client) {
+    try {
+      await client.call({ to, data: batchData, account: input.from });
+      supportsBatch = true;
+    } catch {
+      // Old registry (unknown selector) or a real auth failure — the per-slot
+      // path below will surface the accurate error either way.
+    }
+  }
+
+  if (supportsBatch) {
+    const hash = await input.send({ from: input.from, to, data: batchData });
+    return { batched: true, hashes: [hash] };
+  }
+
+  const hashes: Hex[] = [];
+  for (const grant of input.grants) {
+    hashes.push(
+      await grantSlotKey({
+        from: input.from,
+        documentId: input.documentId,
+        slotId: grant.slotId,
+        recipient: grant.recipient,
+        wrap: grant.wrap,
+        send: input.send,
+      }),
+    );
+  }
+  return { batched: false, hashes };
 }
 
 /**

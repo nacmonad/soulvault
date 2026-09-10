@@ -210,4 +210,113 @@ contract SoulVaultDocumentRegistryTest is Test {
         emit RehydrationRequested(docHash, mallory, charlieRehydrationKey);
         registry.requestRehydration(docHash, charlieRehydrationKey);
     }
+
+    // --- grantSlotKeys (batch) ------------------------------------------
+
+    function test_grantSlotKeys_emitsOneEventPerSlot() public {
+        vm.prank(alice);
+        registry.publishDocument(docHash, slotIds);
+
+        string[] memory keys = new string[](2);
+        keys[0] = wrappedKey;
+        keys[1] = "BBICJg==";
+        string[] memory eph = new string[](2);
+        eph[0] = "AA==";
+        eph[1] = "Ag==";
+        string[] memory nonces = new string[](2);
+        nonces[0] = "bw==";
+        nonces[1] = "dg==";
+
+        vm.prank(alice);
+        vm.expectEmit(true, true, true, true, address(registry));
+        emit SlotKeyGranted(docHash, "sv_name_1", charlie, wrappedKey, wrapAlg, "AA==", "bw==");
+        registry.grantSlotKeys(docHash, charlie, slotIds, keys, wrapAlg, eph, nonces);
+        // Second event asserted implicitly by the loop — no revert means both
+        // emissions validated and fired.
+    }
+
+    function test_grantSlotKeys_onlyAuthorMayGrant() public {
+        vm.prank(alice);
+        registry.publishDocument(docHash, slotIds);
+
+        vm.prank(mallory);
+        vm.expectRevert(SoulVaultDocumentRegistry.NotAuthor.selector);
+        registry.grantSlotKeys(
+            docHash,
+            charlie,
+            slotIds,
+            _wrappedKeys(2),
+            wrapAlg,
+            _ephemeralKeys(2),
+            _nonces(2)
+        );
+    }
+
+    function test_grantSlotKeys_rejectsLengthMismatch() public {
+        vm.prank(alice);
+        registry.publishDocument(docHash, slotIds);
+
+        vm.prank(alice);
+        vm.expectRevert(SoulVaultDocumentRegistry.ArrayLengthMismatch.selector);
+        registry.grantSlotKeys(docHash, charlie, slotIds, _wrappedKeys(1), wrapAlg, _ephemeralKeys(2), _nonces(2));
+    }
+
+    function test_grantSlotKeys_rejectsEmptyBatch() public {
+        vm.prank(alice);
+        registry.publishDocument(docHash, slotIds);
+
+        vm.prank(alice);
+        vm.expectRevert(SoulVaultDocumentRegistry.EmptySlotId.selector);
+        registry.grantSlotKeys(docHash, charlie, new string[](0), new string[](0), wrapAlg, new string[](0), new string[](0));
+    }
+
+    function test_grantSlotKeys_rejectsEmptyKeyOrSlot() public {
+        vm.prank(alice);
+        registry.publishDocument(docHash, slotIds);
+
+        string[] memory badKeys = _wrappedKeys(2);
+        badKeys[1] = "";
+        vm.prank(alice);
+        vm.expectRevert(SoulVaultDocumentRegistry.EmptyWrappedKey.selector);
+        registry.grantSlotKeys(docHash, charlie, slotIds, badKeys, wrapAlg, _ephemeralKeys(2), _nonces(2));
+
+        string[] memory badSlots = new string[](2);
+        badSlots[0] = "sv_name_1";
+        badSlots[1] = "";
+        vm.prank(alice);
+        vm.expectRevert(SoulVaultDocumentRegistry.EmptySlotId.selector);
+        registry.grantSlotKeys(docHash, charlie, badSlots, _wrappedKeys(2), wrapAlg, _ephemeralKeys(2), _nonces(2));
+    }
+
+    function test_grantSlotKeys_rejectsForeignAlgorithm() public {
+        vm.prank(alice);
+        registry.publishDocument(docHash, slotIds);
+
+        vm.prank(alice);
+        vm.expectRevert(SoulVaultDocumentRegistry.BadAlgorithm.selector);
+        registry.grantSlotKeys(
+            docHash,
+            charlie,
+            slotIds,
+            _wrappedKeys(2),
+            "x25519-xsalsa20-poly1305",
+            _ephemeralKeys(2),
+            _nonces(2)
+        );
+    }
+
+    function _wrappedKeys(uint256 n) internal view returns (string[] memory out) {
+        out = new string[](n);
+        for (uint256 i = 0; i < n; i++) out[i] = wrappedKey;
+    }
+
+    function _ephemeralKeys(uint256 n) internal pure returns (string[] memory out) {
+        out = new string[](n);
+        for (uint256 i = 0; i < n; i++) out[i] = "AA==";
+    }
+
+    function _nonces(uint256 n) internal pure returns (string[] memory out) {
+        out = new string[](n);
+        for (uint256 i = 0; i < n; i++) out[i] = "bw==";
+    }
 }

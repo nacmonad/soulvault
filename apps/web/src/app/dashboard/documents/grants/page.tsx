@@ -9,7 +9,7 @@ import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-prov
 import { useDocumentEvents } from "@/hooks/useDocumentEvents";
 import { useEvents } from "@/hooks/useEvents";
 import { parseDocumentEvent } from "@/lib/onchain/watcher";
-import { grantSlotKey } from "@/lib/document-registry";
+import { grantSlots } from "@/lib/document-registry";
 import { useDocumentRegistryAddress } from "@/hooks/useDocumentRegistryAddress";
 import {
   assertRecipientMatchesAttestation,
@@ -19,7 +19,7 @@ import {
   slotsFromPublicBundle,
   type PendingRehydrationRequest,
 } from "@/lib/document-grants";
-import { currentSessionDocumentId, downloadText, loadSessionDocument } from "@/lib/document-session";
+import { currentSessionDocumentId, downloadText, loadSessionDocument, storedSessionDocumentIds } from "@/lib/document-session";
 import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 import { shortAddress } from "@/lib/format";
 
@@ -49,12 +49,31 @@ export default function DocumentsGrantsPage() {
   const config = getBrowserSoulVaultClientConfig();
   const { address: registry } = useDocumentRegistryAddress();
   const isAuthor = Boolean(address && selectedDoc && isAddressEqual(selectedDoc.author, address));
+  // Slot keys are saved per documentId by the Redact tab. If the selected
+  // document was redacted in another browser profile (or before this entry
+  // existed), the keys are gone — surface which docs DO have keys so the
+  // mismatch is obvious instead of a silently disabled button.
+  const storedIds = useMemo(() => {
+    try {
+      return storedSessionDocumentIds();
+    } catch {
+      return [];
+    }
+  }, [docHash]);
+  const grantDisabledReason = !session
+    ? "no slot keys on this browser for this document"
+    : !isAuthor
+      ? "connected wallet is not the author"
+      : selected.size === 0
+        ? "select at least one slot"
+        : null;
 
   useEffect(() => {
     if (docHash || authored.length === 0) return;
     const current = currentSessionDocumentId();
     if (!current) return;
-    const match = authored.find((doc) => doc.docHash === current || doc.docHash.toLowerCase() === current.toLowerCase());
+    // current is bare hex (storage-normalized); doc.docHash is 0x-prefixed.
+    const match = authored.find((doc) => doc.docHash.toLowerCase().replace(/^0x/, "") === current);
     if (!match) return;
     setDocHash(match.docHash);
     setSelected(new Set(match.slotIds));
@@ -94,7 +113,7 @@ export default function DocumentsGrantsPage() {
     setError(null);
     const keys = session?.slotKeys;
     if (!keys) {
-      setError("No in-session slot keys. Re-run Redact in this browser, then grant. v0 cannot re-grant after reload.");
+      setError("No slot keys on this browser. Re-run Redact here, then publish and grant. Keys never leave this browser profile.");
       return;
     }
     try {
@@ -109,20 +128,17 @@ export default function DocumentsGrantsPage() {
         now: BigInt(Math.floor(Date.now() / 1000)),
       });
       setBusy(true);
-      const hashes: string[] = [];
-      for (const grant of grants) {
-        hashes.push(
-          await grantSlotKey({
-            from: address,
-            documentId: selectedDoc.docHash,
-            slotId: grant.slotId,
-            recipient: grant.recipient as Address,
-            wrap: grant.wrap,
-            send: sendTransaction,
-          }),
-        );
-      }
-      setTxs(hashes);
+      const result = await grantSlots({
+        from: address,
+        documentId: selectedDoc.docHash,
+        grants: grants.map((grant) => ({
+          slotId: grant.slotId,
+          wrap: grant.wrap,
+          recipient: grant.recipient as Address,
+        })),
+        send: sendTransaction,
+      });
+      setTxs(result.hashes);
       await refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Grant failed");
@@ -139,7 +155,7 @@ export default function DocumentsGrantsPage() {
     }
     const keys = session?.slotKeys;
     if (!keys) {
-      setError("No in-session slot keys. Re-run Redact in this browser, then grant. v0 cannot re-grant after reload.");
+      setError("No slot keys on this browser. Re-run Redact here, then publish and grant. Keys never leave this browser profile.");
       return;
     }
     setError(null);
@@ -151,20 +167,17 @@ export default function DocumentsGrantsPage() {
         recipientPublicKey: request.rehydrationPublicKey,
       });
       setBusy(true);
-      const hashes: string[] = [];
-      for (const grant of grants) {
-        hashes.push(
-          await grantSlotKey({
-            from: address,
-            documentId: selectedDoc.docHash,
-            slotId: grant.slotId,
-            recipient: grant.recipient as Address,
-            wrap: grant.wrap,
-            send: sendTransaction,
-          }),
-        );
-      }
-      setTxs(hashes);
+      const result = await grantSlots({
+        from: address,
+        documentId: selectedDoc.docHash,
+        grants: grants.map((grant) => ({
+          slotId: grant.slotId,
+          wrap: grant.wrap,
+          recipient: grant.recipient as Address,
+        })),
+        send: sendTransaction,
+      });
+      setTxs(result.hashes);
       await refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Grant failed");
@@ -287,7 +300,9 @@ export default function DocumentsGrantsPage() {
           <p className="mt-1 text-xs text-muted-foreground">
             Consumers request on-chain from the Rehydrate tab — the request tx
             binds their wallet to their rehydration key. Select slots above,
-            then grant to a request. One tx per slot.
+            then grant to a request. Slots ride one batch tx when the deployed
+            registry supports <span className="font-mono">grantSlotKeys</span>;
+            otherwise one tx per slot.
           </p>
           {requests.length === 0 ? (
             <p className="mt-2 text-sm text-muted-foreground">No requests in the event cache yet.</p>
@@ -311,13 +326,28 @@ export default function DocumentsGrantsPage() {
                       <span className="chip">{grantedCount} granted</span>
                     ) : null}
                     <span className="ml-auto" />
-                    <Button
-                      size="sm"
-                      disabled={busy || !isAuthor || selected.size === 0 || !session}
-                      onClick={() => void grantToRequest(request)}
+                    {grantDisabledReason ? (
+                      <span className="text-xs text-destructive">{grantDisabledReason}</span>
+                    ) : null}
+                    <span
+                      title={
+                        !session
+                          ? "No slot keys on this browser — re-run Redact here"
+                          : !isAuthor
+                            ? "Only the publishing author can grant"
+                            : selected.size === 0
+                              ? "Select at least one slot above"
+                              : undefined
+                      }
                     >
-                      {busy ? "Granting…" : `Grant ${selected.size} slot${selected.size === 1 ? "" : "s"}`}
-                    </Button>
+                      <Button
+                        size="sm"
+                        disabled={busy || !isAuthor || selected.size === 0 || !session}
+                        onClick={() => void grantToRequest(request)}
+                      >
+                        {busy ? "Granting…" : `Grant ${selected.size} slot${selected.size === 1 ? "" : "s"}`}
+                      </Button>
+                    </span>
                   </li>
                 );
               })}
@@ -374,7 +404,17 @@ export default function DocumentsGrantsPage() {
           ) : null}
           {!session ? (
             <p className="mt-3 text-xs text-muted-foreground">
-              No session keys — granting a new recipient after reload requires re-running Redact in v0.
+              No slot keys on this browser — granting needs the key material saved by Redact on this profile. Re-run Redact here, then publish and grant.
+              {storedIds.length > 0 ? (
+                <>
+                  {" "}
+                  Keys <em>are</em> stored here for{" "}
+                  <span className="font-mono">
+                    {storedIds.map((id) => `${id.slice(0, 10)}…`).join(", ")}
+                  </span>{" "}
+                  — none matches the selected document ({selectedDoc.docHash.replace(/^0x/, "").slice(0, 10)}…). Pick that document above, or re-run Redact to regenerate it.
+                </>
+              ) : null}
             </p>
           ) : null}
           {txs.map((hash) => (

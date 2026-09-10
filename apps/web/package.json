@@ -11,6 +11,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "artifacts:check": "forge build && node ../../scripts/generate-contract-artifacts.mjs --check",
+    "pretest": "pnpm artifacts:check",
     "test": "vitest run",
     "test:e2e:ledger": "playwright test --config e2e/playwright.config.ts"
   },

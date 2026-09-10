@@ -19,9 +19,12 @@ Author path at `/dashboard/documents/grants`.
 4. `createSlotKeyGrants` verifies the attestation (chain, registry domain,
    wallet, key, expiry) then wraps selected slot keys to the attested
    rehydration public key.
-5. Submit `SlotKeyGranted` events (one per slot) from the author wallet.
-   The wrap on the event is the protocol `SecpWrappedKey`. Last grant wins per
-   `(docHash, slotId)` for that recipient.
+5. Submit `SlotKeyGranted` events from the author wallet — all selected slots
+   in **one batch tx** via `grantSlotKeys` when the deployed registry supports
+   it (the UI simulates the batch call first and falls back to one tx per
+   slot on registries deployed before the batch function existed; the event
+   format is identical either way). The wrap on the event is the protocol
+   `SecpWrappedKey`. Last grant wins per `(docHash, slotId)` for that recipient.
 6. Show delivered grants for the selected document from the event cache. Copy
    must state plainly: a delivered READ grant is a permanent capability — no
    revoke button.
@@ -60,11 +63,12 @@ through the existing DMK session. Injected wallet uses `eth_sendTransaction`
 
 - Persistence model (decided): grants persist on-chain — `SlotKeyGranted`
   carries the protocol wrap, so a delivered grant never depends on
-  author-side storage. Raw `slotKeys` stay session-only (memory or
-  wallet-scoped sessionStorage) and are never uploaded anywhere. Consequence:
-  granting to a **new** recipient after a reload requires re-running redact
-  in v0; document that limitation. Do not put keys on chain beyond the
-  wrapped grant event.
+  author-side storage. Raw `slotKeys` live in localStorage under
+  `soulvault.document.*` (per-browser-profile, survive reloads; sessionStorage
+  is still read as a fallback from the earlier v0). Keys are never uploaded
+  anywhere. Consequence: granting requires running Redact in the same
+  browser profile; a *new* browser profile must re-run redact. Do not put
+  keys on chain beyond the wrapped grant event.
 - The public JSON bundle is downloadable from this tab (step 7). Download is
   the transport for Rehydrate inputs; no API route, no server storage.
 - Recipient attestation in v0 can be pasted JSON. A later polish can have

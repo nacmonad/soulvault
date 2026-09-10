@@ -65,8 +65,11 @@ scan. Presidio findings are proposals. The author is the last word.
    Grants/publish). Author never types or sees raw slot keys.
 5. Public bundle is `serializePublicDocumentBundle` (artifact + encrypted
    slots, **no** `slotKeys`, **no** `originalValue`).
-6. `slotKeys` stay in memory (or wallet-scoped sessionStorage) for Grants.
-   Never log them.
+6. `slotKeys` persist in localStorage under `soulvault.document.*` (wallet-
+   scoped by key prefix), with sessionStorage fallback on load — this survives
+   tab close and origin/port changes so grants are not bricked by a reload.
+   Tradeoff: raw keys rest in the browser; wrap with a wallet-derived KEK
+   before pointing real PII at this flow. Never log them.
 7. Show protocol markers (`{{sv:...}}` from the artifact) beside the reviewed
    source. Connected author publishes `DocumentPublished(docHash, author,
    slotIds)`. `docHash === artifact.documentId`.

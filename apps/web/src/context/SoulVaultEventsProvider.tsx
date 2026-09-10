@@ -53,6 +53,59 @@ export const SoulVaultEventsContext = createContext<SoulVaultEventsContextValue 
 
 const CONFIG_ERROR = 'SoulVault events config missing — set NEXT_PUBLIC_SOULVAULT_RPC_URL (or the settings override)';
 
+/** Retries for initial runtime discovery (transient ENS/RPC failures). */
+const DISCOVERY_RETRIES = 2;
+const DISCOVERY_RETRY_MS = 2000;
+/** Re-resolve cadence: ENS announcements can land after mount (fresh registry
+ * deploy/announce from another tab or the CLI), and the record can point at a
+ * newly redeployed contract. addSources dedupes unchanged addresses, so an
+ * unchanged resolution costs one ENS read and no rescan. */
+const DISCOVERY_RECHECK_MS = 60_000;
+
+/**
+ * Runtime-discovered event sources (ENS) need the same treatment as the org
+ * bridge: retry transient failures instead of silently staying absent, and
+ * keep re-resolving so a re-announced contract is picked up without a page
+ * reload. The one-shot version of this effect is why a freshly redeployed
+ * DocumentRegistry stayed invisible to the events pipeline until reload.
+ */
+function useDiscoveredEventSource(
+  resolve: () => Promise<SoulVaultDeployment | null>,
+  addSources: (sources: readonly SoulVaultDeployment[]) => Promise<boolean>,
+) {
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const run = async (retriesLeft: number): Promise<void> => {
+      let source: SoulVaultDeployment | null = null;
+      try {
+        source = await resolve();
+      } catch {
+        source = null;
+      }
+      if (cancelled) return;
+      if (!source && retriesLeft > 0) {
+        timer = setTimeout(() => void run(retriesLeft - 1), DISCOVERY_RETRY_MS);
+        return;
+      }
+      if (source) {
+        try {
+          await addSources([source]);
+        } catch {
+          // No RPC config — nothing to scan into; pages surface their own errors.
+        }
+      }
+      if (cancelled) return;
+      timer = setTimeout(() => void run(0), DISCOVERY_RECHECK_MS);
+    };
+    void run(DISCOVERY_RETRIES);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [resolve, addSources]);
+}
+
 export function SoulVaultEventsProvider({
   children,
   config,
@@ -194,47 +247,13 @@ export function SoulVaultEventsProvider({
   /**
    * DocumentRegistry discovery (ENSIP-11 on the protocol root name) — merged
    * into the watcher so Overview/Documents, the events page, and grants see
-   * DocumentPublished/SlotKeyGranted. Rescans once, only when the source is
-   * genuinely new.
+   * DocumentPublished/SlotKeyGranted. Retried and periodically re-resolved
+   * (see useDiscoveredEventSource) so a fresh deploy/announce is picked up.
    */
-  useEffect(() => {
-    let cancelled = false;
-    resolveDocumentEventSource()
-      .then(async (source) => {
-        if (cancelled || !source) return;
-        try {
-          await addSources([source]);
-        } catch {
-          // No RPC config — nothing to scan into; pages surface their own errors.
-        }
-      })
-      .catch(() => {
-        // Discovery failure (no record yet, RPC hiccup) — nothing to add.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [addSources]);
+  useDiscoveredEventSource(resolveDocumentEventSource, addSources);
 
   /** Identity registry (built-in Sepolia constant / erc8004.registry record). */
-  useEffect(() => {
-    let cancelled = false;
-    resolveIdentityEventSource()
-      .then(async (source) => {
-        if (cancelled || !source) return;
-        try {
-          await addSources([source]);
-        } catch {
-          // as above
-        }
-      })
-      .catch(() => {
-        // Discovery failure — identity events stay absent.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [addSources]);
+  useDiscoveredEventSource(resolveIdentityEventSource, addSources);
 
   const resolveGrants = useCallback(
     async (docHash: Hex, recipient: Address) => {

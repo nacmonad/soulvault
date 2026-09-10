@@ -38,6 +38,7 @@ contract SoulVaultDocumentRegistry {
     error BadAlgorithm();
     error NotPublished();
     error EmptyPublicKey();
+    error ArrayLengthMismatch();
 
     /// @notice docHash => author of record. The slot list lives in the
     /// publication event log (the resolver's canonical source).
@@ -98,6 +99,45 @@ contract SoulVaultDocumentRegistry {
         if (recipient == address(0)) revert NotAuthor();
 
         emit SlotKeyGranted(docHash, slotId, recipient, wrappedKey, algorithm, ephemeralPublicKey, nonce);
+    }
+
+    /// @notice Batch form of `grantSlotKey`: one tx delivers wrapped keys for
+    /// every slot in `slotIds`, emitting one `SlotKeyGranted` per slot —
+    /// identical event format, so consumers need no changes. All slots share
+    /// one algorithm (the wrap algorithm is fixed contract-wide anyway).
+    /// Array lengths must match pairwise (slotIds/wrappedKeys/ephemeralPublicKeys/nonces).
+    function grantSlotKeys(
+        bytes32 docHash,
+        address recipient,
+        string[] calldata slotIds,
+        string[] calldata wrappedKeys,
+        string calldata algorithm,
+        string[] calldata ephemeralPublicKeys,
+        string[] calldata nonces
+    ) external {
+        if (_publicationAuthor[docHash] != msg.sender) revert NotAuthor();
+        if (recipient == address(0)) revert NotAuthor();
+        if (
+            slotIds.length != wrappedKeys.length ||
+            slotIds.length != ephemeralPublicKeys.length ||
+            slotIds.length != nonces.length
+        ) revert ArrayLengthMismatch();
+        if (slotIds.length == 0) revert EmptySlotId();
+        if (keccak256(bytes(algorithm)) != keccak256(bytes(WRAP_ALGORITHM))) revert BadAlgorithm();
+
+        for (uint256 i = 0; i < slotIds.length; i++) {
+            if (bytes(slotIds[i]).length == 0) revert EmptySlotId();
+            if (bytes(wrappedKeys[i]).length == 0) revert EmptyWrappedKey();
+            emit SlotKeyGranted(
+                docHash,
+                slotIds[i],
+                recipient,
+                wrappedKeys[i],
+                algorithm,
+                ephemeralPublicKeys[i],
+                nonces[i]
+            );
+        }
     }
 
     /// @notice Author of record for a published document.

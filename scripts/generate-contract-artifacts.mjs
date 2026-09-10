@@ -1,8 +1,12 @@
 // Generates apps/web/src/lib/contracts-artifacts.ts from the forge artifacts.
 // Run after `forge build` from the repo root: node scripts/generate-contract-artifacts.mjs
+// `--check` mode: exit 1 if the committed file differs from what would be
+// generated (guards against shipping a stale artifact after a contract change).
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+const check = process.argv.includes('--check');
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const targets = [
@@ -33,5 +37,18 @@ const body = targets
   .join('\n');
 
 const outFile = path.join(repoRoot, 'apps/web/src/lib/contracts-artifacts.ts');
-fs.writeFileSync(outFile, header + '\n' + body);
-console.log(`Wrote ${outFile}`);
+const content = header + '\n' + body;
+if (check) {
+  const current = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : '';
+  if (current !== content) {
+    console.error(
+      'apps/web/src/lib/contracts-artifacts.ts is out of sync with the forge artifacts.\n' +
+        'Regenerate from the repo root: forge build && node scripts/generate-contract-artifacts.mjs',
+    );
+    process.exit(1);
+  }
+  console.log('contracts-artifacts.ts is in sync with the forge artifacts.');
+} else {
+  fs.writeFileSync(outFile, content);
+  console.log(`Wrote ${outFile}`);
+}

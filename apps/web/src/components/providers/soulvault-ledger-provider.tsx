@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type PropsWithChildren } from "react";
-import { DeviceActionStatus, DeviceManagementKitBuilder, type DeviceSessionId, type DeviceSessionState, type TransportFactory, type TransportIdentifier } from "@ledgerhq/device-management-kit";
+import { DeviceActionStatus, DeviceManagementKitBuilder, UserInteractionRequired, type DeviceSessionId, type DeviceSessionState, type TransportFactory, type TransportIdentifier } from "@ledgerhq/device-management-kit";
 import { SignerEthBuilder } from "@ledgerhq/device-signer-kit-ethereum";
 import { webHidIdentifier, webHidTransportFactory } from "@ledgerhq/device-transport-kit-web-hid";
 import { firstValueFrom, timeout } from "rxjs";
@@ -32,6 +32,13 @@ const DISCOVERY_TIMEOUT_MS = 15_000;
  * goes quiet for this long.
  */
 const DEVICE_ACTION_TIMEOUT_MS = 120_000;
+/**
+ * Ceiling while the device is blocked on a user interaction (clear-signing
+ * walk). DMK re-emits only on step/interaction changes, so the 30-40 screen
+ * parameter walk emits nothing while the user presses — the extended window
+ * keeps a healthy signing session alive for the whole walk.
+ */
+const SIGNING_CEILING_MS = 10 * 60 * 1000;
 export type DevelopmentLedgerTransport = {
   factory: TransportFactory;
   identifier: TransportIdentifier;
@@ -304,17 +311,28 @@ function runDeviceAction<T>(action: { observable: { subscribe(observer: { next(s
   return new Promise((resolve, reject) => {
     let settled = false;
     let timer: number;
-    const arm = () => {
+    let armedWindowMs = DEVICE_ACTION_TIMEOUT_MS;
+    const arm = (windowMs: number) => {
+      armedWindowMs = windowMs;
       window.clearTimeout(timer);
       timer = window.setTimeout(
-        () => finish(() => { action.cancel(); reject(new Error(`Ledger confirmation timed out (no device activity for ${DEVICE_ACTION_TIMEOUT_MS / 1000}s).`)); }),
-        DEVICE_ACTION_TIMEOUT_MS,
+        () => finish(() => { action.cancel(); reject(new Error(`Ledger confirmation timed out (no device activity for ${Math.round(windowMs / 1000)}s).`)); }),
+        windowMs,
       );
     };
-    arm();
+    arm(DEVICE_ACTION_TIMEOUT_MS);
     const subscription = action.observable.subscribe({
       next(state) {
-        arm(); // device is making progress — keep the window open
+        const interaction =
+          (state as { intermediateValue?: { requiredUserInteraction?: string } }).intermediateValue
+            ?.requiredUserInteraction;
+        // While the device is blocked on a user interaction (mid clear-signing
+        // walk), each "Confirm parameter" press is invisible to the action
+        // observable — DMK only re-emits on step/interaction *changes*, so a
+        // long parameter walk produces zero emissions and looks identical to a
+        // dead device. Use the extended ceiling for exactly that phase; the
+        // short window still governs a genuinely quiet device.
+        arm(interaction && interaction !== UserInteractionRequired.None ? SIGNING_CEILING_MS : DEVICE_ACTION_TIMEOUT_MS);
         if (state.status === DeviceActionStatus.Completed) finish(() => resolve(state.output as T));
         else if (state.status === DeviceActionStatus.Error) finish(() => reject(state.error));
         else if (state.status === DeviceActionStatus.Stopped) finish(() => reject(new Error("Action cancelled on device.")));

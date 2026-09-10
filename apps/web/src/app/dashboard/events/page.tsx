@@ -23,11 +23,15 @@ export default function EventsPage() {
   const rows = useMemo(() => {
     const tx = txQuery.trim().toLowerCase();
     const addr = addressQuery.trim().toLowerCase();
-    return events.filter((event) => {
+    const filtered = events.filter((event) => {
       if (kind !== "all" && event.sourceKind !== kind) return false;
       if (tx && !event.txHash.toLowerCase().includes(tx)) return false;
       if (addr && !eventMatchesAddress(event, addr)) return false;
       return true;
+    });
+    return filtered.sort((a, b) => {
+      if (a.blockNumber !== b.blockNumber) return Number(b.blockNumber - a.blockNumber);
+      return Number(b.logIndex - a.logIndex);
     });
   }, [events, kind, txQuery, addressQuery]);
 

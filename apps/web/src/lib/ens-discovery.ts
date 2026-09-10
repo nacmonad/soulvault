@@ -12,6 +12,8 @@
 import { getAddress, type Address, type PublicClient } from "viem";
 
 import { publicClientForChainId } from "@/lib/chains";
+import { contractScanStartBlock } from "@/lib/onchain/scan-start";
+import type { SoulVaultDeployment } from "@/lib/onchain/types";
 import {
   readEnsAddress,
   readEnsText,
@@ -68,3 +70,46 @@ export async function readTreasuryBalances(
 }
 
 export type { OrgTreasuryEntry };
+
+/**
+ * The org's published swarms and treasuries as watcher event sources — this is
+ * the "which contracts to listen to" half of ENS-derived discovery (the org's
+ * records are the operative info, not build-time env). When `watcherChainId`
+ * is given, entries on other chains are skipped (one watcher per chain today;
+ * multi-chain watchers are the extension point).
+ */
+export async function resolveOrgEventSources(
+  orgEnsName: string,
+  options?: { watcherChainId?: number },
+): Promise<SoulVaultDeployment[]> {
+  const watcherChainId = options?.watcherChainId;
+  const onWatcherChain = (chainId: number) => watcherChainId === undefined || chainId === watcherChainId;
+  const [treasuries, swarms] = await Promise.all([
+    readOrgTreasuries(orgEnsName).catch(() => []),
+    readOrgSwarms(orgEnsName).catch(() => [] as OrgSwarmEntry[]),
+  ]);
+  const sources = await Promise.all([
+    ...treasuries
+      .filter((entry) => onWatcherChain(entry.chainId))
+      .map(async (entry): Promise<SoulVaultDeployment> => ({
+        address: getAddress(entry.address),
+        kind: "treasury" as const,
+        chainId: entry.chainId,
+        fromBlock: await contractScanStartBlock({ address: getAddress(entry.address), chainId: entry.chainId }),
+        label: entry.label ?? `${orgEnsName} treasury`,
+      })),
+    ...swarms
+      .filter(
+        (entry): entry is OrgSwarmEntry & { address: Address; chainId: number } =>
+          entry.address !== null && entry.chainId !== null && onWatcherChain(entry.chainId),
+      )
+      .map(async (entry): Promise<SoulVaultDeployment> => ({
+        address: getAddress(entry.address),
+        kind: "swarm" as const,
+        chainId: entry.chainId,
+        fromBlock: await contractScanStartBlock({ address: getAddress(entry.address), chainId: entry.chainId }),
+        label: entry.label,
+      })),
+  ]);
+  return sources;
+}

@@ -5,14 +5,15 @@ import { DeviceActionStatus, DeviceManagementKitBuilder, type DeviceSessionId, t
 import { SignerEthBuilder } from "@ledgerhq/device-signer-kit-ethereum";
 import { webHidIdentifier, webHidTransportFactory } from "@ledgerhq/device-transport-kit-web-hid";
 import { firstValueFrom, timeout } from "rxjs";
-import { hexToBytes, isAddressEqual, keccak256, parseTransaction, serializeTransaction, type Address, type Hex } from "viem";
+import { hexToBytes, isAddressEqual, keccak256, parseTransaction, type Address, type Hex } from "viem";
 import type { SignerEth } from "@ledgerhq/device-signer-kit-ethereum";
 import { getBrowserSoulVaultActivityConfig, loadSoulVaultActivity, type SoulVaultActivity } from "@/lib/onchain/soulvault-activity";
 import { createBrowserContextModule } from "@/lib/ledger-clear-sign";
 import { createLedgerTxChannel, type DeviceTransactionSignature } from "@/lib/ledger-tx";
 import { describeTransaction, type TxSummary } from "@/lib/tx-decode";
-import { createSoulVaultPublicClient, getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
-import { ledgerSignature, sendWalletTransaction, serializedLedgerSignature, setTxChannel, signTypedData as signInjectedTypedData, type ChainSender } from "@/lib/wallet-tx";
+import { errorMessage } from "@/lib/error-message";
+import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
+import { sendWalletTransaction, serializedLedgerSignature, setTxChannel, signTypedData as signInjectedTypedData, type ChainSender } from "@/lib/wallet-tx";
 
 /** What the dashboard shows while a Ledger signing prompt is up. */
 export type DeviceSigningPrompt = {
@@ -23,7 +24,14 @@ export type DeviceSigningPrompt = {
 
 const DERIVATION_PATH = "44'/60'/0'/0/0";
 const DISCOVERY_TIMEOUT_MS = 15_000;
-const DEVICE_ACTION_TIMEOUT_MS = 60_000;
+/**
+ * Device-action inactivity window (reset on every device-state emission), not a
+ * wall-clock cap: a human reviewing/confirming screens on the device, with the
+ * 3s session refresher interleaving APDUs, can legitimately take minutes on a
+ * multi-screen blind-sign prompt. The action is only abandoned when the device
+ * goes quiet for this long.
+ */
+const DEVICE_ACTION_TIMEOUT_MS = 120_000;
 export type DevelopmentLedgerTransport = {
   factory: TransportFactory;
   identifier: TransportIdentifier;
@@ -144,7 +152,18 @@ export function SoulVaultLedgerProvider({ children, developmentLedgerTransport }
       await dmk.stopDiscovering().catch(() => undefined);
       const sessionId = await dmk.connect({ device, sessionRefresherOptions: { isRefresherDisabled: false, pollingInterval: 3_000 } });
       sessionRef.current = sessionId;
-      subscriptionRef.current = dmk.getDeviceSessionState({ sessionId }).subscribe(setDeviceState);
+      subscriptionRef.current = dmk.getDeviceSessionState({ sessionId }).subscribe({
+        next: setDeviceState,
+        // Without an error handler, an errored session-state observable (device
+        // USB hiccup, polling failure mid-sign) rethrows globally as an
+        // unhandled rejection — the DMK payload is a plain object, so it
+        // renders as "[object Object]". Surface it in the provider instead.
+        error: (cause) => {
+          subscriptionRef.current = undefined;
+          setStatus("error");
+          setError(toUserMessage(cause));
+        },
+      });
       // Clear-sign CAL descriptors: the device renders decoded calldata +
       // EIP-712 fields; failures degrade to blind signing (preferred mode).
       const signer = new SignerEthBuilder({ dmk, sessionId })
@@ -204,48 +223,16 @@ export function SoulVaultLedgerProvider({ children, developmentLedgerTransport }
   const sendTransaction = useCallback<ChainSender>(async (input) => {
     if (!address) throw new Error("Connect a wallet to send a transaction.");
     if (!isAddressEqual(input.from, address)) throw new Error("Connected wallet does not match the sender.");
-    if (connector === "browser-wallet") return sendWalletTransaction(input);
-    if (connector !== "ledger") throw new Error("Connect Ledger or a browser wallet first.");
-    const sessionId = sessionRef.current;
-    if (!sessionId) throw new Error("Ledger session is not connected.");
-    const config = getBrowserSoulVaultClientConfig();
-    if (!config) throw new Error("SoulVault events config missing — set NEXT_PUBLIC_SOULVAULT_RPC_URL and NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS");
-    const publicClient = createSoulVaultPublicClient(config);
-    const nonce = await publicClient.getTransactionCount({ address });
-    const gas = await publicClient.estimateGas({
-      account: address,
-      to: input.to,
-      data: input.data,
-    });
-    const fee = await publicClient.estimateFeesPerGas();
-    const gasPrice = fee.gasPrice ?? fee.maxFeePerGas;
-    if (gasPrice == null || gasPrice === 0n) {
-      throw new Error("Ledger signing needs a gas price; RPC fee data was empty.");
+    if (connector === "ledger" && !getBrowserSoulVaultClientConfig()) {
+      throw new Error("SoulVault RPC not configured — set NEXT_PUBLIC_SOULVAULT_RPC_URL (or the settings override) to sign transactions.");
     }
-    const tx = {
-      type: "legacy" as const,
-      chainId: config.chainId,
-      nonce,
-      to: input.to,
-      value: 0n,
-      data: input.data,
-      gas,
-      gasPrice,
-    };
-    const signer = new SignerEthBuilder({ dmk, sessionId }).build();
-    try {
-      const signature = await runDeviceAction<{ r: string; s: string; v: number }>(
-        signer.signTransaction(DERIVATION_PATH, hexToBytes(serializeTransaction(tx)), {
-          skipOpenApp: selectedTransport.emulated,
-        }),
-      );
-      return publicClient.sendRawTransaction({
-        serializedTransaction: serializeTransaction(tx, ledgerSignature(signature)),
-      });
-    } catch (cause) {
-      throw new Error(toUserMessage(cause));
-    }
-  }, [address, connector, dmk, selectedTransport.emulated]);
+    // Both connectors ride the active transaction channel (setTxChannel swaps in
+    // the Ledger channel at connect): one signer (context-module enabled), one
+    // preflight with RPC fallbacks, one broadcast path. The former inline
+    // Ledger path here built a second, bare signer and its own preflight —
+    // divergent code that failed in ways the proven wizard channel never did.
+    return sendWalletTransaction(input);
+  }, [address, connector]);
 
   const signTypedData = useCallback(async (input: { address: Address; payload: string }) => {
     if (!address) throw new Error("Connect a wallet to sign.");
@@ -286,7 +273,7 @@ export function SoulVaultLedgerProvider({ children, developmentLedgerTransport }
   useEffect(() => () => {
     subscriptionRef.current?.unsubscribe();
     const sessionId = sessionRef.current;
-    if (sessionId) void dmk.disconnect({ sessionId });
+    if (sessionId) void dmk.disconnect({ sessionId }).catch(() => undefined);
     dmk.close();
   }, [dmk]);
 
@@ -316,9 +303,18 @@ export const useSoulVaultLedger = useSoulVaultWallet;
 function runDeviceAction<T>(action: { observable: { subscribe(observer: { next(state: { status: DeviceActionStatus; output?: T; error?: unknown }): void; error(error: unknown): void }): { unsubscribe(): void } }; cancel(): void }): Promise<T> {
   return new Promise((resolve, reject) => {
     let settled = false;
-    const timer = window.setTimeout(() => finish(() => { action.cancel(); reject(new Error("Ledger confirmation timed out.")); }), DEVICE_ACTION_TIMEOUT_MS);
+    let timer: number;
+    const arm = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(
+        () => finish(() => { action.cancel(); reject(new Error(`Ledger confirmation timed out (no device activity for ${DEVICE_ACTION_TIMEOUT_MS / 1000}s).`)); }),
+        DEVICE_ACTION_TIMEOUT_MS,
+      );
+    };
+    arm();
     const subscription = action.observable.subscribe({
       next(state) {
+        arm(); // device is making progress — keep the window open
         if (state.status === DeviceActionStatus.Completed) finish(() => resolve(state.output as T));
         else if (state.status === DeviceActionStatus.Error) finish(() => reject(state.error));
         else if (state.status === DeviceActionStatus.Stopped) finish(() => reject(new Error("Action cancelled on device.")));
@@ -336,5 +332,5 @@ function toUserMessage(cause: unknown) {
   if (e?._tag === "DeviceLockedError" || code === "5515") return "Unlock your Ledger and try again.";
   if (code === "6807") return "Install the Ethereum app on your Ledger and try again.";
   if (e?._tag === "NoAccessibleDeviceError") return "No Ledger found, or browser USB access was denied.";
-  return e?.message ?? "Could not connect to the Ledger.";
+  return e?.message ?? errorMessage(cause);
 }

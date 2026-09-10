@@ -122,6 +122,3 @@ export function CliRecoveryHint({ command }: { command: string }) {
   );
 }
 
-export function DeploymentSnippet({ children }: { children: string }) {
-  return <pre className="mt-3 overflow-x-auto bg-muted p-3 font-mono text-xs">{children}</pre>;
-}

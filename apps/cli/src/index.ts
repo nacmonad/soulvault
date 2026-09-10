@@ -10,6 +10,7 @@ import { registerBackupCommands } from './commands/backup.js';
 import { registerRestoreCommands } from './commands/restore.js';
 import { registerEpochCommands } from './commands/epoch.js';
 import { registerMessageCommands } from './commands/message.js';
+import { registerDocumentCommands } from './commands/document.js';
 import { registerSyncCommands } from './commands/sync.js';
 import { registerStatusCommand } from './commands/status.js';
 
@@ -55,6 +56,7 @@ registerBackupCommands(program);
 registerRestoreCommands(program);
 registerEpochCommands(program);
 registerMessageCommands(program);
+registerDocumentCommands(program);
 registerSyncCommands(program);
 registerStatusCommand(program);
 

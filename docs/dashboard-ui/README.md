@@ -36,6 +36,7 @@ v1 side on `main`: ENSIP-11 fallback in `documentRegistryAddress()` + optional
 | [015-ensv2-adoption.md](./015-ensv2-adoption.md) | ENSv2 adoption: agents as namespaces on the beta registry | draft |
 | [016-wizard-existing-deployment.md](./016-wizard-existing-deployment.md) | Create wizards: detect and adopt existing deployments | draft |
 | [017-eip7702-batch-executor.md](./017-eip7702-batch-executor.md) | EIP-7702 batch executor: one-signature atomic wizard flows | draft |
+| [018-document-registry-deploy.md](./018-document-registry-deploy.md) | DocumentRegistry deploy + ENS announce: CLI command + browser wizard + Registry admin page | implemented on otto/dashboard-ui |
 
 Do not start Next work until the parent IA is locked in the GitHub issue.
 

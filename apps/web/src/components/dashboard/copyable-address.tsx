@@ -28,7 +28,7 @@ export function CopyableAddress({
         title="Copy address"
         className="font-mono text-sm hover:underline"
         onClick={() => {
-          void navigator.clipboard.writeText(address);
+          void navigator.clipboard.writeText(address).catch(() => undefined);
           setCopied(true);
           setTimeout(() => setCopied(false), 1200);
         }}

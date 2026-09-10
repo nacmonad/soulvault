@@ -290,6 +290,45 @@ describe('scanHistory bounds', () => {
   });
 });
 
+describe('zero sources', () => {
+  it('constructs with no sources and scans to empty — ENS discovery fills it later', async () => {
+    const { watcher } = makeWatcher([], undefined, []);
+    expect(await watcher.scanHistory()).toEqual([]);
+    expect(watcher.addSource({ address: DOC_ADDRESS, kind: 'document', fromBlock: 0n })).toBe(true);
+    expect(await watcher.scanHistory()).toEqual([]);
+  });
+});
+
+describe('addSource', () => {
+  it('adds a runtime-discovered source and scans it on subsequent calls', async () => {
+    const published = makeRawLog({ kind: 'document', address: DOC_ADDRESS, eventName: 'DocumentPublished', args: { docHash: DOC_HASH, author: ALICE, slotIds: [] }, blockNumber: 10n, logIndex: 0 });
+    const identityOnly: SoulVaultDeployment[] = [{ address: IDENTITY_ADDRESS, kind: 'identity', fromBlock: 0n }];
+    const { watcher, getLogs } = makeWatcher([published], undefined, identityOnly);
+
+    // Without the document source, the document log is invisible.
+    expect(await watcher.scanHistory()).toHaveLength(0);
+
+    expect(watcher.addSource({ address: DOC_ADDRESS, kind: 'document', fromBlock: 5n })).toBe(true);
+    const events = await watcher.scanHistory();
+    expect(events).toHaveLength(1);
+    expect(events[0].eventName).toBe('DocumentPublished');
+    // The new source is scanned from its own deployment block.
+    const docCall = getLogs.mock.calls.at(-1)![0];
+    expect(docCall.address.toLowerCase()).toBe(DOC_ADDRESS.toLowerCase());
+    expect(docCall.fromBlock).toBe(5n);
+  });
+
+  it('dedupes by address (case-insensitive) and reports already-known sources', async () => {
+    const { watcher } = makeWatcher([], undefined, [
+      { address: DOC_ADDRESS, kind: 'document', fromBlock: 0n },
+    ]);
+    expect(watcher.addSource({ address: DOC_ADDRESS, kind: 'document', fromBlock: 1n })).toBe(false);
+    // Checksum variant of the same address is still a duplicate.
+    expect(watcher.addSource({ address: DOC_ADDRESS.toLowerCase() as Address, kind: 'document', fromBlock: 2n })).toBe(false);
+    expect(watcher.sources).toHaveLength(1);
+  });
+});
+
 // --- watchLive ------------------------------------------------------------------
 
 describe('watchLive', () => {

@@ -8,8 +8,11 @@
  * the catch-all useEvents read from this context and filter by contract kind.
  *
  * Nothing polls until a hook asks for it: `refresh` scans history once,
- * `startLive` begins cursor polling. Config comes from NEXT_PUBLIC_ env vars
- * unless a config object is passed explicitly.
+ * `startLive` begins cursor polling. Transport comes from NEXT_PUBLIC_ env
+ * vars (RPC + chain id); event sources are discovered at runtime — document
+ * registry and identity registry on the protocol root name, swarm/treasury
+ * from the selected org's ENS records (see OrgEventSourcesBridge) — and merged
+ * into the watcher via addSources.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Address, Hex } from 'viem';
@@ -18,7 +21,9 @@ import {
   getBrowserSoulVaultClientConfig,
   type SoulVaultClientConfig,
 } from '@/lib/onchain/client';
-import type { ActiveGrant, SoulVaultEvent } from '@/lib/onchain/types';
+import { resolveDocumentEventSource } from '@/lib/document-registry';
+import { resolveIdentityEventSource } from '@/lib/identity-registry';
+import type { ActiveGrant, SoulVaultDeployment, SoulVaultEvent } from '@/lib/onchain/types';
 import { mergeEventBatches, SoulVaultEventWatcher } from '@/lib/onchain/watcher';
 
 export type SoulVaultEventsStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -28,15 +33,19 @@ export type SoulVaultEventsContextValue = {
   status: SoulVaultEventsStatus;
   error: unknown;
   isLive: boolean;
+  /** Chain the shared watcher scans (its single publicClient's chain). */
+  chainId: number | null;
   refresh: () => Promise<void>;
   startLive: (pollSeconds?: number) => Promise<void>;
   stopLive: () => void;
   resolveGrants: (docHash: Hex, recipient: Address) => Promise<ActiveGrant[]>;
+  /** Merge runtime-discovered sources (ENS) into the watcher; rescans once when new. */
+  addSources: (sources: readonly SoulVaultDeployment[]) => Promise<boolean>;
 };
 
 export const SoulVaultEventsContext = createContext<SoulVaultEventsContextValue | null>(null);
 
-const CONFIG_ERROR = 'SoulVault events config missing — set NEXT_PUBLIC_SOULVAULT_RPC_URL and NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS';
+const CONFIG_ERROR = 'SoulVault events config missing — set NEXT_PUBLIC_SOULVAULT_RPC_URL (or the settings override)';
 
 export function SoulVaultEventsProvider({
   children,
@@ -59,8 +68,9 @@ export function SoulVaultEventsProvider({
 
   const getWatcher = useCallback(() => {
     const config = resolvedConfig.current;
-    if (!config || config.deployments.length === 0) return null;
+    if (!config) return null;
     if (!watcherRef.current) {
+      // Zero sources is fine — runtime discovery (ENS) adds them after mount.
       watcherRef.current = new SoulVaultEventWatcher({
         publicClient: createSoulVaultPublicClient(config),
         sources: config.deployments,
@@ -117,6 +127,67 @@ export function SoulVaultEventsProvider({
     setIsLive(false);
   }, []);
 
+  const addSources = useCallback(
+    async (sources: readonly SoulVaultDeployment[]) => {
+      const watcher = getWatcher();
+      if (!watcher) throw new Error(CONFIG_ERROR);
+      const chainId = resolvedConfig.current?.chainId;
+      // One watcher per chain today: drop sources announced for other chains
+      // (multi-chain watchers are the extension point).
+      const added = sources
+        .filter((source) => source.chainId === undefined || source.chainId === chainId)
+        .some((source) => watcher.addSource(source));
+      if (added) await refresh();
+      return added;
+    },
+    [getWatcher, refresh],
+  );
+
+  /**
+   * DocumentRegistry discovery (ENSIP-11 on the protocol root name) — merged
+   * into the watcher so Overview/Documents, the events page, and grants see
+   * DocumentPublished/SlotKeyGranted. Rescans once, only when the source is
+   * genuinely new.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    resolveDocumentEventSource()
+      .then(async (source) => {
+        if (cancelled || !source) return;
+        try {
+          await addSources([source]);
+        } catch {
+          // No RPC config — nothing to scan into; pages surface their own errors.
+        }
+      })
+      .catch(() => {
+        // Discovery failure (no record yet, RPC hiccup) — nothing to add.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [addSources]);
+
+  /** Identity registry (built-in Sepolia constant / erc8004.registry record). */
+  useEffect(() => {
+    let cancelled = false;
+    resolveIdentityEventSource()
+      .then(async (source) => {
+        if (cancelled || !source) return;
+        try {
+          await addSources([source]);
+        } catch {
+          // as above
+        }
+      })
+      .catch(() => {
+        // Discovery failure — identity events stay absent.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [addSources]);
+
   const resolveGrants = useCallback(
     async (docHash: Hex, recipient: Address) => {
       const watcher = getWatcher();
@@ -127,8 +198,17 @@ export function SoulVaultEventsProvider({
   );
 
   const value = useMemo<SoulVaultEventsContextValue>(
-    () => ({ ...state, isLive, refresh, startLive, stopLive, resolveGrants }),
-    [state, isLive, refresh, startLive, stopLive, resolveGrants],
+    () => ({
+      ...state,
+      isLive,
+      chainId: resolvedConfig.current?.chainId ?? null,
+      refresh,
+      startLive,
+      stopLive,
+      resolveGrants,
+      addSources,
+    }),
+    [state, isLive, refresh, startLive, stopLive, resolveGrants, addSources],
   );
 
   return <SoulVaultEventsContext.Provider value={value}>{children}</SoulVaultEventsContext.Provider>;

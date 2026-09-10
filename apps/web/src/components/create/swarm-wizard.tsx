@@ -7,9 +7,10 @@ import { Button } from "@/components/ui/button";
 import { useDashboardSelection } from "@/components/dashboard/selection-provider";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
 import { runSwarmCreate, type SwarmTreasuryMode, type WizardStep } from "@/lib/create-flows";
+import { errorMessage, wizardStepFailed } from "@/lib/error-message";
 import { chainById, SEPOLIA_CHAIN_ID, WIZARD_CHAINS } from "@/lib/chains";
 import { shortAddress } from "@/lib/format";
-import { DeploymentSnippet, CliRecoveryHint, ConnectorGate, DevicePromptPanel, PartialFailureNote, StepList } from "@/components/create/wizard-steps";
+import { CliRecoveryHint, ConnectorGate, DevicePromptPanel, PartialFailureNote, StepList } from "@/components/create/wizard-steps";
 
 const INITIAL_STEPS: WizardStep[] = [
   { id: "treasury", label: "Resolve treasury (ENSIP-11 read)", status: "pending" },
@@ -75,7 +76,8 @@ export function SwarmWizard({ orgEnsName }: { orgEnsName: string }) {
       });
       setSwarm(label.trim());
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Swarm creation failed.");
+      setSteps((prev) => prev.map(wizardStepFailed));
+      setError(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -176,14 +178,9 @@ export function SwarmWizard({ orgEnsName }: { orgEnsName: string }) {
             <p className="mt-1 font-mono text-xs">{outcome.swarmEnsName} → {outcome.swarmAddress}</p>
             <p className="mt-1 text-xs text-muted-foreground">
               {chainById(chainId)?.name ?? `chain ${chainId}`} · bound treasury{" "}
-              {shortAddress(outcome.boundTreasury)} · deploy block {outcome.blockNumber.toString()}
+              {shortAddress(outcome.boundTreasury)} · deploy block {outcome.blockNumber.toString()} ·
+              published on the org ENS record — events flow automatically, no env entry needed.
             </p>
-            <pre className="mt-3 overflow-x-auto bg-muted p-3 font-mono text-xs">
-{`NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS=[
-  {"kind":"swarm","address":"${outcome.swarmAddress}","fromBlock":"${outcome.blockNumber}","label":"${label.trim()}"},
-  …existing entries…
-]`}
-            </pre>
           </div>
         ) : null}
       </div>

@@ -23,10 +23,12 @@ import {
 } from '@/lib/onchain/client';
 import { resolveDocumentEventSource } from '@/lib/document-registry';
 import { resolveIdentityEventSource } from '@/lib/identity-registry';
-import type { ActiveGrant, SoulVaultDeployment, SoulVaultEvent } from '@/lib/onchain/types';
+import type { ActiveGrant, SoulVaultContractKind, SoulVaultDeployment, SoulVaultEvent } from '@/lib/onchain/types';
 import { mergeEventBatches, SoulVaultEventWatcher } from '@/lib/onchain/watcher';
 
 export type SoulVaultEventsStatus = 'idle' | 'loading' | 'ready' | 'error';
+
+export type WatchedSource = { address: string; kind: SoulVaultContractKind; label?: string };
 
 export type SoulVaultEventsContextValue = {
   events: SoulVaultEvent[];
@@ -35,6 +37,10 @@ export type SoulVaultEventsContextValue = {
   isLive: boolean;
   /** Chain the shared watcher scans (its single publicClient's chain). */
   chainId: number | null;
+  /** Event sources currently registered on the watcher — surfaces runtime
+   * discovery (ENS) in the UI so an empty page can be told apart from a
+   * pipeline that never learned about the contract. */
+  sources: readonly WatchedSource[];
   refresh: () => Promise<void>;
   startLive: (pollSeconds?: number) => Promise<void>;
   stopLive: () => void;
@@ -239,6 +245,9 @@ export function SoulVaultEventsProvider({
       ...state,
       isLive,
       chainId: resolvedConfig.current?.chainId ?? null,
+      // Read at value-computation time: addSources → refresh → state change
+      // recomputes this, so the UI sees discovery land.
+      sources: (watcherRef.current?.sources ?? []).map(({ address, kind, label }) => ({ address, kind, label })),
       refresh,
       startLive,
       stopLive,

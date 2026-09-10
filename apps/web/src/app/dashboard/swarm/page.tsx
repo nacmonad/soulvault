@@ -36,7 +36,7 @@ const OWNER_ABI = [
 export default function SwarmPage() {
   const { address } = useSoulVaultWallet();
   const { selection, setSwarm } = useDashboardSelection();
-  const { events, status, error, refresh } = useSwarmEvents({ live: true, pollSeconds: 5 });
+  const { events, status, error, refresh, sources } = useSwarmEvents({ live: true, pollSeconds: 5 });
   const discovery = useOrgDiscovery(selection.orgId);
 
   const [busy, setBusy] = useState<string | null>(null);
@@ -160,11 +160,18 @@ export default function SwarmPage() {
         Reduced from swarm + treasury events. Select a swarm below to review and
         approve or reject its pending join requests.
       </p>
-      <div className="mt-3 flex items-center gap-3">
+      <div className="mt-3 flex flex-wrap items-center gap-3">
         <Button size="xs" variant="outline" disabled={status === "loading"} onClick={() => void refresh()}>
           {status === "loading" ? "Scanning…" : "Rescan"}
         </Button>
         {error instanceof Error ? <span className="text-sm text-destructive">{error.message}</span> : null}
+        <span className="text-xs text-muted-foreground">
+          {sources.length === 0
+            ? "no event sources discovered yet — select an org"
+            : `watching ${sources.length} contract${sources.length === 1 ? "" : "s"} (${sources
+                .map((s) => s.label ?? s.kind)
+                .join(", ")}) · ${events.length} swarm/treasury event${events.length === 1 ? "" : "s"}`}
+        </span>
       </div>
 
       {items.length > 0 ? (

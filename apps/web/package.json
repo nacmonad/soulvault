@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev --webpack",
     "build": "next build --webpack",
-    "build:export": "SOULVAULT_WEB_EXPORT=1 next build",
+    "build:export": "SOULVAULT_WEB_EXPORT=1 next build --webpack",
     "deploy:pages": "sh scripts/deploy-pages.sh",
     "start": "next start",
     "lint": "eslint",

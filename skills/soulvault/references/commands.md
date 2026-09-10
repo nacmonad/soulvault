@@ -690,6 +690,11 @@ swarm membership. On-chain events are the transport:
 
 - `DocumentPublished(docHash, author, slotIds)` — integrity anchor; docHash =
   `artifact.documentId`, never the document itself.
+- `RehydrationRequested(docHash, recipient, rehydrationPublicKey)` — a consumer's
+  onchain hydration request: the request tx signature binds msg.sender to the
+  rehydration public key, so the author's client wraps grants straight from the
+  event (no pasted attestation JSON). Key rotation = re-request with a fresh key;
+  the author grants against the latest request per recipient.
 - `SlotKeyGranted(docHash, slotId, recipient, wrappedKey, ...)` — the grant event IS
   the key delivery (wrapped slot keys, `secp256k1-ecdh-aes-256-gcm`). No revocation.
 

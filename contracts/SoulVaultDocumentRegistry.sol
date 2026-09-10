@@ -15,6 +15,13 @@ pragma solidity ^0.8.24;
  * A delivered READ grant is a permanent capability: there is no revocation
  * and no expiry (spec §3).
  *
+ * Rehydration requests close the loop on-chain: a consumer posts
+ * `requestRehydration` with their rehydration public key and the tx signature
+ * (`msg.sender`) authenticates the wallet↔pubkey binding — the same way the
+ * publish/grant txs authenticate the author — so the author's client can
+ * wrap slot keys straight from the `RehydrationRequested` event log with no
+ * out-of-band attestation exchange.
+ *
  * Wire-format compatibility: `SlotKeyGranted` fields map 1:1 onto
  * `SecpWrappedKey` (packages/protocol/src/crypto.ts) and the event surface
  * mirrored in apps/web/src/lib/onchain/abis.ts.
@@ -29,6 +36,8 @@ contract SoulVaultDocumentRegistry {
     error EmptySlotId();
     error EmptyWrappedKey();
     error BadAlgorithm();
+    error NotPublished();
+    error EmptyPublicKey();
 
     /// @notice docHash => author of record. The slot list lives in the
     /// publication event log (the resolver's canonical source).
@@ -44,6 +53,11 @@ contract SoulVaultDocumentRegistry {
         string ephemeralPublicKey,
         string nonce
     );
+    /// @notice A consumer asked for hydration of a published document. The
+    /// rehydration public key rides in the event; `recipient` (msg.sender) is
+    /// authenticated by the tx signature, so the event is the wallet-attested
+    /// key binding — grants can be wrapped directly from it.
+    event RehydrationRequested(bytes32 indexed docHash, address indexed recipient, string rehydrationPublicKey);
 
     /// @notice Anchor a redacted document's integrity: docHash + slot list.
     /// The author is msg.sender; the document itself never touches the chain.
@@ -89,5 +103,17 @@ contract SoulVaultDocumentRegistry {
     /// @notice Author of record for a published document.
     function publicationAuthor(bytes32 docHash) external view returns (address) {
         return _publicationAuthor[docHash];
+    }
+
+    /// @notice Request hydration of a published document. The caller's tx
+    /// signature binds `msg.sender` to `rehydrationPublicKey` — the author
+    /// wraps slot keys to that key and delivers them via SlotKeyGranted.
+    /// Re-requesting with a fresh key is the key-loss recovery story: the old
+    /// request stays in the log but grants wrapped to it simply cannot be
+    /// unwrapped by the new key (fail closed).
+    function requestRehydration(bytes32 docHash, string calldata rehydrationPublicKey) external {
+        if (_publicationAuthor[docHash] == address(0)) revert NotPublished();
+        if (bytes(rehydrationPublicKey).length == 0) revert EmptyPublicKey();
+        emit RehydrationRequested(docHash, msg.sender, rehydrationPublicKey);
     }
 }

@@ -54,7 +54,8 @@ export function parseDocumentEvent(event: SoulVaultEvent): SoulVaultDocumentEven
 function isDocumentEvent(event: SoulVaultEvent): event is SoulVaultDocumentEvent {
   return (
     event.eventName === 'DocumentPublished' ||
-    event.eventName === 'SlotKeyGranted'
+    event.eventName === 'SlotKeyGranted' ||
+    event.eventName === 'RehydrationRequested'
   );
 }
 
@@ -100,6 +101,14 @@ function decodeDocumentEvent(
         } satisfies SecpWrappedKey,
       };
     }
+    case 'RehydrationRequested':
+      return {
+        ...meta,
+        eventName: 'RehydrationRequested',
+        docHash: args.docHash as Hex,
+        recipient: args.recipient as Address,
+        rehydrationPublicKey: args.rehydrationPublicKey as string,
+      };
     default:
       return null;
   }

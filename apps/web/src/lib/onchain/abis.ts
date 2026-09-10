@@ -18,6 +18,7 @@ import type { SoulVaultContractKind } from './types';
 export const DOCUMENT_EVENT_ABI = parseAbi([
   'event DocumentPublished(bytes32 indexed docHash, address indexed author, string[] slotIds)',
   'event SlotKeyGranted(bytes32 indexed docHash, string slotId, address indexed recipient, string wrappedKey, string algorithm, string ephemeralPublicKey, string nonce)',
+  'event RehydrationRequested(bytes32 indexed docHash, address indexed recipient, string rehydrationPublicKey)',
 ]);
 
 export const SWARM_EVENT_ABI = parseAbi([

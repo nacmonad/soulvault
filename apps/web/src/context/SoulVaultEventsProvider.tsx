@@ -121,8 +121,13 @@ export function SoulVaultEventsProvider({
           setState({ events, status: 'ready', error: null });
           return;
         }
-        // Sources were added while the shared scan ran; loop for one fresh
-        // scan now that it has settled.
+        // Sources were added while the shared scan ran. Give any other
+        // in-flight discovery (registry effects, ENS bridge) a moment to land
+        // too, so the fresh scan includes them instead of chaining re-scans.
+        await new Promise((resolve) => setTimeout(resolve, 750));
+        if (seq !== scanSeq.current) return;
+        // Sources were added while the shared scan was running; loop for one
+        // fresh scan now that it has settled.
       }
     } catch (error) {
       if (seq !== scanSeq.current) return;

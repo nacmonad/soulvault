@@ -143,6 +143,26 @@ function publicClient(): PublicClient {
   return createSoulVaultPublicClient(config);
 }
 
+/** In-flight resolver-read coalescing. Several components fire the same ENS
+ * reads at mount (page discovery + OrgEventSourcesBridge + registry source
+ * resolution); under a public-RPC rate limit each duplicate call is another
+ * 429 waiting to happen, and a failed read is silently treated as "record
+ * missing" by callers. Identical concurrent reads share one request — and
+ * one retry loop — instead of multiplying the burst. */
+const inflightReads = new Map<string, Promise<unknown>>();
+
+function coalesceRead<T>(key: string, run: () => Promise<T>): Promise<T> {
+  const existing = inflightReads.get(key) as Promise<T> | undefined;
+  if (existing) return existing;
+  const promise = run();
+  const settle = () => {
+    if (inflightReads.get(key) === promise) inflightReads.delete(key);
+  };
+  promise.then(settle, settle);
+  inflightReads.set(key, promise);
+  return promise;
+}
+
 async function requireOrgOwnership(input: { orgEnsName: string; from: Address }) {
   const client = publicClient();
   const orgNode = namehash(normalize(input.orgEnsName));
@@ -210,13 +230,15 @@ export function encodeSwarmsListDataUri(labels: string[]): string {
 export async function readOrgSwarmsList(orgEnsName: string): Promise<string[]> {
   const client = publicClient();
   const node = namehash(normalize(orgEnsName));
-  const raw = (await withTransientRetry(() =>
-    client.readContract({
-      address: PUBLIC_RESOLVER,
-      abi: RESOLVER_ABI,
-      functionName: "text",
-      args: [node, "soulvault.swarms"],
-    }),
+  const raw = (await coalesceRead(`text:${node}:${"soulvault.swarms"}`, () =>
+    withTransientRetry(() =>
+      client.readContract({
+        address: PUBLIC_RESOLVER,
+        abi: RESOLVER_ABI,
+        functionName: "text",
+        args: [node, "soulvault.swarms"],
+      }),
+    ),
   )) as string;
   if (!raw || !raw.startsWith(CBOR_DATA_URI_PREFIX)) return [];
   try {
@@ -307,12 +329,16 @@ export async function getAddrMultichain(input: {
   const client = input.client ?? publicClient();
   const node = namehash(normalize(input.ensName));
   const coinType = coinTypeForChain(input.chainId);
-  const bytes = (await client.readContract({
-    address: PUBLIC_RESOLVER,
-    abi: RESOLVER_ABI,
-    functionName: "addr",
-    args: [node, BigInt(coinType)],
-  })) as Hex;
+  const bytes = (await coalesceRead(`addr:${node}:${coinType}`, () =>
+    withTransientRetry(() =>
+      client.readContract({
+        address: PUBLIC_RESOLVER,
+        abi: RESOLVER_ABI,
+        functionName: "addr",
+        args: [node, BigInt(coinType)],
+      }),
+    ),
+  )) as Hex;
   if (!bytes || bytes === "0x" || bytes.length < 42) return null;
   return `0x${bytes.slice(-40)}` as Address;
 }
@@ -321,13 +347,15 @@ export async function getAddrMultichain(input: {
 export async function readEnsText(ensName: string, key: string): Promise<string | null> {
   const client = publicClient();
   const node = namehash(normalize(ensName));
-  const raw = (await withTransientRetry(() =>
-    client.readContract({
-      address: PUBLIC_RESOLVER,
-      abi: RESOLVER_ABI,
-      functionName: "text",
-      args: [node, key],
-    }),
+  const raw = (await coalesceRead(`text:${node}:${key}`, () =>
+    withTransientRetry(() =>
+      client.readContract({
+        address: PUBLIC_RESOLVER,
+        abi: RESOLVER_ABI,
+        functionName: "text",
+        args: [node, key],
+      }),
+    ),
   )) as string;
   return raw || null;
 }
@@ -336,13 +364,15 @@ export async function readEnsText(ensName: string, key: string): Promise<string 
 export async function readEnsAddress(ensName: string): Promise<Address | null> {
   const client = publicClient();
   const node = namehash(normalize(ensName));
-  const bytes = (await withTransientRetry(() =>
-    client.readContract({
-      address: PUBLIC_RESOLVER,
-      abi: RESOLVER_ABI,
-      functionName: "addr",
-      args: [node, 60n],
-    }),
+  const bytes = (await coalesceRead(`addr:${node}:60`, () =>
+    withTransientRetry(() =>
+      client.readContract({
+        address: PUBLIC_RESOLVER,
+        abi: RESOLVER_ABI,
+        functionName: "addr",
+        args: [node, 60n],
+      }),
+    ),
   )) as Hex;
   if (!bytes || bytes === "0x" || bytes.length < 42) return null;
   return getAddress(`0x${bytes.slice(-40)}` as Address);
@@ -405,13 +435,15 @@ export function upsertTreasuryEntry(
 export async function readOrgTreasuries(orgEnsName: string): Promise<OrgTreasuryEntry[]> {
   const client = publicClient();
   const node = namehash(normalize(orgEnsName));
-  const raw = (await withTransientRetry(() =>
-    client.readContract({
-      address: PUBLIC_RESOLVER,
-      abi: RESOLVER_ABI,
-      functionName: "text",
-      args: [node, TREASURIES_TEXT_RECORD_KEY],
-    }),
+  const raw = (await coalesceRead(`text:${node}:${TREASURIES_TEXT_RECORD_KEY}`, () =>
+    withTransientRetry(() =>
+      client.readContract({
+        address: PUBLIC_RESOLVER,
+        abi: RESOLVER_ABI,
+        functionName: "text",
+        args: [node, TREASURIES_TEXT_RECORD_KEY],
+      }),
+    ),
   )) as string;
   return parseTreasuriesRecord(raw ?? "");
 }

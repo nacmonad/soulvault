@@ -30,12 +30,19 @@ export function OrgEventSourcesBridge() {
         if (cancelled || sources.length === 0) return;
         try {
           await addSources(sources);
-        } catch {
-          // No RPC config — nothing to scan into; discovery is best-effort.
+        } catch (error) {
+          console.warn(
+            `[OrgEventSourcesBridge] failed to add event sources for ${orgEnsName}:`,
+            error instanceof Error ? error.message : error,
+          );
         }
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         // Malformed or missing org records — swarm/treasury events stay absent.
+        console.warn(
+          `[OrgEventSourcesBridge] could not resolve event sources for ${orgEnsName}:`,
+          error instanceof Error ? error.message : error,
+        );
       });
     return () => {
       cancelled = true;

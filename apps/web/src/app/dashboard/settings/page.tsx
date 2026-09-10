@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createPublicClient, http } from "viem";
 
 import { Button } from "@/components/ui/button";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
-import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
+import { createSoulVaultPublicClient, getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 import { clearRpcUrlOverride, getRpcUrlOverride, setRpcUrlOverride } from "@/lib/rpc-settings";
 
 type Probe = { status: "idle" | "probing" | "ok" | "error"; detail?: string };
@@ -31,12 +30,14 @@ export default function SettingsPage() {
     setProbe({ status: "idle" });
     const normalized = setRpcUrlOverride(draft);
     if (!normalized) {
-      setError("Not a valid http(s) URL.");
+      setError("No valid http(s) URL in the list — nothing tested.");
       return;
     }
     setProbe({ status: "error" });
     try {
-      const client = createPublicClient({ transport: http(normalized) });
+      // Probe through the same transport the dashboard will use — a
+      // comma-separated list exercises the failover order end to end.
+      const client = createSoulVaultPublicClient({ rpcUrl: normalized, chainId: 11155111, deployments: [] });
       const [block, chainId] = await Promise.all([
         client.getBlockNumber(),
         client.getChainId(),
@@ -50,7 +51,7 @@ export default function SettingsPage() {
   function onSave() {
     const normalized = setRpcUrlOverride(draft);
     if (!normalized) {
-      setError("Not a valid http(s) URL — nothing saved.");
+      setError("No valid http(s) URL in the list — nothing saved.");
       return;
     }
     setOverride(normalized);
@@ -72,7 +73,9 @@ export default function SettingsPage() {
       <p className="mt-2 max-w-xl text-sm text-muted-foreground">
         All dashboard chain reads and writes target the effective endpoint below.
         Free public endpoints rate-limit burst requests — a personal-token or
-        dedicated endpoint removes that ceiling. Stored in this browser only.
+        dedicated endpoint removes that ceiling. Comma-separate multiple
+        endpoints to fail over automatically when one rate-limits (429); they
+        are tried in the order given. Stored in this browser only.
       </p>
 
       <dl className="mt-4 max-w-xl space-y-2 text-sm">
@@ -96,12 +99,12 @@ export default function SettingsPage() {
             className="w-full border border-border bg-background px-3 py-2 font-mono text-sm"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder="https://ethereum-sepolia-rpc.personal-token.example/v3/…"
+            placeholder="https://sepolia.infura.io/v3/…,https://ethereum-sepolia-rpc.publicnode.com"
           />
         </div>
         {error ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}
         <p className="mt-1 text-xs text-muted-foreground">
-          Candidate test: {probe.detail ?? (probe.status === "error" ? "failed" : "not run")}
+          Probe result: {probe.detail ?? (probe.status === "error" ? "failed" : "not run")}
         </p>
         <div className="mt-3 flex gap-2">
           <Button variant="outline" onClick={() => void onTest()} disabled={!draft.trim()}>

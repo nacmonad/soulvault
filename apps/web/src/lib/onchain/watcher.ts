@@ -222,9 +222,20 @@ export class SoulVaultEventWatcher {
         const latest = await this.publicClient.getBlockNumber();
         if (cursor === null) cursor = options.fromBlock ?? latest;
         if (latest >= cursor) {
-          const events = await this.scanRange(cursor, latest);
+          let events: SoulVaultEvent[];
+          try {
+            events = await this.scanRange(cursor, latest);
+          } catch {
+            // Load-balanced RPCs can report a head that another backend has not
+            // caught up to: an explicit toBlock beyond the responding node's
+            // head fails the whole getLogs. Retry once one block behind and
+            // rewind the cursor to cover the boundary block next tick (the
+            // merge dedupes the overlap).
+            events = await this.scanRange(cursor, latest - BigInt(1));
+            cursor = latest;
+          }
           if (events.length > 0) options.onEvents?.(events);
-          cursor = latest + BigInt(1);
+          cursor = cursor > latest ? cursor : latest + BigInt(1);
         }
       } catch (error) {
         options.onError?.(error);

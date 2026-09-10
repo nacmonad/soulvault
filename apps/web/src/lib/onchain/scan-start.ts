@@ -12,7 +12,7 @@ import type { Address, PublicClient } from "viem";
 import { publicClientForChainId } from "@/lib/chains";
 import { createSoulVaultPublicClient, getBrowserSoulVaultClientConfig } from "./client";
 
-const FROM_BLOCK_CACHE_PREFIX = "soulvault.fromBlock.";
+const FROM_BLOCK_CACHE_PREFIX = "soulvault.fromBlock.v2.";
 /** When neither a hint nor a code search yields a deploy block, scan a recent window. */
 const FALLBACK_SCAN_WINDOW = 1_000_000n;
 
@@ -86,8 +86,13 @@ export async function contractScanStartBlock(input: {
     fromBlock = await findContractDeployBlock(client, input.address);
   }
   if (fromBlock === null) {
+    // Fallback estimates are NOT cached (under the deploy-block key): on
+    // non-archive RPCs this would pin every future scan to a ~1M-block window
+    // even after switching to an archive provider. Recomputing costs one
+    // getBlockNumber call.
     const latest = await client.getBlockNumber().catch(() => null);
     fromBlock = latest === null ? 0n : latest > FALLBACK_SCAN_WINDOW ? latest - FALLBACK_SCAN_WINDOW : 0n;
+    return fromBlock;
   }
   try {
     window.localStorage.setItem(cacheKey, fromBlock.toString());

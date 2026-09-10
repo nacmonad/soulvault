@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseSoulVaultClientConfig } from './client';
+import { createSoulVaultPublicClient, parseSoulVaultClientConfig } from './client';
 
 const rpcUrl = 'https://ethereum-sepolia-rpc.publicnode.com';
 
@@ -59,5 +59,23 @@ describe('parseSoulVaultClientConfig', () => {
     expect(config?.deployments).toHaveLength(1);
     expect(config?.deployments[0].fromBlock).toBe(123n);
     expect(config?.deployments[0].kind).toBe('document');
+  });
+});
+
+describe('createSoulVaultPublicClient', () => {
+  it('wraps a comma-separated endpoint list in a failover transport, in order', () => {
+    const client = createSoulVaultPublicClient({
+      rpcUrl: 'https://a.example/v3/key,https://b.example',
+      chainId: 11155111,
+      deployments: [],
+    });
+    const transports = (client.transport as unknown as { transports: unknown[] }).transports;
+    expect(Array.isArray(transports)).toBe(true);
+    expect(transports).toHaveLength(2);
+  });
+
+  it('keeps a single-endpoint client on a plain http transport', () => {
+    const client = createSoulVaultPublicClient({ rpcUrl, chainId: 11155111, deployments: [] });
+    expect((client.transport as unknown as { transports?: unknown[] }).transports).toBeUndefined();
   });
 });

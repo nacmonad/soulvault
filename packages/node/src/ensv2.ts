@@ -68,9 +68,10 @@ export const ENSV2_PERMISSIONED_REGISTRY_ABI = [
   'function roles(uint256 resource, address account) view returns (uint256)',
 ] as const;
 
-/** ENSv2 resolver — record interface is unchanged from v1 (setText/text/addr). */
+/** ENSv2 resolver — record interfaces are unchanged from v1 (setText/text/addr/setAddr). */
 export const ENSV2_RESOLVER_ABI = [
   'function text(bytes32 node, string key) view returns (string)',
+  'function setText(bytes32 node, string key, string value)',
   'function addr(bytes32 node, uint256 coinType) view returns (bytes)',
   'function setAddr(bytes32 node, uint256 coinType, bytes a)',
 ] as const;

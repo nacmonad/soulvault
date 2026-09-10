@@ -164,4 +164,72 @@ describe('ens.ts dispatch (mock provider layer)', () => {
     const { readEnsText } = await import('./ens.js');
     expect(await readEnsText('foo.eth', 'anything')).toBe('');
   });
+
+  it('setEnsText v2 dispatch: setText lands on the hierarchy-resolved resolver', async () => {
+    setV2Flag(true);
+    mockReturns.set('getSubregistry', async (label: string) =>
+      label === 'eth' ? '0x2222222222222222222222222222222222222222' : '0x6666666666666666666666666666666666666666',
+    );
+    mockReturns.set('getState', async () => [2, 9999999999n, '0x3333333333333333333333333333333333333333', 123n, 456n]);
+    mockReturns.set('getResolver', async () => '0x4444444444444444444444444444444444444444');
+    let setTextArgs: unknown[] | null = null;
+    mockReturns.set('setText', async (...args: unknown[]) => {
+      setTextArgs = args;
+      return { wait: async () => ({ hash: '0xdeadbeef' }) };
+    });
+    const { setEnsText } = await import('./ens.js');
+    const r = await setEnsText('foo.eth', 'soulvault.chainId', '11155111');
+    expect(setTextArgs).toBeTruthy();
+    expect(r.txHash).toBe('0xdeadbeef');
+    expect(r.key).toBe('soulvault.chainId');
+    setV2Flag(false);
+  });
+
+  it('setEnsText v2 with no resolver → throws with register guidance', async () => {
+    setV2Flag(true);
+    mockReturns.set('getSubregistry', async () => ZERO);
+    const { setEnsText } = await import('./ens.js');
+    await expect(setEnsText('foo.eth', 'k', 'v')).rejects.toThrow(/no v2 resolver/i);
+    setV2Flag(false);
+  });
+
+  it('getAddrMultichain v2 dispatch: ENSIP-11 read via hierarchy-resolved resolver', async () => {
+    setV2Flag(true);
+    mockReturns.set('getSubregistry', async (label: string) =>
+      label === 'eth' ? '0x2222222222222222222222222222222222222222' : '0x6666666666666666666666666666666666666666',
+    );
+    mockReturns.set('getState', async () => [2, 9999999999n, '0x3333333333333333333333333333333333333333', 123n, 456n]);
+    mockReturns.set('getResolver', async () => '0x4444444444444444444444444444444444444444');
+    const expectedCoinType = BigInt((0x80000000 | 11155111) >>> 0);
+    let sawCoinType: bigint | null = null;
+    mockReturns.set('addr', async (_node: string, coinType: bigint) => {
+      sawCoinType = coinType;
+      return '0x5555555555555555555555555555555555555555';
+    });
+    const { getAddrMultichain } = await import('./ens.js');
+    const a = await getAddrMultichain('foo.eth', 11155111);
+    expect(Number(sawCoinType)).toBe((0x80000000 | 11155111) >>> 0);
+    expect(a?.toLowerCase()).toBe('0x5555555555555555555555555555555555555555');
+    setV2Flag(false);
+  });
+
+  it('setAddrMultichain v2 dispatch: setAddr lands on the hierarchy-resolved resolver', async () => {
+    setV2Flag(true);
+    mockReturns.set('getSubregistry', async (label: string) =>
+      label === 'eth' ? '0x2222222222222222222222222222222222222222' : '0x6666666666666666666666666666666666666666',
+    );
+    mockReturns.set('getState', async () => [2, 9999999999n, '0x3333333333333333333333333333333333333333', 123n, 456n]);
+    mockReturns.set('getResolver', async () => '0x4444444444444444444444444444444444444444');
+    let setAddrArgs: unknown[] | null = null;
+    mockReturns.set('setAddr', async (...args: unknown[]) => {
+      setAddrArgs = args;
+      return { wait: async () => ({ hash: '0xfeedface' }) };
+    });
+    const { setAddrMultichain } = await import('./ens.js');
+    const r = await setAddrMultichain('foo.eth', 11155111, '0x5555555555555555555555555555555555555555');
+    expect(setAddrArgs).toBeTruthy();
+    expect(r.txHash).toBe('0xfeedface');
+    expect(r.coinType).toBe((0x80000000 | 11155111) >>> 0);
+    setV2Flag(false);
+  });
 });

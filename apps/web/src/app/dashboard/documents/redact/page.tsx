@@ -18,7 +18,7 @@ import { resolveRootEnsName, resolveDocumentRegistryAddress } from "@/lib/docume
 import { runDocumentPublish, type WizardStep } from "@/lib/create-flows";
 import { errorMessage, wizardStepFailed } from "@/lib/error-message";
 import { CliRecoveryHint, DevicePromptPanel, PartialFailureNote, StepList } from "@/components/create/wizard-steps";
-import { downloadText, saveSessionDocument } from "@/lib/document-session";
+import { downloadText, loadSessionDocument, saveSessionDocument } from "@/lib/document-session";
 import { useDocumentRegistryAddress } from "@/hooks/useDocumentRegistryAddress";
 
 const SAMPLE = `Patient Sarah Connor called from +1 415-555-2671.
@@ -92,6 +92,7 @@ export default function DocumentsRedactPage() {
     txHash: string;
     blockNumber: bigint;
   } | null>(null);
+  const [runWarning, setRunWarning] = useState<string | null>(null);
   const { address, connector } = useSoulVaultWallet();
 
   const reviewing = findings.length > 0;
@@ -313,10 +314,21 @@ export default function DocumentsRedactPage() {
       const config = getBrowserSoulVaultClientConfig();
       const hint = registry && config ? { chainId: config.chainId, address: registry } : undefined;
       setRegistryHint(hint);
+      // documentId is deterministic over the public artifact, so re-encrypting
+      // the same source rotates every slot key under the SAME docHash. Warn
+      // instead of silently invalidating grants/bundles from the earlier run —
+      // the previous run is archived and remains grantable (Grants tab).
+      const previous = loadSessionDocument(encrypted.artifact.documentId);
+      const nextBundle = serializePublicDocumentBundle(encrypted, { registry: hint });
+      setRunWarning(
+        previous && previous.bundle !== nextBundle
+          ? "This document was redacted before — re-encrypting rotated every slot key under the same docHash. Grants from the previous run stay on-chain but only open bundles from that run; it is archived and grantable from the Grants tab. Download the new bundle now — this browser keeps both runs' keys."
+          : null,
+      );
       saveSessionDocument({
         documentId: encrypted.artifact.documentId,
         slotKeys: encrypted.slotKeys,
-        bundle: serializePublicDocumentBundle(encrypted, { registry: hint }),
+        bundle: nextBundle,
       });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Encrypt failed");
@@ -740,6 +752,11 @@ export default function DocumentsRedactPage() {
       ) : null}
 
       {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
+      {runWarning ? (
+        <div className="mt-3 border border-amber-600/40 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-400/40 dark:bg-amber-950/30 dark:text-amber-300">
+          {runWarning}
+        </div>
+      ) : null}
       {result ? (
         <div className="mt-6 border border-border bg-card p-4">
           <p className="eyebrow text-primary">Artifact</p>

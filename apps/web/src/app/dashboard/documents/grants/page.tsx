@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { isAddressEqual, type Address, type Hex } from "viem";
-import { createSlotKeyGrants, createSlotKeyGrantsForRecipient, parsePublicDocumentBundle } from "@soulvault/protocol";
+import { createSlotKeyGrants, createSlotKeyGrantsForRecipient, parsePublicDocumentBundle, rehydrationKeyFingerprint } from "@soulvault/protocol";
 
 import { Button } from "@/components/ui/button";
 import { GrantWizard, type GrantWizardRequest } from "@/components/documents/grant-wizard";
@@ -19,7 +19,7 @@ import {
   slotsFromPublicBundle,
   type PendingRehydrationRequest,
 } from "@/lib/document-grants";
-import { currentSessionDocumentId, downloadText, loadSessionDocument, storedSessionDocumentIds } from "@/lib/document-session";
+import { currentSessionDocumentId, downloadText, listSessionRuns, loadSessionDocument, loadSessionRunByBundle, storedSessionDocumentIds } from "@/lib/document-session";
 import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 import { shortAddress } from "@/lib/format";
 
@@ -42,6 +42,10 @@ export default function DocumentsGrantsPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [pendingGrant, setPendingGrant] = useState<GrantWizardRequest | null>(null);
+  // Archived redact runs exist because documentId is deterministic: re-running
+  // Redact rotates slot keys under the SAME docHash. Grants must use the run
+  // whose bundle the consumer actually holds, so allow switching.
+  const [runBundle, setRunBundle] = useState<string | null>(null);
   // Open the wizard where the user is looking: the request row that was clicked
   // can be far below the wizard's render position at the top of the page.
   const wizardRef = useRef<HTMLDivElement | null>(null);
@@ -50,7 +54,10 @@ export default function DocumentsGrantsPage() {
   }, [pendingGrant]);
 
   const selectedDoc = docHash ? documents.documents.get(docHash) : undefined;
-  const session = selectedDoc ? loadSessionDocument(selectedDoc.docHash) : null;
+  const currentSession = selectedDoc ? loadSessionDocument(selectedDoc.docHash) : null;
+  const archivedRuns = selectedDoc ? listSessionRuns(selectedDoc.docHash) : [];
+  const overrideRun = selectedDoc && runBundle ? loadSessionRunByBundle(selectedDoc.docHash, runBundle) : null;
+  const session = overrideRun ?? currentSession;
   const sessionSlots = session ? slotsFromPublicBundle(session.bundle) : [];
   const config = getBrowserSoulVaultClientConfig();
   const { address: registry } = useDocumentRegistryAddress();
@@ -81,6 +88,7 @@ export default function DocumentsGrantsPage() {
     // current is bare hex (storage-normalized); doc.docHash is 0x-prefixed.
     const match = authored.find((doc) => doc.docHash.toLowerCase().replace(/^0x/, "") === current);
     if (!match) return;
+    setRunBundle(null);
     setDocHash(match.docHash);
     setSelected(new Set(match.slotIds));
   }, [authored, docHash]);
@@ -256,6 +264,7 @@ export default function DocumentsGrantsPage() {
                   type="button"
                   className="font-mono text-xs text-amber-700 underline decoration-dotted dark:text-amber-300"
                   onClick={() => {
+                    setRunBundle(null);
                     setDocHash(request.docHash as Hex);
                     const doc = authored.find((d) => d.docHash.toLowerCase() === request.docHash.toLowerCase());
                     setSelected(new Set(doc?.slotIds ?? []));
@@ -282,6 +291,7 @@ export default function DocumentsGrantsPage() {
                 type="button"
                 className={`font-mono text-xs ${docHash === doc.docHash ? "text-primary" : ""}`}
                 onClick={() => {
+                  setRunBundle(null);
                   setDocHash(doc.docHash);
                   setSelected(new Set(doc.slotIds));
                 }}
@@ -323,6 +333,43 @@ export default function DocumentsGrantsPage() {
             })}
           </ul>
           <h2 className="mt-8 text-sm font-semibold">Rehydration requests</h2>
+          {archivedRuns.length > 0 ? (
+            <details className="mt-2 border border-amber-600/40 bg-amber-50 p-3 dark:border-amber-400/40 dark:bg-amber-950/30">
+              <summary className="cursor-pointer text-xs font-medium text-amber-700 dark:text-amber-300">
+                {archivedRuns.length} archived redact run{archivedRuns.length === 1 ? "" : "s"} for this document — slot keys rotated on re-encrypt
+              </summary>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Re-running Redact reuses the docHash but generates fresh slot keys. Grants use the{" "}
+                <strong>newest</strong> run unless you pick another — choose the run whose bundle the recipient
+                actually holds, or their unwrap will fail (key ≠ ciphertext).
+              </p>
+              <ul className="mt-2 space-y-1 text-xs">
+                <li className="font-mono">
+                  {session === currentSession && currentSession ? (
+                    <span className="text-primary">▸ newest run (active)</span>
+                  ) : null}
+                </li>
+                {archivedRuns.map((run) => {
+                  const nonce = run.bundle.match(/"nonce":"([0-9a-f]{24})"/i)?.[1] ?? "";
+                  const isActive = overrideRun?.bundle === run.bundle;
+                  return (
+                    <li key={run.bundle.slice(-24)} className="flex flex-wrap items-center gap-2 font-mono">
+                      <span className={isActive ? "text-primary" : ""}>
+                        {new Date(run.savedAt).toLocaleString()} · nonce {nonce.slice(0, 12)}…
+                      </span>
+                      {isActive ? (
+                        <span className="chip text-primary">active for granting</span>
+                      ) : (
+                        <Button size="xs" variant="outline" onClick={() => setRunBundle(run.bundle)}>
+                          Grant with this run
+                        </Button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </details>
+          ) : null}
           <p className="mt-1 text-xs text-muted-foreground">
             Consumers request on-chain from the Rehydrate tab — the request tx
             binds their wallet to their rehydration key. Select slots above,
@@ -344,8 +391,8 @@ export default function DocumentsGrantsPage() {
                     className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-2 last:border-b-0"
                   >
                     <span className="font-mono text-xs">{shortAddress(request.recipient)}</span>
-                    <span className="font-mono text-xs text-muted-foreground">
-                      key {request.rehydrationPublicKey.slice(0, 10)}…
+                    <span className="font-mono text-xs text-muted-foreground" title={request.rehydrationPublicKey}>
+                      key fp {rehydrationKeyFingerprint(request.rehydrationPublicKey).slice(0, 12)}…
                     </span>
                     <span className="text-xs text-muted-foreground">block {request.blockNumber}</span>
                     {grantedCount > 0 ? (

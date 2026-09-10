@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  createSlotKeyGrantsForRecipient,
   DocumentProtocolError,
+  loadOrCreateRehydrationKey,
+  MemoryRehydrationKeyStore,
   redactAndEncryptDocument,
   serializePublicDocumentBundle,
   parsePublicDocumentBundle,
@@ -9,6 +12,8 @@ import {
 import {
   assertBundleAnchoredOnChain,
   bundleDocHash,
+  compareAuthorSessionRun,
+  diagnoseSlotGrant,
   evaluateSelfieProof,
   parsePastedSelfieProof,
   publicHydrationError,
@@ -164,5 +169,130 @@ describe("publicHydrationError", () => {
     const cause = new DocumentProtocolError("UNAUTHORIZED_RECIPIENT", "Patient TEST PERSON must not leak");
     expect(publicHydrationError(cause)).toBe("UNAUTHORIZED_RECIPIENT");
     expect(publicHydrationError(cause)).not.toMatch(/TEST PERSON/);
+  });
+});
+
+describe("diagnoseSlotGrant", () => {
+  const wallet = "0x0000000000000000000000000000000000000c4e";
+
+  async function setup() {
+    const document = redactAndEncryptDocument({
+      text: "Patient TEST PERSON called 555-0100.",
+      spans: [{ start: 8, end: 19, entityType: "PERSON", slotId: "person-1" }],
+    });
+    const bundle = parsePublicDocumentBundle(serializePublicDocumentBundle(document));
+    const recipient = await loadOrCreateRehydrationKey({ store: new MemoryRehydrationKeyStore() });
+    const otherKey = await loadOrCreateRehydrationKey({
+      store: new MemoryRehydrationKeyStore(),
+      keyId: "other",
+    });
+    const grants = createSlotKeyGrantsForRecipient({
+      slotKeys: document.slotKeys,
+      slotIds: ["person-1"],
+      recipient: wallet,
+      recipientPublicKey: recipient.publicKey,
+    });
+    return { document, bundle, recipient, otherKey, grants };
+  }
+
+  it("reports ok for a matching key and ciphertext", async () => {
+    const { bundle, recipient, grants } = await setup();
+    expect(
+      diagnoseSlotGrant({
+        artifact: bundle.artifact,
+        encryptedSlots: bundle.encryptedSlots,
+        recipientWallet: wallet,
+        rehydrationKey: recipient,
+        grant: grants[0],
+      }),
+    ).toEqual({ ok: true });
+  });
+
+  it("classifies a wrong rehydration key as the unwrap stage", async () => {
+    const { bundle, otherKey, grants } = await setup();
+    expect(
+      diagnoseSlotGrant({
+        artifact: bundle.artifact,
+        encryptedSlots: bundle.encryptedSlots,
+        recipientWallet: wallet,
+        rehydrationKey: otherKey,
+        grant: grants[0],
+      }),
+    ).toEqual({ ok: false, stage: "unwrap" });
+  });
+
+  it("classifies a slot key from a different redact run as slot-open failure", async () => {
+    const { bundle, recipient } = await setup();
+    // Same text, same deterministic slotId — fresh random slot keys.
+    const rerun = redactAndEncryptDocument({
+      text: "Patient TEST PERSON called 555-0100.",
+      spans: [{ start: 8, end: 19, entityType: "PERSON", slotId: "person-1" }],
+    });
+    const staleGrants = createSlotKeyGrantsForRecipient({
+      slotKeys: rerun.slotKeys,
+      slotIds: ["person-1"],
+      recipient: wallet,
+      recipientPublicKey: recipient.publicKey,
+    });
+    expect(
+      diagnoseSlotGrant({
+        artifact: bundle.artifact,
+        encryptedSlots: bundle.encryptedSlots,
+        recipientWallet: wallet,
+        rehydrationKey: recipient,
+        grant: staleGrants[0],
+      }),
+    ).toEqual({ ok: false, stage: "slot-open" });
+  });
+});
+
+describe("compareAuthorSessionRun", () => {
+  function installSessionStorageStub() {
+    const values = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => void values.set(key, value),
+      removeItem: (key: string) => void values.delete(key),
+    });
+    return values;
+  }
+
+  function seedSession(documentId: string, bundle: string | null) {
+    const key = `soulvault.document.${documentId}`;
+    if (bundle === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify({ documentId, slotKeys: [], bundle }));
+  }
+
+  it("reports match for the same redact run", () => {
+    installSessionStorageStub();
+    const bundle = sampleBundle();
+    seedSession(bundle.artifact.documentId, serializePublicDocumentBundle(bundle));
+    expect(compareAuthorSessionRun(bundle)).toBe("match");
+    vi.unstubAllGlobals();
+  });
+
+  it("reports mismatch when the session was overwritten by a later redact run", () => {
+    installSessionStorageStub();
+    const bundle = sampleBundle();
+    const rerun = parsePublicDocumentBundle(serializePublicDocumentBundle(sampleBundle()));
+    // sampleBundle() re-runs redaction: fresh nonces under the same documentId.
+    seedSession(bundle.artifact.documentId, serializePublicDocumentBundle(rerun));
+    // If nonces happen to match (astronomically unlikely), skip the assertion.
+    const sameRun = bundle.encryptedSlots[0].nonce === rerun.encryptedSlots[0].nonce;
+    if (!sameRun) expect(compareAuthorSessionRun(bundle)).toBe("mismatch");
+    vi.unstubAllGlobals();
+  });
+
+  it("reports no-session when this browser has no author session", () => {
+    installSessionStorageStub();
+    const bundle = sampleBundle();
+    seedSession(bundle.artifact.documentId, null);
+    expect(compareAuthorSessionRun(bundle)).toBe("no-session");
+    vi.unstubAllGlobals();
+  });
+
+  it("reports no-session when localStorage is unavailable (node)", () => {
+    vi.unstubAllGlobals();
+    expect(compareAuthorSessionRun(sampleBundle())).toBe("no-session");
   });
 });

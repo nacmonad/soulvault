@@ -1,4 +1,12 @@
-import { DocumentProtocolError, type PublicDocumentBundle } from "@soulvault/protocol";
+import {
+  DocumentProtocolError,
+  rehydrateGrantedDocument,
+  type EncryptedDocumentSlot,
+  type PublicDocumentBundle,
+  type RedactedDocumentArtifact,
+  type RehydrationKey,
+  type SecpWrappedKey,
+} from "@soulvault/protocol";
 import type { Hex } from "viem";
 
 /** Same action string as the node World PoC. Protocol stays free of World types. */
@@ -135,6 +143,74 @@ export function parsePastedSelfieProof(text: string): unknown {
     return JSON.parse(text) as unknown;
   } catch {
     throw new RehydrateGateError("MALFORMED_PROOF", "Selfie Check proof JSON is invalid.");
+  }
+}
+
+/**
+ * Per-slot verdict for a delivered grant: can THIS browser unwrap it, and if
+ * not, did the failure happen at ECDH unwrap (wrong rehydration key) or at the
+ * AES-GCM open (slot key from a different redact run than this bundle). The
+ * stage distinction is the whole diagnosis — but protocol messages are not
+ * guaranteed plaintext-free, so we classify by message and never echo it.
+ */
+export function diagnoseSlotGrant(input: {
+  artifact: RedactedDocumentArtifact;
+  encryptedSlots: EncryptedDocumentSlot[];
+  recipientWallet: string;
+  rehydrationKey: RehydrationKey;
+  grant: { slotId: string; recipient: string; wrap: SecpWrappedKey };
+}): { ok: true } | { ok: false; stage: "unwrap" | "slot-open" } {
+  try {
+    rehydrateGrantedDocument({
+      artifact: input.artifact,
+      encryptedSlots: input.encryptedSlots,
+      recipientWallet: input.recipientWallet,
+      rehydrationKey: input.rehydrationKey,
+      // Force the fingerprint filter to pass so a failed unwrap surfaces as
+      // AUTHENTICATION_FAILED (wrap/key mismatch), not UNAUTHORIZED_RECIPIENT.
+      grants: [
+        {
+          slotId: input.grant.slotId,
+          recipient: input.grant.recipient,
+          recipientKeyFingerprint: input.rehydrationKey.fingerprint,
+          wrap: input.grant.wrap,
+        },
+      ],
+    });
+    return { ok: true };
+  } catch (cause) {
+    const message = cause instanceof DocumentProtocolError ? cause.message : "";
+    if (message.includes("Could not authenticate encrypted slot")) return { ok: false, stage: "slot-open" };
+    return { ok: false, stage: "unwrap" };
+  }
+}
+
+/**
+ * Compares the uploaded bundle's slot nonces against the author session in
+ * localStorage (same redact run?) — slotIds are deterministic per entity
+ * value, so a re-run of Redact reuses the documentId while rotating every
+ * slot key; grants then open the new ciphertexts but not this bundle's.
+ */
+export function compareAuthorSessionRun(bundle: PublicDocumentBundle): "match" | "mismatch" | "no-session" {
+  // Node 22+ exposes a global localStorage binding without a backing file,
+  // so feature-detect the methods, not the binding.
+  const store = typeof localStorage !== "undefined" && typeof localStorage.getItem === "function" ? localStorage : null;
+  if (!store) return "no-session";
+  const raw = store.getItem(`soulvault.document.${bundle.artifact.documentId.toLowerCase()}`);
+  if (!raw) return "no-session";
+  try {
+    const session = JSON.parse(raw) as { bundle?: string };
+    if (typeof session.bundle !== "string") return "no-session";
+    const sessionBundle = JSON.parse(session.bundle) as {
+      encryptedSlots?: { slotId: string; nonce: string }[];
+    };
+    const fingerprint = (slots: { slotId: string; nonce: string }[]) =>
+      slots.map((slot) => `${slot.slotId}:${slot.nonce}`).sort().join("|");
+    return fingerprint(sessionBundle.encryptedSlots ?? []) === fingerprint(bundle.encryptedSlots)
+      ? "match"
+      : "mismatch";
+  } catch {
+    return "no-session";
   }
 }
 

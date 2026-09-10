@@ -1,9 +1,12 @@
-import { encodeFunctionData, type Address, type Hex } from "viem";
+import { encodeFunctionData, type Address, type Hex, type PublicClient } from "viem";
 import type { SecpWrappedKey } from "@soulvault/protocol";
 
 import { SEPOLIA_CHAIN_ID, publicClientForChainId } from "@/lib/chains";
 import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
-import { getAddrMultichain } from "@/lib/ens-writes";
+import { contractScanStartBlock } from "@/lib/onchain/scan-start";
+import { loadSelectedOrgEnsName } from "@/lib/dashboard-context";
+import { getAddrMultichain, readDocumentRegistryEntries } from "@/lib/ens-writes";
+import type { SoulVaultDeployment } from "@/lib/onchain/types";
 import type { ChainSender } from "@/lib/wallet-tx";
 
 export const WRITE_ABI = [
@@ -38,14 +41,23 @@ export const WRITE_ABI = [
  * DocumentRegistry discovery (ticket 012 §D).
  *
  * The registry is a global per-chain singleton, discovered via ENSIP-11 on the
- * protocol root name: `addr(soulvault.eth, coinType(chainId))`. Preference:
- * localStorage override → ENS → env deployments → bundle hint (the hint is
- * consumed by the pages, not here — it is non-authoritative).
+ * protocol root name: `addr(rootName, coinType(chainId))`. Preference:
+ * localStorage override → ENS → bundle hint (the hint is consumed by the
+ * pages, not here — it is non-authoritative).
  */
 const REGISTRY_OVERRIDE_KEY = "soulvault.documentRegistryOverride";
 const ENS_ROOT_NAME_DEFAULT = "soulvault.eth";
 
-function ensRootName(): string {
+/**
+ * Root ENS name the registry is announced on. The registry is protocol-level,
+ * but in practice the "protocol root" is the operator's own .eth name, so the
+ * dashboard's selected organization wins when set (e.g. `soulvault-demo.eth`),
+ * then the build-time env, then the canonical default. Must match the name the
+ * deploy wizard announced on — both sides use this same resolution.
+ */
+export function resolveRootEnsName(): string {
+  const org = loadSelectedOrgEnsName();
+  if (org) return org;
   return process.env.NEXT_PUBLIC_SOULVAULT_ENS_ROOT_NAME || ENS_ROOT_NAME_DEFAULT;
 }
 
@@ -77,20 +89,16 @@ export function clearDocumentRegistryOverride(): void {
   window.localStorage.removeItem(REGISTRY_OVERRIDE_KEY);
 }
 
-/** Sync fast path: override → env deployments. Render-safe; misses ENS. */
 export function documentRegistryAddress(): Address | null {
-  const override = getDocumentRegistryOverride();
-  if (override) return override;
-  const config = getBrowserSoulVaultClientConfig();
-  return config?.deployments.find((item) => item.kind === "document")?.address ?? null;
+  return getDocumentRegistryOverride();
 }
 
-export type DocumentRegistrySource = "override" | "ens" | "env" | "bundle" | null;
+export type DocumentRegistrySource = "override" | "ens" | "bundle" | null;
 
 /**
  * Full resolution chain: override → ENS (`addr(root, coinType(chainId))` on the
- * Sepolia resolver) → env deployments → bundle hint. ENS failures (unregistered
- * name, missing record, unreachable RPC) fall through silently.
+ * Sepolia resolver) → bundle hint. ENS failures (unregistered name, missing
+ * record, unreachable RPC) fall through silently.
  */
 export async function resolveDocumentRegistryAddress(input?: {
   chainId?: number;
@@ -108,16 +116,13 @@ export async function resolveDocumentRegistryAddress(input?: {
       // public Sepolia RPC, so discovery works with no env config at all.
       const client = publicClientForChainId(SEPOLIA_CHAIN_ID);
       const ens = client
-        ? await getAddrMultichain({ ensName: ensRootName(), chainId, client })
+        ? await getAddrMultichain({ ensName: resolveRootEnsName(), chainId, client })
         : null;
       if (ens) return { address: ens, source: "ens" };
     } catch {
-      // fall through to env / bundle hint
+      // fall through to the bundle hint
     }
   }
-
-  const env = config?.deployments.find((item) => item.kind === "document")?.address ?? null;
-  if (env) return { address: env, source: "env" };
 
   const hint = input?.bundleHint;
   if (hint && isValidRegistryAddress(hint.address)) {
@@ -141,7 +146,7 @@ export async function publishDocument(input: {
   send: ChainSender;
 }): Promise<Hex> {
   const to = (await resolveDocumentRegistryAddress()).address;
-  if (!to) throw new Error("No document registry discovered (ENS / NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS).");
+  if (!to) throw new Error("No document registry discovered on ENS. Deploy one from the Documents page first.");
   const data = encodeFunctionData({
     abi: WRITE_ABI,
     functionName: "publishDocument",
@@ -159,7 +164,7 @@ export async function grantSlotKey(input: {
   send: ChainSender;
 }): Promise<Hex> {
   const to = (await resolveDocumentRegistryAddress()).address;
-  if (!to) throw new Error("No document registry discovered (ENS / NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS).");
+  if (!to) throw new Error("No document registry discovered on ENS. Deploy one from the Documents page first.");
   const data = encodeFunctionData({
     abi: WRITE_ABI,
     functionName: "grantSlotKey",
@@ -174,4 +179,58 @@ export async function grantSlotKey(input: {
     ],
   });
   return input.send({ from: input.from, to, data });
+}
+
+// ---------------------------------------------------------------------------
+// Event-source discovery for the shared events provider
+// ---------------------------------------------------------------------------
+
+function clientForChain(chainId: number): PublicClient {
+  return publicClientForChainId(chainId) as PublicClient;
+}
+
+/**
+ * Scan-start block for the document registry's event log: the ENS text
+ * record's `deployedAtBlock` when announced, else the shared hint → code
+ * search → fallback-window resolution (cached per address in scan-start).
+ */
+export async function documentRegistryScanStartBlock(input: {
+  address: Address;
+  chainId: number;
+  rootEnsName: string;
+}): Promise<bigint> {
+  let deployedAtBlock: number | null = null;
+  try {
+    const entries = await readDocumentRegistryEntries(input.rootEnsName, clientForChain(input.chainId));
+    deployedAtBlock = entries.find((e) => e.chainId === input.chainId)?.deployedAtBlock ?? null;
+  } catch {
+    // fall through to the binary search
+  }
+  return contractScanStartBlock({
+    address: input.address,
+    chainId: input.chainId,
+    deployedAtBlock,
+  });
+}
+
+/**
+ * The DocumentRegistry as a watcher event source, discovered at runtime —
+ * the registry is a per-chain singleton announced on ENS, so it cannot be a
+ * build-time env entry like the static deployments list. The events provider
+ * merges this into its scan sources so Overview/Organization panels and the
+ * events page see DocumentPublished/SlotKeyGranted.
+ */
+export async function resolveDocumentEventSource(input?: {
+  chainId?: number;
+}): Promise<SoulVaultDeployment | null> {
+  const config = getBrowserSoulVaultClientConfig();
+  const chainId = input?.chainId ?? config?.chainId ?? SEPOLIA_CHAIN_ID;
+  const { address } = await resolveDocumentRegistryAddress({ chainId });
+  if (!address) return null;
+  const fromBlock = await documentRegistryScanStartBlock({
+    address,
+    chainId,
+    rootEnsName: resolveRootEnsName(),
+  });
+  return { address, kind: "document", fromBlock, label: "document-registry" };
 }

@@ -12,8 +12,8 @@ import type { Address } from "viem";
 
 /**
  * Resolves the DocumentRegistry address through the full discovery chain
- * (override → ENS → env → bundle hint). Seeds state with the sync fast path
- * (override/env) so render does not flash empty while ENS resolves.
+ * (override → ENS → bundle hint). Seeds state with the sync fast path
+ * (override) so render does not flash empty while ENS resolves.
  */
 export function useDocumentRegistryAddress(
   bundle?: PublicDocumentBundle | null,

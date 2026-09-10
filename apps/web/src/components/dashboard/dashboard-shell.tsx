@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 import { ConnectPanel } from "@/components/dashboard/connect-panel";
 import { DashboardSelectionProvider, useDashboardSelection } from "@/components/dashboard/selection-provider";
+import { OrgEventSourcesBridge } from "@/components/dashboard/org-event-sources-bridge";
 import { LogoMark } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
@@ -17,6 +18,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   return (
     <DashboardSelectionProvider>
+      <OrgEventSourcesBridge />
       <DashboardChrome>{address ? children : <ConnectPanel />}</DashboardChrome>
     </DashboardSelectionProvider>
   );

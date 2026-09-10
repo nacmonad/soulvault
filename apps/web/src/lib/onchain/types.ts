@@ -14,6 +14,10 @@ export type SoulVaultDeployment = {
   kind: SoulVaultContractKind;
   fromBlock: bigint;
   label?: string;
+  /** Which chain the contract lives on. Undefined = the watcher's own chain
+   * (env-era sources predate multi-chain sources). The events provider drops
+   * sources on other chains — one watcher per chain today. */
+  chainId?: number;
 };
 
 export type EventMeta = {

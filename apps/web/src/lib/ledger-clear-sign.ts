@@ -11,6 +11,14 @@
  * contexts so the kit's blind-signing fallback takes over instead of failing
  * the whole device action. Strict mode (fail instead of blind-sign) stays a
  * CLI-only affordance until the dashboard has a setting for it.
+ *
+ * Ledger's enrichment services (transaction-check scan, CAL dapps/descriptors,
+ * trusted-name reverse lookup) gate by partner origin: without an
+ * `originToken` (Ledger partner program, see dmk-business-logic skill) the
+ * requests come back 403/422 and each signature pays a serial retry latency
+ * before degrading to blind signing. SoulVault payloads have no registered CAL
+ * descriptors either way, so NEXT_PUBLIC_SOULVAULT_LEDGER_SKIP_CLEAR_SIGN=1
+ * short-circuits to zero-context (immediate blind sign) for dev flows.
  */
 import {
   ContextModuleBuilder,
@@ -18,6 +26,8 @@ import {
   type ContextModule,
 } from "@ledgerhq/context-module";
 import type { DeviceManagementKit } from "@ledgerhq/device-management-kit";
+
+const SKIP_CLEAR_SIGN = process.env.NEXT_PUBLIC_SOULVAULT_LEDGER_SKIP_CLEAR_SIGN === "1";
 
 export function createBrowserContextModule(dmk: DeviceManagementKit): ContextModule {
   const inner = new ContextModuleBuilder({
@@ -35,6 +45,7 @@ export function createBrowserContextModule(dmk: DeviceManagementKit): ContextMod
         return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
       }
       return async (...args: Parameters<ContextModule["getContexts"]>) => {
+        if (SKIP_CLEAR_SIGN) return [];
         try {
           return await target.getContexts(...args);
         } catch (cause) {

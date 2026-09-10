@@ -415,6 +415,97 @@ export async function upsertOrgTreasury(input: {
   return txHash;
 }
 
+// ---------------------------------------------------------------------------
+// DocumentRegistry announce — protocol root name (ticket 012 §D v1)
+// ---------------------------------------------------------------------------
+
+export const DOCUMENT_REGISTRY_TEXT_RECORD_KEY = "soulvault.documentRegistry";
+
+export type DocumentRegistryEnsRecord = {
+  chainId: number;
+  address: string;
+  deployedAtBlock?: number;
+  deployedAt?: string;
+};
+
+/** Tolerant decode of the `soulvault.documentRegistry` record — empty array when absent/garbage. Chain-keyed (mirroring `soulvault.treasuries`): one entry per chain, second-chain deploys never clobber the first. */
+export function parseDocumentRegistryEntries(raw: string): DocumentRegistryEnsRecord[] {
+  if (!raw.trim()) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (entry): entry is DocumentRegistryEnsRecord =>
+        !!entry &&
+        typeof entry === "object" &&
+        typeof (entry as DocumentRegistryEnsRecord).chainId === "number" &&
+        typeof (entry as DocumentRegistryEnsRecord).address === "string",
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** Upsert by chainId, sorted ascending. Inherits the existing entry's deployedAt/deployedAtBlock when omitted. */
+export function upsertDocumentRegistryEntry(
+  existing: DocumentRegistryEnsRecord[],
+  entry: DocumentRegistryEnsRecord,
+): DocumentRegistryEnsRecord[] {
+  const prior = existing.find((e) => e.chainId === entry.chainId);
+  const merged: DocumentRegistryEnsRecord = {
+    chainId: entry.chainId,
+    address: getAddress(entry.address),
+    deployedAtBlock: entry.deployedAtBlock ?? prior?.deployedAtBlock,
+    deployedAt: entry.deployedAt ?? prior?.deployedAt,
+  };
+  return [...existing.filter((e) => e.chainId !== entry.chainId), merged].sort(
+    (a, b) => a.chainId - b.chainId,
+  );
+}
+
+export async function readDocumentRegistryEntries(
+  rootEnsName: string,
+  client?: PublicClient,
+): Promise<DocumentRegistryEnsRecord[]> {
+  const readClient = client ?? publicClient();
+  const node = namehash(normalize(rootEnsName));
+  const raw = (await readClient.readContract({
+    address: PUBLIC_RESOLVER,
+    abi: RESOLVER_ABI,
+    functionName: "text",
+    args: [node, DOCUMENT_REGISTRY_TEXT_RECORD_KEY],
+  })) as string;
+  return parseDocumentRegistryEntries(raw ?? "");
+}
+
+/** Idempotent upsert of the registry entry into the root name's `soulvault.documentRegistry` record. */
+export async function upsertDocumentRegistryEnsRecord(input: {
+  from: Address;
+  rootEnsName: string;
+  entry: DocumentRegistryEnsRecord;
+}): Promise<Hex | null> {
+  await requireOrgOwnership({ orgEnsName: input.rootEnsName, from: input.from });
+  const existing = await readDocumentRegistryEntries(input.rootEnsName);
+  const next = upsertDocumentRegistryEntry(existing, input.entry);
+  const value = JSON.stringify(next, null, 0);
+  if (value === JSON.stringify(existing, null, 0)) return null;
+  const txHash = await sendWalletTransaction({
+    // ENS coordination is pinned to Sepolia — registry/resolver live there.
+    chainId: SEPOLIA_CHAIN_ID,
+    from: input.from,
+    to: PUBLIC_RESOLVER,
+    data: encodeFunctionData({
+      abi: RESOLVER_ABI,
+      functionName: "setText",
+      args: [namehash(normalize(input.rootEnsName)), DOCUMENT_REGISTRY_TEXT_RECORD_KEY, value],
+    }),
+  });
+  const receipt = await waitForWalletReceipt(txHash);
+  if (receipt.status !== "success")
+    throw new Error(`setText(${DOCUMENT_REGISTRY_TEXT_RECORD_KEY}) reverted (tx ${txHash}).`);
+  return txHash;
+}
+
 /**
  * Bind a swarm subdomain: setSubnodeRecord + setAddr + the two text records,
  * byte-parity with the CLI's bindSwarmEnsSubdomain (packages/node/src/swarm-deploy.ts).

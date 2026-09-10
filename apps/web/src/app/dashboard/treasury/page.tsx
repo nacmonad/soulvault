@@ -10,8 +10,7 @@ import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-prov
 import { TreasuryWizard } from "@/components/create/treasury-wizard";
 import { useOrgDiscovery } from "@/hooks/useOrgDiscovery";
 import { useSwarmEvents } from "@/hooks/useSwarmEvents";
-import { SEPOLIA_CHAIN_ID, publicClientForChainId } from "@/lib/chains";
-import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
+import { publicClientForChainId } from "@/lib/chains";
 import {
   approveFundRequest,
   cancelFundRequest,
@@ -19,8 +18,6 @@ import {
   parseEthAmount,
   rejectFundRequest,
   requestFunds,
-  swarmDeployment,
-  treasuryDeployment,
   withdrawFromTreasury,
 } from "@/lib/treasury-contract";
 import { shortAddress } from "@/lib/format";
@@ -49,8 +46,6 @@ export default function TreasuryPage() {
   const { selection } = useDashboardSelection();
   const swarm = useSwarmEvents({ live: true, pollSeconds: 5 });
   const discovery = useOrgDiscovery(selection.orgId);
-  const envTreasury = treasuryDeployment();
-  const swarmDep = swarmDeployment();
 
   const [balance, setBalance] = useState<bigint | null>(null);
   const [owner, setOwner] = useState<Address | null>(null);
@@ -65,21 +60,10 @@ export default function TreasuryPage() {
   const [withdrawAmount, setWithdrawAmount] = useState("");
 
   /**
-   * Active treasury: env deployment wins (explicit operator intent), otherwise
-   * the first treasury published on the org's ENS `soulvault.treasuries` record.
-   * Flows target this address explicitly, so a treasury known only via ENS is
-   * fully operable without env config.
+   * Active treasury: the first treasury published on the org's ENS
+   * `soulvault.treasuries` record. Flows target this address explicitly.
    */
   const active = useMemo(() => {
-    if (envTreasury) {
-      const config = getBrowserSoulVaultClientConfig();
-      return {
-        address: envTreasury.address,
-        chainId: config?.chainId ?? SEPOLIA_CHAIN_ID,
-        label: envTreasury.label,
-        source: "env" as const,
-      };
-    }
     const first = discovery.treasuries?.[0];
     if (first) {
       return {
@@ -90,7 +74,18 @@ export default function TreasuryPage() {
       };
     }
     return null;
-  }, [envTreasury, discovery.treasuries]);
+  }, [discovery.treasuries]);
+
+  /** The swarm bound to this treasury (fund approve/reject go through it):
+   * first ENS-published swarm with a resolvable contract address. */
+  const ensSwarm = useMemo(
+    () =>
+      discovery.swarms?.find(
+        (entry): entry is typeof entry & { address: Address; chainId: number } =>
+          entry.address !== null && entry.chainId !== null,
+      ) ?? null,
+    [discovery.swarms],
+  );
 
   // Balance + owner reads go to the active treasury's own chain (it may live on
   // any deployment chain; ENS coordination stays on Sepolia).
@@ -174,9 +169,7 @@ export default function TreasuryPage() {
       <p className="eyebrow text-primary">Treasury</p>
       <h1 className="mt-3 text-2xl font-semibold tracking-tight">{active.label}</h1>
       <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-        {active.source === "ens"
-          ? `Resolved from the org's ENS soulvault.treasuries record (${selection.orgId}).`
-          : "Configured via NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS."}{" "}
+        Resolved from the org ENS soulvault.treasuries record ({selection.orgId}).{" "}
         Org-scoped custody for native value. Payouts follow the story08 loop: a member
         requests, the owner approves or rejects, funds move in the approval transaction.
         A paid-out request is final — no revoke.
@@ -272,13 +265,13 @@ export default function TreasuryPage() {
                         {request.status === "requested" && isOwner ? (
                           <Button
                             size="xs"
-                            disabled={busy !== null}
+                            disabled={busy !== null || ensSwarm === null}
                             onClick={() =>
-                              swarmDep &&
+                              ensSwarm &&
                               void run("approve", () =>
                                 approveFundRequest({
                                   from: address,
-                                  swarm: swarmDep.address,
+                                  swarm: ensSwarm.address,
                                   requestId: request.requestId,
                                   treasury: active.address,
                                 }),
@@ -292,13 +285,13 @@ export default function TreasuryPage() {
                           <Button
                             size="xs"
                             variant="outline"
-                            disabled={busy !== null}
+                            disabled={busy !== null || ensSwarm === null}
                             onClick={() =>
-                              swarmDep &&
+                              ensSwarm &&
                               void run("reject", () =>
                                 rejectFundRequest({
                                   from: address,
-                                  swarm: swarmDep.address,
+                                  swarm: ensSwarm.address,
                                   requestId: request.requestId,
                                   reason: rejectReason.trim() || "no reason given",
                                   treasury: active.address,

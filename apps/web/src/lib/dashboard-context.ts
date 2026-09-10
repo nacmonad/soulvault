@@ -35,3 +35,25 @@ export function saveDashboardSelection(wallet: Address, selection: DashboardSele
   if (typeof window === "undefined") return;
   window.localStorage.setItem(storageKey(wallet), JSON.stringify(selection));
 }
+
+/**
+ * Best-effort read of the selected org ENS name without knowing the wallet:
+ * scans the per-wallet dashboard-selection keys. Used by non-React callers
+ * (e.g. document-registry root-name resolution). Null when nothing selected.
+ */
+export function loadSelectedOrgEnsName(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (!key || !key.startsWith("soulvault.dashboard.context.")) continue;
+      const raw = window.localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw) as Partial<DashboardSelection>;
+      if (typeof parsed.orgId === "string" && parsed.orgId) return parsed.orgId;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}

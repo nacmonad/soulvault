@@ -14,8 +14,12 @@ import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 
 import { Button } from "@/components/ui/button";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
-import { publishDocument, resolveDocumentRegistryAddress } from "@/lib/document-registry";
+import { resolveRootEnsName, resolveDocumentRegistryAddress } from "@/lib/document-registry";
+import { runDocumentPublish, type WizardStep } from "@/lib/create-flows";
+import { errorMessage, wizardStepFailed } from "@/lib/error-message";
+import { CliRecoveryHint, DevicePromptPanel, PartialFailureNote, StepList } from "@/components/create/wizard-steps";
 import { downloadText, saveSessionDocument } from "@/lib/document-session";
+import { useDocumentRegistryAddress } from "@/hooks/useDocumentRegistryAddress";
 
 const SAMPLE = `Patient Sarah Connor called from +1 415-555-2671.
 Her bank transfer used IBAN DE89370400440532013000.
@@ -43,6 +47,11 @@ type DraftSpan = {
 
 type MenuPos = { x: number; y: number };
 
+const PUBLISH_STEPS: WizardStep[] = [
+  { id: "resolve", label: "Resolve document registry (ENS discovery)", status: "pending" },
+  { id: "publish", label: "Publish docHash + slot list on-chain", status: "pending" },
+];
+
 export default function DocumentsRedactPage() {
   const workerRef = useRef<Worker | null>(null);
   const clientRef = useRef<PresidioWorkerClient | null>(null);
@@ -58,7 +67,6 @@ export default function DocumentsRedactPage() {
   const [draft, setDraft] = useState<DraftSpan | null>(null);
   const [menuPos, setMenuPos] = useState<MenuPos>({ x: 16, y: 16 });
   const [result, setResult] = useState<RedactedDocumentResult | null>(null);
-  const [publishTx, setPublishTx] = useState<string | null>(null);
   const [registryHint, setRegistryHint] = useState<DocumentRegistryHint | undefined>(undefined);
   const [useGliner, setUseGliner] = useState(false);
   const [webGpu, setWebGpu] = useState(false);
@@ -75,7 +83,16 @@ export default function DocumentsRedactPage() {
     message: "Pattern engine ready",
   });
   const [modelProgress, setModelProgress] = useState<{ downloaded: number; total: number; file: string } | null>(null);
-  const { address, sendTransaction } = useSoulVaultWallet();
+  const [publishSteps, setPublishSteps] = useState<WizardStep[]>(PUBLISH_STEPS);
+  const [publishBusy, setPublishBusy] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [publishOutcome, setPublishOutcome] = useState<{
+    registry: string;
+    registrySource: string;
+    txHash: string;
+    blockNumber: bigint;
+  } | null>(null);
+  const { address } = useSoulVaultWallet();
 
   const reviewing = findings.length > 0;
   const source = reviewing ? scanned : text;
@@ -139,7 +156,9 @@ export default function DocumentsRedactPage() {
     setAccepted(new Set());
     setDraft(null);
     setResult(null);
-    setPublishTx(null);
+    setPublishSteps(PUBLISH_STEPS);
+    setPublishOutcome(null);
+    setPublishError(null);
     setError(null);
   };
 
@@ -148,7 +167,8 @@ export default function DocumentsRedactPage() {
     setBusy(true);
     setError(null);
     setResult(null);
-    setPublishTx(null);
+    setPublishSteps(PUBLISH_STEPS);
+    setPublishOutcome(null);
     setDraft(null);
     setScanned(text);
     try {
@@ -285,7 +305,8 @@ export default function DocumentsRedactPage() {
         acceptedFindingIds: accepted,
       });
       setResult(encrypted);
-      setPublishTx(null);
+      setPublishSteps(PUBLISH_STEPS);
+      setPublishOutcome(null);
       // Attach the (non-authoritative) registry hint so consumers can fall back
       // to it when ENS/env discovery is unavailable (ticket 012 §D).
       const { address: registry } = await resolveDocumentRegistryAddress();
@@ -310,23 +331,56 @@ export default function DocumentsRedactPage() {
     );
   }
 
+  function downloadRedacted() {
+    if (!result) return;
+    downloadText(
+      `${result.artifact.documentId.slice(0, 16)}.redacted.txt`,
+      result.artifact.content,
+      "text/plain",
+    );
+  }
+
   async function publish() {
     if (!result || !address) return;
-    setError(null);
+    setPublishError(null);
+    setPublishOutcome(null);
+    setPublishSteps(PUBLISH_STEPS);
+    setPublishBusy(true);
     try {
-      const hash = await publishDocument({
+      const outcome = await runDocumentPublish({
         from: address,
         documentId: result.artifact.documentId,
         slotIds: result.artifact.slots.map((slot) => slot.slotId),
-        send: sendTransaction,
+        onStep: (stepId, update) =>
+          setPublishSteps((prev) => prev.map((step) => (step.id === stepId ? { ...step, ...update } : step))),
       });
-      setPublishTx(hash);
+      setPublishOutcome({
+        registry: outcome.registry,
+        registrySource: outcome.registrySource ?? "unknown",
+        txHash: outcome.txHash,
+        blockNumber: outcome.blockNumber,
+      });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Publish failed");
+      setPublishSteps((prev) => prev.map(wizardStepFailed));
+      setPublishError(errorMessage(cause));
+    } finally {
+      setPublishBusy(false);
     }
   }
 
   const segments = useMemo(() => splitHighlights(source, findings), [source, findings]);
+  const publishCliCommand = useMemo(() => {
+    if (!result) return "";
+    const registryStep = publishSteps.find((step) => step.id === "resolve");
+    const registry = publishOutcome?.registry ?? (registryStep?.status === "done" ? registryStep.detail?.split(" ·")[0] : null);
+    const root = resolveRootEnsName();
+    const slots = result.artifact.slots.map((slot) => `--slot-id ${slot.slotId}`).join(" ");
+    return (
+      `pnpm soulvault document publish --doc-hash ${result.artifact.documentId} ${slots}` +
+      (registry ? ` --registry ${registry}` : "") +
+      ` --root-ens-name ${root}`
+    );
+  }, [result, publishSteps, publishOutcome]);
   const preview = useMemo(() => {
     let output = source;
     for (const item of [...findings].filter((item) => accepted.has(item.findingId)).sort((a, b) => b.start - a.start)) {
@@ -355,17 +409,41 @@ export default function DocumentsRedactPage() {
   const patternCount = findings.filter((item) => item.source === "presidio").length;
   const glinerCount = findings.filter((item) => item.source === "semantic").length;
   const authorCount = findings.filter((item) => item.source === "author").length;
+  const { address: resolvedRegistry, source: registrySource } = useDocumentRegistryAddress();
 
   return (
     <div>
       <p className="eyebrow text-primary">Documents</p>
       <h1 className="mt-3 text-2xl font-semibold tracking-tight">Redact</h1>
       <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-        Same scan loop as presidio-web-demo: source → worker → findings → redacted
-        tokens. Engine stays in a module worker. Optional GLiNER runs as local
-        ONNX in that worker. Author can highlight anything Presidio missed and
-        finalize the slot id.
+        Same scan loop as{" "}
+        <a
+          href="https://nacmonad.github.io/presidio-web-demo/"
+          target="_blank"
+          rel="noreferrer"
+          className="text-primary underline underline-offset-2 hover:underline"
+        >
+          presidio-web-demo
+        </a>
+        : source → worker → findings → redacted tokens. Engine stays in a module
+        worker. Optional GLiNER runs as local ONNX in that worker. Author can
+        highlight anything Presidio missed and finalize the slot id.
       </p>
+
+      {resolvedRegistry ? (
+        <p className="mt-4 font-mono text-xs text-muted-foreground">
+          registry: {resolvedRegistry}
+          {registrySource ? ` · via ${registrySource}` : ""}
+        </p>
+      ) : (
+        <p className="mt-4 border-l-2 border-amber-500 pl-3 text-sm text-amber-600">
+          No document registry discovered — publish will fail. Deploy one on the{" "}
+          <Link href="/dashboard/documents/registry" className="underline">
+            Document Registry page
+          </Link>
+          .
+        </p>
+      )}
 
       <div
         className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 border border-border bg-card px-4 py-2 font-mono text-xs text-muted-foreground"
@@ -433,7 +511,7 @@ export default function DocumentsRedactPage() {
             <Button
               onClick={() => {
                 setError(null);
-                void navigator.storage.persist();
+                void navigator.storage.persist().catch(() => undefined);
                 clientRef.current?.installModel();
               }}
               disabled={!!modelProgress}
@@ -608,7 +686,7 @@ export default function DocumentsRedactPage() {
               <Button
                 size="xs"
                 variant="outline"
-                onClick={() => void navigator.clipboard.writeText(preview)}
+                onClick={() => void navigator.clipboard.writeText(preview).catch(() => undefined)}
                 disabled={!accepted.size}
               >
                 Copy redacted text
@@ -638,26 +716,57 @@ export default function DocumentsRedactPage() {
         <Button onClick={encrypt} disabled={accepted.size === 0}>
           Encrypt accepted slots
         </Button>
+        <Button variant="outline" onClick={downloadRedacted} disabled={!result}>
+          Download redacted text
+        </Button>
         <Button variant="outline" onClick={downloadBundle} disabled={!result}>
           Download public bundle
         </Button>
-        <Button variant="outline" onClick={() => void publish()} disabled={!result || !address}>
-          Publish on-chain
+        <Button variant="outline" onClick={() => void publish()} disabled={!result || !address || publishBusy}>
+          {publishBusy ? "Publishing…" : "Publish on-chain"}
         </Button>
         <Button render={<Link href="/dashboard/documents/grants" />} variant="ghost">
           Continue to Grants
         </Button>
       </div>
 
+      {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
       {result ? (
         <div className="mt-6 border border-border bg-card p-4">
           <p className="eyebrow text-primary">Artifact</p>
-          <p className="mt-2 font-mono text-xs break-all">{result.artifact.documentId}</p>
+          <p className="mt-2 font-mono text-xs break-all">
+            docHash: {result.artifact.documentId}
+          </p>
           <pre className="mt-3 whitespace-pre-wrap font-mono text-sm">{result.artifact.content}</pre>
           <p className="mt-3 text-xs text-muted-foreground">
             {result.slotKeys.length} slot keys in session for Grants. Not in the public file.
           </p>
-          {publishTx ? <p className="mt-2 font-mono text-xs break-all">published {publishTx}</p> : null}
+
+          <div className="mt-4 border-t border-border pt-3">
+            <DevicePromptPanel />
+            <StepList steps={publishSteps} />
+            {publishError ? (
+              <div className="mt-3 border-l-2 border-red-600 pl-3 text-sm text-red-600">
+                {publishError}
+                <PartialFailureNote steps={publishSteps} />
+                <CliRecoveryHint command={publishCliCommand} />
+              </div>
+            ) : null}
+            {publishOutcome ? (
+              <p className="mt-3 font-mono text-xs break-all">
+                Published on {publishOutcome.registry} (via {publishOutcome.registrySource}) · tx{" "}
+                <a
+                  className="text-primary underline"
+                  href={`https://sepolia.etherscan.io/tx/${publishOutcome.txHash}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {publishOutcome.txHash.slice(0, 10)}…
+                </a>{" "}
+                · block {publishOutcome.blockNumber.toString()}
+              </p>
+            ) : null}
+          </div>
         </div>
       ) : null}
     </div>

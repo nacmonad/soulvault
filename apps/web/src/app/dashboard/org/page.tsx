@@ -5,6 +5,7 @@ import { type Address } from "viem";
 import { sepolia } from "viem/chains";
 
 import { Button } from "@/components/ui/button";
+import { OrgWizard } from "@/components/create/org-wizard";
 import { useDashboardSelection } from "@/components/dashboard/selection-provider";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
 import { createSepoliaEnsClient, getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
@@ -105,8 +106,10 @@ export default function OrgPage() {
       <p className="eyebrow text-primary">Organization</p>
       <h1 className="mt-3 text-2xl font-semibold tracking-tight">ENS profile</h1>
       <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-        Read-only. Switcher remembers names for this wallet. Edit stays soon.
+        Register a new .eth name, or remember one this wallet already owns.
       </p>
+
+      <OrgWizard />
 
       <form onSubmit={onRemember} className="mt-6 flex flex-wrap gap-2">
         <input

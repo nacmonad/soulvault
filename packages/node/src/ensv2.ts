@@ -147,14 +147,32 @@ export async function walkEnsV2Registry(fullName: string): Promise<{
 export async function getEnsV2ResolverAddress(fullName: string): Promise<string | null> {
   const labels = splitEnsLabels(fullName);
   if (labels.length === 0) return null;
-  // Walk to the deepest registered registry, checking each level's resolver.
-  // ENSv2 resolvers are attached per-label: a name's resolver is the resolver of
-  // its deepest registered label.
+  // Semantics: a name's resolver slot is read from the registry HOLDING the
+  // name, keyed by the name's own label. `foo.eth` →
+  // `ethRegistry.getResolver('foo')`. When the name is fully registered the walk
+  // descends into its own subregistry, so we read one level up (the parent
+  // name's walk end); when partially registered, the walk already stopped at
+  // the holding registry and the key is the first unresolved label.
   const { registryAddress, resolvedLabels } = await walkEnsV2Registry(fullName);
   if (resolvedLabels.length === 0) return null;
-  const deepest = resolvedLabels[resolvedLabels.length - 1];
-  const registry = new Contract(registryAddress, ENSV2_REGISTRY_ABI, await getEnsV2Provider());
-  const resolver = await registry.getResolver(deepest);
+  let holdingRegistry: string;
+  let keyLabel: string;
+  if (resolvedLabels.length < labels.length) {
+    // Partially registered: walk ended at the registry that would hold the name.
+    holdingRegistry = registryAddress;
+    keyLabel = labels[resolvedLabels.length];
+  } else if (labels.length === 1) {
+    // The name IS a TLD — held directly by the RootRegistry.
+    holdingRegistry = getEnsV2Addresses().rootRegistry;
+    keyLabel = labels[0];
+  } else {
+    // Fully registered: holding registry is the parent name's walk end.
+    const parentWalk = await walkEnsV2Registry(labels.slice(1).join('.'));
+    holdingRegistry = parentWalk.registryAddress;
+    keyLabel = labels[0];
+  }
+  const registry = new Contract(holdingRegistry, ENSV2_REGISTRY_ABI, await getEnsV2Provider());
+  const resolver = await registry.getResolver(keyLabel);
   const resolverStr = String(resolver);
   if (!resolverStr || resolverStr === '0x0000000000000000000000000000000000000000') return null;
   return resolverStr;
@@ -181,13 +199,28 @@ export async function readEnsV2NameState(fullName: string): Promise<{
 } | null> {
   const labels = splitEnsLabels(fullName);
   if (labels.length === 0) return null;
-  // The name's own registry is the deepest one reached by the walk; its label is
-  // the first (leftmost) label of the full name.
-  const label = labels[0];
+  // Semantics: the name's token (and thus its state/resource) lives in the
+  // registry HOLDING the name — its parent's registry — keyed by the name's own
+  // labelhash. `foo.eth`'s state is `ethRegistry.getState(labelhash('foo'))`.
+  // The walk must therefore stop one level short: it ends at the registry that
+  // maps the name's own label, which is exactly where getState is called.
   const { registryAddress, resolvedLabels } = await walkEnsV2Registry(fullName);
   if (resolvedLabels.length < labels.length) return null; // not fully registered
+  const label = labels[0];
+  // When fully registered, walkEnsV2Registry descended into the name's own
+  // subregistry. getState is on the registry one level UP (the one that issued
+  // the token). Reconstruct it: walk the parent name.
+  const parentName = labels.slice(1).join('.');
+  let stateRegistryAddress: string;
+  if (labels.length === 1) {
+    // TLD itself (e.g. `eth`): held by the RootRegistry.
+    stateRegistryAddress = getEnsV2Addresses().rootRegistry;
+  } else {
+    const parentWalk = await walkEnsV2Registry(parentName);
+    stateRegistryAddress = parentWalk.registryAddress;
+  }
   const registry = new Contract(
-    registryAddress,
+    stateRegistryAddress,
     [...ENSV2_REGISTRY_ABI, ...ENSV2_PERMISSIONED_REGISTRY_ABI],
     await getEnsV2Provider(),
   );
@@ -200,7 +233,7 @@ export async function readEnsV2NameState(fullName: string): Promise<{
     latestOwner: String(latestOwner),
     tokenId,
     resource,
-    registryAddress,
+    registryAddress: stateRegistryAddress,
   };
 }
 

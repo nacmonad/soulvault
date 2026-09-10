@@ -26,6 +26,26 @@ import { sendWalletTransaction, waitForWalletReceipt } from "@/lib/wallet-tx";
 const ENS_REGISTRY = "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e" as Address;
 const PUBLIC_RESOLVER = "0xE99638b40E4Fff0129D56f03b55b6bbC4BBE49b5" as Address;
 
+/** Transient read failures worth retrying (public-RPC 429s, hiccups). */
+const TRANSIENT_READ_PATTERN = /rate limit|429|too many|timeout|temporarily|network|fetch failed/i;
+
+/**
+ * Retry a read on transient errors. Several callers treat a failed ENS read as
+ * "record not present" (`.catch(() => null)`), so one 429 during the mount-time
+ * burst silently drops contracts from event discovery — retry before giving up.
+ */
+export async function withTransientRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (attempt >= attempts - 1 || !TRANSIENT_READ_PATTERN.test(message)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 400 * 2 ** attempt));
+    }
+  }
+}
+
 export const REGISTRY_ABI = [
   {
     type: "function",
@@ -190,12 +210,14 @@ export function encodeSwarmsListDataUri(labels: string[]): string {
 export async function readOrgSwarmsList(orgEnsName: string): Promise<string[]> {
   const client = publicClient();
   const node = namehash(normalize(orgEnsName));
-  const raw = (await client.readContract({
-    address: PUBLIC_RESOLVER,
-    abi: RESOLVER_ABI,
-    functionName: "text",
-    args: [node, "soulvault.swarms"],
-  })) as string;
+  const raw = (await withTransientRetry(() =>
+    client.readContract({
+      address: PUBLIC_RESOLVER,
+      abi: RESOLVER_ABI,
+      functionName: "text",
+      args: [node, "soulvault.swarms"],
+    }),
+  )) as string;
   if (!raw || !raw.startsWith(CBOR_DATA_URI_PREFIX)) return [];
   try {
     const binary = atob(raw.slice(CBOR_DATA_URI_PREFIX.length));
@@ -299,12 +321,14 @@ export async function getAddrMultichain(input: {
 export async function readEnsText(ensName: string, key: string): Promise<string | null> {
   const client = publicClient();
   const node = namehash(normalize(ensName));
-  const raw = (await client.readContract({
-    address: PUBLIC_RESOLVER,
-    abi: RESOLVER_ABI,
-    functionName: "text",
-    args: [node, key],
-  })) as string;
+  const raw = (await withTransientRetry(() =>
+    client.readContract({
+      address: PUBLIC_RESOLVER,
+      abi: RESOLVER_ABI,
+      functionName: "text",
+      args: [node, key],
+    }),
+  )) as string;
   return raw || null;
 }
 
@@ -312,12 +336,14 @@ export async function readEnsText(ensName: string, key: string): Promise<string 
 export async function readEnsAddress(ensName: string): Promise<Address | null> {
   const client = publicClient();
   const node = namehash(normalize(ensName));
-  const bytes = (await client.readContract({
-    address: PUBLIC_RESOLVER,
-    abi: RESOLVER_ABI,
-    functionName: "addr",
-    args: [node, 60n],
-  })) as Hex;
+  const bytes = (await withTransientRetry(() =>
+    client.readContract({
+      address: PUBLIC_RESOLVER,
+      abi: RESOLVER_ABI,
+      functionName: "addr",
+      args: [node, 60n],
+    }),
+  )) as Hex;
   if (!bytes || bytes === "0x" || bytes.length < 42) return null;
   return getAddress(`0x${bytes.slice(-40)}` as Address);
 }
@@ -379,12 +405,14 @@ export function upsertTreasuryEntry(
 export async function readOrgTreasuries(orgEnsName: string): Promise<OrgTreasuryEntry[]> {
   const client = publicClient();
   const node = namehash(normalize(orgEnsName));
-  const raw = (await client.readContract({
-    address: PUBLIC_RESOLVER,
-    abi: RESOLVER_ABI,
-    functionName: "text",
-    args: [node, TREASURIES_TEXT_RECORD_KEY],
-  })) as string;
+  const raw = (await withTransientRetry(() =>
+    client.readContract({
+      address: PUBLIC_RESOLVER,
+      abi: RESOLVER_ABI,
+      functionName: "text",
+      args: [node, TREASURIES_TEXT_RECORD_KEY],
+    }),
+  )) as string;
   return parseTreasuriesRecord(raw ?? "");
 }
 

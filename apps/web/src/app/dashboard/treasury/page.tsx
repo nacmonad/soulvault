@@ -11,6 +11,7 @@ import { TreasuryWizard } from "@/components/create/treasury-wizard";
 import { useOrgDiscovery } from "@/hooks/useOrgDiscovery";
 import { useSwarmEvents } from "@/hooks/useSwarmEvents";
 import { publicClientForChainId } from "@/lib/chains";
+import type { OrgTreasuryEntry } from "@/lib/ens-writes";
 import {
   approveFundRequest,
   cancelFundRequest,
@@ -20,7 +21,7 @@ import {
   requestFunds,
   withdrawFromTreasury,
 } from "@/lib/treasury-contract";
-import { shortAddress } from "@/lib/format";
+import { shortAddress, shortTx, explorerTxUrl } from "@/lib/format";
 
 const OWNER_ABI = [
   {
@@ -41,6 +42,25 @@ const STATUS_LABELS: Record<string, string> = {
   released: "paid",
 };
 
+/** Human label per `run()` action key, for the completion banner. */
+const ACTION_LABELS: Record<string, string> = {
+  approve: "Fund request approved — funds released in the same transaction",
+  reject: "Fund request rejected",
+  deposit: "Deposit confirmed",
+  withdraw: "Withdrawal confirmed",
+  request: "Fund request submitted",
+  cancel: "Fund request cancelled",
+};
+
+/** Per-org selected treasury, persisted so a reload keeps the choice. */
+function treasurySelectionStorageKey(orgEnsName: string | null): string | null {
+  return orgEnsName ? `soulvault.treasurySelection.${orgEnsName}` : null;
+}
+
+function treasuryKey(entry: { chainId: number; address: string }): string {
+  return `${entry.chainId}:${entry.address.toLowerCase()}`;
+}
+
 export default function TreasuryPage() {
   const { address } = useSoulVaultWallet();
   const { selection } = useDashboardSelection();
@@ -51,6 +71,8 @@ export default function TreasuryPage() {
   const [owner, setOwner] = useState<Address | null>(null);
   const [txError, setTxError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  /** Last completed wallet action, for the ✓ banner (null until one lands). */
+  const [lastTx, setLastTx] = useState<{ label: string; txHash: string; chainId: number } | null>(null);
 
   const [depositAmount, setDepositAmount] = useState("");
   const [requestAmount, setRequestAmount] = useState("");
@@ -58,23 +80,56 @@ export default function TreasuryPage() {
   const [rejectReason, setRejectReason] = useState("");
   const [withdrawTo, setWithdrawTo] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
+  /** Selected treasury as `${chainId}:${address}` — the org may publish several
+   * (ENSIP-11 slot per chain); flows below target the selection explicitly. */
+  const [selectedTreasuryKey, setSelectedTreasuryKey] = useState<string | null>(null);
+
+  // Restore the per-org selection (default: first published treasury).
+  const storageKey = treasurySelectionStorageKey(selection.orgId);
+  useEffect(() => {
+    setSelectedTreasuryKey(null);
+    if (!storageKey) return;
+    try {
+      const saved = window.localStorage.getItem(storageKey);
+      if (saved) setSelectedTreasuryKey(saved);
+    } catch {
+      // localStorage unavailable — fall back to the first entry.
+    }
+  }, [storageKey]);
+
+  const selectTreasury = useCallback(
+    (key: string) => {
+      setSelectedTreasuryKey(key);
+      if (storageKey) {
+        try {
+          window.localStorage.setItem(storageKey, key);
+        } catch {
+          // non-fatal
+        }
+      }
+    },
+    [storageKey],
+  );
 
   /**
-   * Active treasury: the first treasury published on the org's ENS
-   * `soulvault.treasuries` record. Flows target this address explicitly.
+   * Active treasury: the org's selected treasury from the ENS
+   * `soulvault.treasuries` record (defaults to the first published). Flows
+   * target this address explicitly.
    */
   const active = useMemo(() => {
-    const first = discovery.treasuries?.[0];
-    if (first) {
-      return {
-        address: getAddress(first.address),
-        chainId: first.chainId,
-        label: first.label ?? shortAddress(first.address),
-        source: "ens" as const,
-      };
-    }
-    return null;
-  }, [discovery.treasuries]);
+    const entries = discovery.treasuries ?? [];
+    if (entries.length === 0) return null;
+    const selected = selectedTreasuryKey
+      ? entries.find((entry) => treasuryKey(entry) === selectedTreasuryKey)
+      : undefined;
+    const entry = selected ?? entries[0];
+    return {
+      address: getAddress(entry.address),
+      chainId: entry.chainId,
+      label: entry.label ?? shortAddress(entry.address),
+      source: "ens" as const,
+    };
+  }, [discovery.treasuries, selectedTreasuryKey]);
 
   /** The swarm bound to this treasury (fund approve/reject go through it):
    * first ENS-published swarm with a resolvable contract address. */
@@ -148,13 +203,18 @@ export default function TreasuryPage() {
   const requests = [...swarm.fundRequests.values()].sort((a, b) =>
     a.requestId > b.requestId ? -1 : 1,
   );
+  const pendingCount = requests.filter((request) => request.status === "requested").length;
   const isOwner = owner !== null && owner.toLowerCase() === address.toLowerCase();
+  /** The watcher may not scan the active treasury's chain (one watcher per chain). */
+  const activeChainWatched = swarm.chainId === null || swarm.chainId === active.chainId;
+  const swarmSourceWatched = swarm.sources.some((source) => source.kind === "swarm");
 
   async function run(key: string, action: () => Promise<string>) {
     setTxError(null);
     setBusy(key);
     try {
-      await action();
+      const txHash = await action();
+      setLastTx({ label: ACTION_LABELS[key] ?? key, txHash, chainId: active?.chainId ?? 0 });
       await new Promise((resolve) => setTimeout(resolve, 3000));
       void refreshOnchain();
     } catch (error) {
@@ -175,6 +235,34 @@ export default function TreasuryPage() {
         A paid-out request is final — no revoke.
       </p>
       {txError ? <p className="mt-3 text-sm text-destructive">{txError}</p> : null}
+      {lastTx ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2 border border-primary/40 bg-primary/5 px-4 py-3 text-sm">
+          <span className="font-medium">✓ {lastTx.label}</span>
+          <span className="font-mono text-xs text-muted-foreground">{shortTx(lastTx.txHash)}</span>
+          {explorerTxUrl(lastTx.txHash, lastTx.chainId) ? (
+            <a
+              className="text-xs underline decoration-dotted"
+              href={explorerTxUrl(lastTx.txHash, lastTx.chainId) ?? "#"}
+              target="_blank"
+              rel="noreferrer"
+            >
+              View on explorer ↗
+            </a>
+          ) : null}
+          <Button variant="outline" size="xs" className="ml-auto" onClick={() => setLastTx(null)}>
+            Dismiss
+          </Button>
+        </div>
+      ) : null}
+
+      {pendingCount > 0 ? (
+        <div className="mt-4 border border-primary/40 bg-primary/5 px-4 py-3 text-sm">
+          <span className="font-medium">
+            {pendingCount} pending fund request{pendingCount === 1 ? "" : "s"}
+          </span>{" "}
+          awaiting action below{isOwner ? " — approve to release funds in the same transaction." : ""}
+        </div>
+      ) : null}
 
       <dl className="mt-8 grid gap-px border border-border bg-border sm:grid-cols-3">
         <Stat label="Balance" value={balance !== null ? `${formatEther(balance)} ETH` : "…"} mono />
@@ -186,10 +274,20 @@ export default function TreasuryPage() {
         <CopyableAddress address={active.address} chainId={active.chainId} />
       </div>
 
+      {!activeChainWatched ? (
+        <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+          This treasury is on chain {active.chainId} but the event watcher scans chain{" "}
+          {swarm.chainId ?? "?"} — its events (deposits, releases) will not appear in the
+          dashboard event feed. Balances still read per-chain.
+        </p>
+      ) : null}
+
       <OrgTreasuriesSection
         orgEnsName={selection.orgId}
         discovery={discovery}
         activeAddress={active.address}
+        watcherChainId={swarm.chainId}
+        onSelect={(entry) => selectTreasury(treasuryKey(entry))}
       />
 
       <section className="mt-8">
@@ -232,7 +330,20 @@ export default function TreasuryPage() {
           <span className="font-mono">FundRequestApproved → FundsReleased</span>.
         </p>
         {requests.length === 0 ? (
-          <p className="mt-3 text-sm text-muted-foreground">No fund requests yet.</p>
+          <p className="mt-3 text-sm text-muted-foreground">
+            No fund requests yet.
+            {!swarmSourceWatched ? (
+              <>
+                {" "}
+                <span className="text-amber-600 dark:text-amber-400">
+                  Note: no swarm contract is registered on the event watcher (chain{" "}
+                  {swarm.chainId ?? "?"}), so swarm events — including FundRequested — cannot be
+                  scanned. Check the org&apos;s ENS <span className="font-mono">soulvault.swarms</span>{" "}
+                  record and the Events page pipeline panel.
+                </span>
+              </>
+            ) : null}
+          </p>
         ) : (
           <div className="mt-3 overflow-x-auto border border-border">
             <table className="w-full min-w-176 text-left text-sm">
@@ -311,7 +422,12 @@ export default function TreasuryPage() {
                             onClick={() =>
                               void run(
                                 `cancel-${request.requestId.toString()}`,
-                                () => cancelFundRequest({ from: address, requestId: request.requestId }),
+                                () =>
+                                  cancelFundRequest({
+                                    from: address,
+                                    requestId: request.requestId,
+                                    swarm: ensSwarm?.address,
+                                  }),
                               )
                             }
                           >
@@ -348,13 +464,19 @@ export default function TreasuryPage() {
           onSubmit={(event) => {
             event.preventDefault();
             if (!requestAmount.trim()) return;
-            void run("request", () =>
-              requestFunds({
+            void run("request", () => {
+              if (!ensSwarm) {
+                throw new Error(
+                  "No swarm target — the org's ENS soulvault.swarms record has no swarm with a resolvable address.",
+                );
+              }
+              return requestFunds({
                 from: address,
                 amountWei: parseEthAmount(requestAmount),
                 reason: requestReason.trim() || "fund request",
-              }),
-            );
+                swarm: ensSwarm.address,
+              });
+            });
           }}
         >
           <input
@@ -371,9 +493,16 @@ export default function TreasuryPage() {
             className="h-8 min-w-56 border border-border bg-card px-2 font-mono text-sm outline-none focus:border-ring"
             aria-label="Request reason"
           />
-          <Button type="submit" size="sm" disabled={busy !== null}>
+  <Button type="submit" size="sm" disabled={busy !== null || ensSwarm === null}>
             {busy === "request" ? "Sending…" : "Request"}
           </Button>
+          {ensSwarm === null ? (
+            <span className="text-xs text-muted-foreground">
+              needs the org&apos;s swarm address (ENS soulvault.swarms → subdomain addr)
+            </span>
+          ) : (
+            <span className="font-mono text-xs text-muted-foreground">via {shortAddress(ensSwarm.address)}</span>
+          )}
         </form>
       </section>
 
@@ -453,17 +582,23 @@ function Stat({ label, value, mono }: { label: string; value: string; mono?: boo
 /**
  * All treasuries published on the org's ENS `soulvault.treasuries` record, with
  * live balances read per-chain (an org may hold treasuries on several chains —
- * ENSIP-11 slot per chain). The active treasury (driving the flows above) is
- * marked; the others are read-only entries.
+ * ENSIP-11 slot per chain). Rows are selectable — the active treasury drives
+ * every flow on the page, and the swarm's bound treasury may live on any one
+ * of these chains, so switching is part of the approve/reject flow.
  */
 function OrgTreasuriesSection({
   orgEnsName,
   discovery,
   activeAddress,
+  watcherChainId,
+  onSelect,
 }: {
   orgEnsName: string | null;
   discovery: ReturnType<typeof useOrgDiscovery>;
   activeAddress: Address;
+  /** Chain the shared event watcher scans (null = unknown). */
+  watcherChainId: number | null;
+  onSelect: (entry: OrgTreasuryEntry) => void;
 }) {
   const entries = discovery.treasuries;
   const balances = discovery.treasuryBalances;
@@ -476,7 +611,8 @@ function OrgTreasuriesSection({
       <p className="mt-1 text-xs text-muted-foreground">
         From <span className="font-mono">soulvault.treasuries</span> on{" "}
         <span className="font-mono">{orgEnsName}</span>. Flows above operate on the active
-        treasury; one per chain is the intended shape (ENSIP-11 slot per chain).
+        treasury — click a row to switch. One per chain is the intended shape (ENSIP-11
+        slot per chain); approve/reject must target the treasury the swarm is bound to.
       </p>
       {discovery.error ? (
         <p className="mt-3 text-sm text-destructive">{discovery.error}</p>
@@ -487,15 +623,37 @@ function OrgTreasuriesSection({
           {entries.map((entry) => {
             const isActive = entry.address.toLowerCase() === activeAddress.toLowerCase();
             const bal = balances[entry.address.toLowerCase()];
+            const watched = watcherChainId === null || watcherChainId === entry.chainId;
             return (
-              <li key={`${entry.chainId}:${entry.address}`} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 bg-card px-4 py-3">
-                <span className="font-mono text-xs text-muted-foreground">chain {entry.chainId}</span>
-                <CopyableAddress address={entry.address} chainId={entry.chainId} />
-                <span className="font-mono text-xs text-muted-foreground">
-                  {bal !== undefined ? `${formatEther(bal)} ETH` : "…"}
-                </span>
-                {entry.label ? <span className="text-xs text-muted-foreground">{entry.label}</span> : null}
-                {isActive ? <span className="chip text-primary">active</span> : null}
+              <li key={`${entry.chainId}:${entry.address}`}>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => onSelect(entry)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onSelect(entry);
+                    }
+                  }}
+                  className={`flex w-full cursor-pointer flex-wrap items-baseline gap-x-3 gap-y-1 bg-card px-4 py-3 text-left transition-colors hover:bg-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring ${
+                    isActive ? "border-l-2 border-l-primary" : ""
+                  }`}
+                  aria-pressed={isActive}
+                >
+                  <span className="font-mono text-xs text-muted-foreground">chain {entry.chainId}</span>
+                  <CopyableAddress address={entry.address} chainId={entry.chainId} />
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {bal !== undefined ? `${formatEther(bal)} ETH` : "…"}
+                  </span>
+                  {entry.label ? <span className="text-xs text-muted-foreground">{entry.label}</span> : null}
+                  {isActive ? <span className="chip text-primary">active</span> : null}
+                  {!watched ? (
+                    <span className="text-xs text-amber-600 dark:text-amber-400">
+                      events not scanned (watcher on chain {watcherChainId ?? "?"})
+                    </span>
+                  ) : null}
+                </div>
               </li>
             );
           })}

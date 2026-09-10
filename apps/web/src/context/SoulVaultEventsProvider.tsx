@@ -177,9 +177,14 @@ export function SoulVaultEventsProvider({
       const chainId = resolvedConfig.current?.chainId;
       // One watcher per chain today: drop sources announced for other chains
       // (multi-chain watchers are the extension point).
-      const added = sources
-        .filter((source) => source.chainId === undefined || source.chainId === chainId)
-        .some((source) => watcher.addSource(source));
+      // NB: add every source — never .some() here, it short-circuits and used to
+      // silently drop every source after the first new one (the org's swarm was
+      // lost whenever a treasury was added in the same batch).
+      let added = false;
+      for (const source of sources) {
+        if (source.chainId !== undefined && source.chainId !== chainId) continue;
+        if (watcher.addSource(source)) added = true;
+      }
       if (added) await refresh();
       return added;
     },

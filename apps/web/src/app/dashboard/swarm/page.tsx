@@ -13,7 +13,7 @@ import { SwarmWizard } from "@/components/create/swarm-wizard";
 import { publicClientForChainId } from "@/lib/chains";
 import { reduceSwarmState, type SwarmState } from "@/lib/onchain/reducers";
 import { approveJoin, rejectJoin } from "@/lib/treasury-contract";
-import { shortAddress } from "@/lib/format";
+import { shortAddress, shortTx, explorerTxUrl } from "@/lib/format";
 
 type SwarmListItem = {
   id: string;
@@ -41,6 +41,8 @@ export default function SwarmPage() {
 
   const [busy, setBusy] = useState<string | null>(null);
   const [txError, setTxError] = useState<string | null>(null);
+  /** Last completed wallet action, for the ✓ banner (null until one lands). */
+  const [lastTx, setLastTx] = useState<{ label: string; txHash: string; chainId: number } | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   /** Owner read keyed to the swarm it was read from (stale reads never apply). */
   const [ownerRead, setOwnerRead] = useState<{ swarm: Address; owner: Address | null } | null>(null);
@@ -143,7 +145,14 @@ export default function SwarmPage() {
     setBusy(key);
     setTxError(null);
     try {
-      await fn();
+      const result = await fn();
+      if (typeof result === "string" && result.startsWith("0x")) {
+        setLastTx({
+          label: key.startsWith("approve") ? "Join request approved" : key.startsWith("reject") ? "Join request rejected" : key,
+          txHash: result,
+          chainId: current?.chainId ?? 0,
+        });
+      }
       await refresh();
     } catch (error) {
       setTxError(error instanceof Error ? error.message : String(error));
@@ -324,6 +333,25 @@ export default function SwarmPage() {
             </p>
           ) : null}
           {txError ? <p className="mt-2 text-sm text-destructive">{txError}</p> : null}
+          {lastTx ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2 border border-primary/40 bg-primary/5 px-4 py-3 text-sm">
+              <span className="font-medium">✓ {lastTx.label}</span>
+              <span className="font-mono text-xs text-muted-foreground">{shortTx(lastTx.txHash)}</span>
+              {explorerTxUrl(lastTx.txHash, lastTx.chainId) ? (
+                <a
+                  className="text-xs underline decoration-dotted"
+                  href={explorerTxUrl(lastTx.txHash, lastTx.chainId) ?? "#"}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  View on explorer ↗
+                </a>
+              ) : null}
+              <Button variant="outline" size="xs" className="ml-auto" onClick={() => setLastTx(null)}>
+                Dismiss
+              </Button>
+            </div>
+          ) : null}
         </>
       )}
 

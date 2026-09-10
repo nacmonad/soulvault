@@ -49,6 +49,9 @@ All variables are loaded from `.env` in the project root via `dotenv`.
 | `SOULVAULT_ENS_CONTROLLER_ADDRESS` | ETH Registrar Controller |
 | `SOULVAULT_ENS_PUBLIC_RESOLVER_ADDRESS` | Public Resolver |
 | `SOULVAULT_ENS_UNIVERSAL_RESOLVER_ADDRESS` | Universal Resolver |
+| `SOULVAULT_ENSV2` | `1`/`true` dispatches ENS reads to the ENSv2 hierarchical registries (Sepolia beta). Kill switch for beta churn. | `0` |
+| `SOULVAULT_ENSV2_ROOT_REGISTRY_ADDRESS` | ENSv2 RootRegistry — hierarchy walk starts here. Required when `SOULVAULT_ENSV2=1`. | `0x8115186e8f2e0b0281e86ab91f0f48ba90364354` |
+| `SOULVAULT_ENSV2_UNIVERSAL_RESOLVER_ADDRESS` | ENSv2 Universal Resolver V2 | `0x4a1817d13e9cf196f471725176355c1234b63c70` |
 
 ---
 

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { keccak256, parseTransaction, serializeTransaction, toHex, type Hex, type PublicClient } from "viem";
 
-import { createLedgerTxChannel, type DeviceTransactionSignature } from "./ledger-tx";
+import { createLedgerTxChannel, RECEIPT_TIMEOUT_MS, receiptWaitError, type DeviceTransactionSignature } from "./ledger-tx";
 
 const perChain = vi.hoisted(() => ({
   publicClientForChainId: vi.fn(),
@@ -274,6 +274,60 @@ describe("createLedgerTxChannel", () => {
     await channel.waitForReceipt("0xunknown" as Hex);
     expect(client.waitForTransactionReceipt).toHaveBeenCalledWith(
       expect.objectContaining({ hash: "0xunknown" }),
+    );
+  });
+
+  it("passes an explicit long confirmation timeout to viem", async () => {
+    // viem's 120s default reported false failures for txs that mined late on
+    // congested public Sepolia — the retryCount does NOT extend it, the
+    // `timeout` param does.
+    const client = fakeClient();
+    const channel = createLedgerTxChannel({
+      signTransaction: async () => ({ r: R, s: S, v: 1 }),
+      signTypedData: async () => "0x",
+      config,
+      client: asPublicClient(client),
+    });
+    await channel.waitForReceipt("0xabc" as Hex);
+    expect(client.waitForTransactionReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({ timeout: RECEIPT_TIMEOUT_MS }),
+    );
+  });
+
+  it("wraps a confirmation timeout in a still-may-land error with the explorer link", () => {
+    const timeoutError = new Error(
+      'Timed out while waiting for transaction with hash "0xabc" to be confirmed.',
+    );
+    const wrapped = receiptWaitError("0xabc" as Hex, 11155111, timeoutError);
+    expect(wrapped.message).toContain("still land");
+    expect(wrapped.message).toContain("https://sepolia.etherscan.io/tx/0xabc");
+    expect(wrapped.message).toContain("Original error");
+
+    // Non-timeout failures pass through untouched.
+    const other = new Error("connection reset");
+    expect(receiptWaitError("0xabc" as Hex, 11155111, other)).toBe(other);
+
+    // Unknown chain: no explorer link, but the timeout copy still applies.
+    const unknownChain = receiptWaitError("0xabc" as Hex, undefined, timeoutError);
+    expect(unknownChain.message).toContain("still land");
+    expect(unknownChain.message).not.toContain("https://sepolia.etherscan.io");
+  });
+
+  it("surfaces a confirmation timeout as a still-may-land error through waitForReceipt", async () => {
+    const client = fakeClient();
+    client.waitForTransactionReceipt.mockRejectedValue(
+      new Error('Timed out while waiting for transaction with hash "0xabc" to be confirmed.'),
+    );
+    const channel = createLedgerTxChannel({
+      signTransaction: async () => ({ r: R, s: S, v: 1 }),
+      signTypedData: async () => "0x",
+      config,
+      client: asPublicClient(client),
+    });
+    const hash = await channel.submit({ from: FROM, to: TO, data: "0xdeadbeef" });
+
+    await expect(channel.waitForReceipt(hash)).rejects.toThrow(
+      /still land[\s\S]*sepolia\.etherscan\.io\/tx\//,
     );
   });
 });

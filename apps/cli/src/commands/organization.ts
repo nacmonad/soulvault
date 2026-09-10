@@ -13,6 +13,7 @@ import {
   registerOrganizationEns,
 } from '@soulvault/node/ens-name';
 import { setEnsResolver } from '@soulvault/node/ens';
+import { deployEnsV2OrgRegistry } from '@soulvault/node/ensv2-registry';
 
 export function registerOrganizationCommands(program: Command) {
   const organization = program.command('organization').description('Organization profiles, ENS root context, and owner actions')
@@ -144,6 +145,30 @@ export function registerOrganizationCommands(program: Command) {
       } else {
         console.error(`Resolver set on ${ensName} → ${result.resolver} (tx: ${result.txHash})`);
       }
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  organization
+    .command('deploy-registry')
+    .description(
+      "ENSv2 Phase 2: deploy the org's SoulVaultRegistry (UserRegistry proxy) via the VerifiableFactory on Sepolia. " +
+        'The registry becomes the authoritative *.org.eth subname namespace — swarm membership turns into real ' +
+        'registry entries with epoch-bound expiries and EAC-scoped roles (replaces the CBOR soulvault.swarms list). ' +
+        'The deployer receives ALL root roles; the proxy address is deterministic (caller-chosen salt) and verifiable onchain.',
+    )
+    .option('--salt <hex>', 'CREATE2 salt for the proxy (default: 0x5011 "S0ul")')
+    .action(async (options) => {
+      const salt = options.salt ? BigInt(options.salt) : undefined;
+      const result = await deployEnsV2OrgRegistry({ salt });
+      console.error(
+        `\nSoulVaultRegistry deployed: ${result.registryAddress}\n` +
+          `  owner: ${result.owner} (ALL root roles)\n` +
+          `  implementation: ${result.implementationAddress}\n` +
+          `  labelStore: ${result.labelStoreAddress}\n` +
+          `  factory: ${result.verifiableFactoryAddress}\n` +
+          `  tx: ${result.txHash}\n` +
+          `\nNext: soulvault swarm register-ens --registry ${result.registryAddress} --swarm <name>`,
+      );
       console.log(JSON.stringify(result, null, 2));
     });
 }

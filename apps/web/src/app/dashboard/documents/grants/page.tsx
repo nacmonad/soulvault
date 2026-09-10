@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { isAddressEqual, type Address, type Hex } from "viem";
 import { createSlotKeyGrants, createSlotKeyGrantsForRecipient, parsePublicDocumentBundle } from "@soulvault/protocol";
 
@@ -42,6 +42,12 @@ export default function DocumentsGrantsPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [pendingGrant, setPendingGrant] = useState<GrantWizardRequest | null>(null);
+  // Open the wizard where the user is looking: the request row that was clicked
+  // can be far below the wizard's render position at the top of the page.
+  const wizardRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (pendingGrant) wizardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [pendingGrant]);
 
   const selectedDoc = docHash ? documents.documents.get(docHash) : undefined;
   const session = selectedDoc ? loadSessionDocument(selectedDoc.docHash) : null;
@@ -105,7 +111,15 @@ export default function DocumentsGrantsPage() {
   );
 
   async function sendGrants() {
-    if (!selectedDoc || !address || !config || !registry) return;
+    if (!selectedDoc || !address) return;
+    if (!config || !registry) {
+      setError(
+        registry === null && config
+          ? "Document registry has not resolved yet (ENS discovery is still running or failed) — wait a moment and try again."
+          : "Wallet or chain config is not ready yet — try again.",
+      );
+      return;
+    }
     if (!isAuthor) {
       setError("Only the publishing author can grant slots.");
       return;
@@ -144,7 +158,15 @@ export default function DocumentsGrantsPage() {
   }
 
   async function grantToRequest(request: PendingRehydrationRequest) {
-    if (!selectedDoc || !address || !config || !registry) return;
+    if (!selectedDoc || !address) return;
+    if (!config || !registry) {
+      setError(
+        registry === null && config
+          ? "Document registry has not resolved yet (ENS discovery is still running or failed) — wait a moment and try again."
+          : "Wallet or chain config is not ready yet — try again.",
+      );
+      return;
+    }
     if (!isAuthor) {
       setError("Only the publishing author can grant slots.");
       return;
@@ -210,14 +232,16 @@ export default function DocumentsGrantsPage() {
       {status === "error" ? <p className="mt-3 text-sm text-destructive">Event config missing or scan failed.</p> : null}
       {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
       {pendingGrant ? (
-        <GrantWizard
-          request={pendingGrant}
-          onComplete={() => {
-            setPendingGrant(null);
-            void refresh();
-          }}
-          onCancel={() => setPendingGrant(null)}
-        />
+        <div ref={wizardRef}>
+          <GrantWizard
+            request={pendingGrant}
+            onComplete={() => {
+              setPendingGrant(null);
+              void refresh();
+            }}
+            onCancel={() => setPendingGrant(null)}
+          />
+        </div>
       ) : null}
 
       {pendingAcrossDocs.length > 0 ? (

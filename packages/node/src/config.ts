@@ -33,6 +33,19 @@ const envSchema = z.object({
   SOULVAULT_ENS_CONTROLLER_ADDRESS: z.string().default('0xfb3cE5D01e0f33f41DbB39035dB9745962F1f968'),
   SOULVAULT_ENS_PUBLIC_RESOLVER_ADDRESS: z.string().default('0xE99638b40E4Fff0129D56f03b55b6bbC4BBE49b5'),
   SOULVAULT_ENS_UNIVERSAL_RESOLVER_ADDRESS: z.string().default('0xeEeEEEeE14D718C2B47D9923Deab1335E144EeEe'),
+  /**
+   * ENSv2 (Sepolia beta) switch. When enabled, all ENS reads/writes in `ens.ts` dispatch
+   * to the ENSv2 hierarchical-registry contracts instead of the ENSv1 registry/resolver.
+   * Kill switch for beta churn: flip to false to revert the whole ENS lane to v1.
+   */
+  SOULVAULT_ENSV2: z.preprocess(
+    (v) => v === '1' || String(v ?? '').toLowerCase() === 'true',
+    z.boolean(),
+  ).default(false),
+  /** ENSv2 RootRegistry (hierarchy walk starts here). Required when SOULVAULT_ENSV2=1. */
+  SOULVAULT_ENSV2_ROOT_REGISTRY_ADDRESS: z.string().optional(),
+  /** ENSv2 Universal Resolver V2 (offchain-capable resolution entry point). */
+  SOULVAULT_ENSV2_UNIVERSAL_RESOLVER_ADDRESS: z.string().optional(),
   SOULVAULT_0G_STORAGE_URL: z.string().optional(),
   SOULVAULT_0G_INDEXER_URL: z.string().url().default('https://indexer-storage-testnet-turbo.0g.ai'),
   SOULVAULT_0G_AUTH_TOKEN: z.string().optional(),

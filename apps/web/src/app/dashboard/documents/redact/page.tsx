@@ -92,7 +92,7 @@ export default function DocumentsRedactPage() {
     txHash: string;
     blockNumber: bigint;
   } | null>(null);
-  const { address } = useSoulVaultWallet();
+  const { address, connector } = useSoulVaultWallet();
 
   const reviewing = findings.length > 0;
   const source = reviewing ? scanned : text;
@@ -729,6 +729,15 @@ export default function DocumentsRedactPage() {
           Continue to Grants
         </Button>
       </div>
+      {connector === "ledger" ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          On the device, expect one screen per slot plus the final approval —
+          that is one signature total, sent as a single transaction. (A SoulVault
+          deployer-factory contract is planned so our selectors can get Ledger
+          CAL descriptors, collapsing this walk-through into a one-screen
+          human-readable prompt.)
+        </p>
+      ) : null}
 
       {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
       {result ? (

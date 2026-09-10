@@ -38,6 +38,7 @@ v1 side on `main`: ENSIP-11 fallback in `documentRegistryAddress()` + optional
 | [017-eip7702-batch-executor.md](./017-eip7702-batch-executor.md) | EIP-7702 batch executor: one-signature atomic wizard flows | draft |
 | [018-document-registry-deploy.md](./018-document-registry-deploy.md) | DocumentRegistry deploy + ENS announce: CLI command + browser wizard + Registry admin page | implemented on otto/dashboard-ui |
 | [019-multi-chain-event-watcher.md](./019-multi-chain-event-watcher.md) | Multi-chain event watcher: one transport per chain (Galileo treasury events) | draft |
+| [020-deployer-factory-cal.md](./020-deployer-factory-cal.md) | Audited deployer-factory → fixed addresses → Ledger CAL descriptors (kill the blind-sign screen walk) | draft |
 
 Do not start Next work until the parent IA is locked in the GitHub issue.
 

@@ -28,6 +28,9 @@ contract SoulVaultDocumentRegistryTest is Test {
         string ephemeralPublicKey,
         string nonce
     );
+    event RehydrationRequested(bytes32 indexed docHash, address indexed recipient, string rehydrationPublicKey);
+
+    string internal charlieRehydrationKey = "04a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9";
 
     /// @notice Resolved once in setUp: reading WRAP_ALGORITHM() inline in a
     /// test's argument list would be an external call evaluated AFTER
@@ -153,5 +156,58 @@ contract SoulVaultDocumentRegistryTest is Test {
             abi.encodeWithSignature("revokeSlot(bytes32,string,address)", docHash, "sv_salary_1", charlie)
         );
         assertFalse(ok, "revocation must not exist on the v0 registry");
+    }
+
+    function test_requestRehydration_emitsRequestEvent() public {
+        vm.prank(alice);
+        registry.publishDocument(docHash, slotIds);
+
+        vm.prank(charlie);
+        vm.expectEmit(true, true, false, true, address(registry));
+        emit RehydrationRequested(docHash, charlie, charlieRehydrationKey);
+        registry.requestRehydration(docHash, charlieRehydrationKey);
+    }
+
+    function test_requestRehydration_revertsOnUnpublishedDocHash() public {
+        vm.prank(charlie);
+        vm.expectRevert(SoulVaultDocumentRegistry.NotPublished.selector);
+        registry.requestRehydration(docHash, charlieRehydrationKey);
+    }
+
+    function test_requestRehydration_revertsOnEmptyPublicKey() public {
+        vm.prank(alice);
+        registry.publishDocument(docHash, slotIds);
+
+        vm.prank(charlie);
+        vm.expectRevert(SoulVaultDocumentRegistry.EmptyPublicKey.selector);
+        registry.requestRehydration(docHash, "");
+    }
+
+    function test_requestRehydration_rerequestIsKeyRotation() public {
+        // The key-loss story: re-request with a fresh key. Both requests stay
+        // in the log; the author grants against the latest one.
+        vm.prank(alice);
+        registry.publishDocument(docHash, slotIds);
+
+        vm.prank(charlie);
+        registry.requestRehydration(docHash, charlieRehydrationKey);
+
+        vm.prank(charlie);
+        vm.expectEmit(true, true, false, true, address(registry));
+        emit RehydrationRequested(docHash, charlie, "04ff");
+        registry.requestRehydration(docHash, "04ff");
+    }
+
+    function test_requestRehydration_anyoneMayRequestTheirOwnKey() public {
+        // Requests are self-addressed: msg.sender is the recipient of record,
+        // so Mallory cannot request on Charlie's behalf (any grant he tricks
+        // out of Alice would be wrapped to Mallory's own key and address).
+        vm.prank(alice);
+        registry.publishDocument(docHash, slotIds);
+
+        vm.prank(mallory);
+        vm.expectEmit(true, true, false, true, address(registry));
+        emit RehydrationRequested(docHash, mallory, charlieRehydrationKey);
+        registry.requestRehydration(docHash, charlieRehydrationKey);
     }
 }

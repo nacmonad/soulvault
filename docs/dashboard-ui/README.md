@@ -37,6 +37,7 @@ v1 side on `main`: ENSIP-11 fallback in `documentRegistryAddress()` + optional
 | [016-wizard-existing-deployment.md](./016-wizard-existing-deployment.md) | Create wizards: detect and adopt existing deployments | draft |
 | [017-eip7702-batch-executor.md](./017-eip7702-batch-executor.md) | EIP-7702 batch executor: one-signature atomic wizard flows | draft |
 | [018-document-registry-deploy.md](./018-document-registry-deploy.md) | DocumentRegistry deploy + ENS announce: CLI command + browser wizard + Registry admin page | implemented on otto/dashboard-ui |
+| [019-multi-chain-event-watcher.md](./019-multi-chain-event-watcher.md) | Multi-chain event watcher: one transport per chain (Galileo treasury events) | draft |
 
 Do not start Next work until the parent IA is locked in the GitHub issue.
 

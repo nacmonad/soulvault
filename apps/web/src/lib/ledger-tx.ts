@@ -25,7 +25,13 @@ type LedgerRpcClient = {
   getGasPrice(): Promise<bigint>;
   estimateGas(args: { account: Address; to?: Address; data: Hex; value?: bigint }): Promise<bigint>;
   request(args: { method: string; params?: unknown[] }): Promise<unknown>;
-  waitForTransactionReceipt(args: { hash: Hex; retryCount?: number; retryDelay?: number }): Promise<{
+  waitForTransactionReceipt(args: {
+    hash: Hex;
+    retryCount?: number;
+    retryDelay?: number;
+    pollingInterval?: number;
+    timeout?: number;
+  }): Promise<{
     status: string;
     blockNumber: bigint;
     contractAddress?: Address | null;
@@ -41,6 +47,42 @@ type LedgerRpcClient = {
 const FALLBACK_RPC_URLS: Record<number, string[]> = {
   11155111: ["https://1rpc.io/sepolia", "https://sepolia.gateway.tenderly.co"],
 };
+
+/**
+ * Confirmation wait ceiling for the Ledger channel. viem's own default is
+ * 120s, which reports a false failure for any tx that mines late (congested
+ * public mempools, legacy-priced txs); the tx is already broadcast and cannot
+ * be recalled, so we out-wait it. 15 minutes covers slow public testnets;
+ * 0G Galileo receipt lag is a known case too.
+ */
+export const RECEIPT_TIMEOUT_MS = 15 * 60 * 1000;
+
+/**
+ * Wrap a receipt-wait failure. The critical distinction: "reverted" (the tx
+ * executed and failed — re-running must be a deliberate choice) vs "never saw
+ * a receipt" (the tx is still broadcast and may land at any moment — keep the
+ * etherscan tab open before re-running).
+ */
+export function receiptWaitError(hash: Hex, chainId: number | undefined, cause: unknown): Error {
+  const timedOut = cause instanceof Error && /timed out while waiting for transaction/i.test(cause.message);
+  const explorer =
+    chainId === 11155111
+      ? ` https://sepolia.etherscan.io/tx/${hash}`
+      : chainId === 16602
+        ? ` (check the tx on your 0G explorer of choice)`
+        : "";
+  if (timedOut) {
+    return new Error(
+      `No confirmation within ${Math.round(RECEIPT_TIMEOUT_MS / 60000)} minutes, but the tx is ` +
+        `signed and broadcast — it may still land:${explorer} tx ${hash}. ` +
+        `Before re-running this step, check the tx status above: if it confirmed, the step ` +
+        `is already done; if it is still pending, wait rather than double-send. ` +
+        `If it did not land, a bumped gas price on retry usually fixes it. ` +
+        `Original error: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+  }
+  return cause instanceof Error ? cause : new Error(String(cause));
+}
 
 export function createLedgerTxChannel(input: {
   signTransaction(unsignedSerialized: Hex): Promise<DeviceTransactionSignature>;
@@ -210,21 +252,31 @@ export function createLedgerTxChannel(input: {
     async waitForReceipt(hash) {
       // Poll the chain the tx was actually signed and broadcast for — the
       // configured client is only a fallback for hashes this channel didn't submit.
-      const receiptClient = primaryForChain(receiptChainByHash.get(hash)).client;
-      // viem's defaults (retryCount 6, exponential backoff) give up after ~12s of
-      // "receipt not found" — far too short for chains like 0G Galileo, where the
-      // tx mines but the receipt lags. Poll patiently; receipt polling must not
-      // fail a tx that is already signed and irreversibly broadcast.
-      const receipt = await receiptClient.waitForTransactionReceipt({
-        hash,
-        retryCount: 90,
-        retryDelay: 1000,
-      });
-      return {
-        status: receipt.status === "success" ? "success" : "reverted",
-        ...(receipt.contractAddress ? { contractAddress: receipt.contractAddress } : {}),
-        blockNumber: receipt.blockNumber,
-      };
+      const chain = receiptChainByHash.get(hash);
+      const receiptClient = primaryForChain(chain).client;
+      // viem's defaults (timeout 120s) give up far too early: retryCount only
+      // bounds error retries, while the overall `timeout` promise governs the
+      // wait — and a correctly-priced legacy tx on a congested public Sepolia
+      // mempool can sit pending well past 2 minutes before mining. The tx is
+      // already signed and irreversibly broadcast, so waiting longer is always
+      // better than reporting a false failure; receipt polling must not fail a
+      // tx that landed after the UI stopped watching.
+      try {
+        const receipt = await receiptClient.waitForTransactionReceipt({
+          hash,
+          retryCount: 90,
+          retryDelay: 1000,
+          pollingInterval: 2_000,
+          timeout: RECEIPT_TIMEOUT_MS,
+        });
+        return {
+          status: receipt.status === "success" ? "success" : "reverted",
+          ...(receipt.contractAddress ? { contractAddress: receipt.contractAddress } : {}),
+          blockNumber: receipt.blockNumber,
+        };
+      } catch (cause) {
+        throw receiptWaitError(hash, chain, cause);
+      }
     },
     async signTypedData(typedInput) {
       return input.signTypedData(typedInput.payload);

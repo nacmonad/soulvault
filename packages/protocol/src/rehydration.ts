@@ -198,6 +198,44 @@ export type SlotKeyGrant = {
   wrap: SecpWrappedKey;
 };
 
+/**
+ * Fingerprint of a rehydration public key — sha256 over the uncompressed
+ * point bytes. This is what binds a delivered grant to the key that can
+ * unwrap it (the recipient-side filter in rehydrateGrantedDocument).
+ */
+export function rehydrationKeyFingerprint(publicKey: string): string {
+  return sha256Hex(hexToBytesFlexible(publicKey));
+}
+
+/**
+ * Build slot-key grants wrapped directly to a recipient's rehydration public
+ * key. This is the onchain-request path: the binding of wallet↔pubkey is
+ * authenticated by the request tx signature (msg.sender on the
+ * `RehydrationRequested` event), so no client-side attestation verification
+ * is needed here — the event log is the attestation.
+ */
+export function createSlotKeyGrantsForRecipient(input: {
+  slotKeys: DocumentSlotKey[];
+  slotIds: string[];
+  recipient: string;
+  recipientPublicKey: string;
+}): SlotKeyGrant[] {
+  assertAddress(input.recipient, 'recipient');
+  assertPublicKey(input.recipientPublicKey);
+  const keys = new Map(input.slotKeys.map((value) => [value.slotId, value]));
+  const uniqueIds = [...new Set(input.slotIds)];
+  return uniqueIds.map((slotId) => {
+    const key = keys.get(slotId);
+    if (!key) throw new DocumentProtocolError('MISSING_SLOT', `No key exists for requested slot ${slotId}`);
+    return {
+      slotId,
+      recipient: normalizeAddress(input.recipient),
+      recipientKeyFingerprint: rehydrationKeyFingerprint(input.recipientPublicKey),
+      wrap: wrapKeyForSecp256k1PublicKey(key.key, input.recipientPublicKey),
+    };
+  });
+}
+
 export function createSlotKeyGrants(input: {
   slotKeys: DocumentSlotKey[];
   slotIds: string[];
@@ -216,16 +254,11 @@ export function createSlotKeyGrants(input: {
   });
   const keys = new Map(input.slotKeys.map((value) => [value.slotId, value]));
   const uniqueIds = [...new Set(input.slotIds)];
-  return uniqueIds.map((slotId) => {
-    const key = keys.get(slotId);
-    if (!key) throw new DocumentProtocolError('MISSING_SLOT', `No key exists for requested slot ${slotId}`);
-    const publicKey = input.attestation.message.rehydrationPublicKey;
-    return {
-      slotId,
-      recipient: normalizeAddress(input.attestation.message.wallet),
-      recipientKeyFingerprint: sha256Hex(hexToBytesFlexible(publicKey)),
-      wrap: wrapKeyForSecp256k1PublicKey(key.key, publicKey),
-    };
+  return createSlotKeyGrantsForRecipient({
+    slotKeys: input.slotKeys,
+    slotIds: uniqueIds,
+    recipient: input.attestation.message.wallet,
+    recipientPublicKey: input.attestation.message.rehydrationPublicKey,
   });
 }
 

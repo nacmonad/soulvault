@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
 import { useDocumentEvents } from "@/hooks/useDocumentEvents";
 import { useDocumentRegistryAddress } from "@/hooks/useDocumentRegistryAddress";
-import { asDocHash } from "@/lib/document-registry";
+import { asDocHash, requestRehydration } from "@/lib/document-registry";
 import {
   assertBundleAnchoredOnChain,
   evaluateSelfieProof,
@@ -64,7 +64,7 @@ function saveConsumedNullifier(appId: string, action: string, nullifier: string)
 }
 
 export default function DocumentsRehydratePage() {
-  const { address, connector, signTypedData } = useSoulVaultWallet();
+  const { address, connector, sendTransaction, signTypedData } = useSoulVaultWallet();
   const { documents, activeGrants, status } = useDocumentEvents({
     recipient: address,
     live: true,
@@ -76,6 +76,8 @@ export default function DocumentsRehydratePage() {
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
   const [selfieOk, setSelfieOk] = useState(false);
   const [proofText, setProofText] = useState("");
+  const [requestTx, setRequestTx] = useState<string | null>(null);
+  const [requestBusy, setRequestBusy] = useState(false);
   const config = getBrowserSoulVaultClientConfig();
   const { address: registry } = useDocumentRegistryAddress(bundle);
   const world = getBrowserWorldRehydrateGate();
@@ -148,6 +150,32 @@ export default function DocumentsRehydratePage() {
       setAttestation(signed);
     } catch (cause) {
       setError(publicHydrationError(cause));
+    }
+  }
+
+  /**
+   * Onchain request path: the requestRehydration tx binds msg.sender to the
+   * rehydration public key, so no out-of-band attestation exchange is needed —
+   * the author grants straight from the RehydrationRequested event.
+   */
+  async function requestOnchain() {
+    if (!address || !config || !registry || !bundle) return;
+    setError(null);
+    setRequestBusy(true);
+    try {
+      const next = await loadOrCreateRehydrationKey({ store: new LocalRehydrationStore(address) });
+      setKey(next);
+      const hash = await requestRehydration({
+        from: address,
+        documentId: bundle.artifact.documentId,
+        rehydrationPublicKey: next.publicKey,
+        send: sendTransaction,
+      });
+      setRequestTx(hash);
+    } catch (cause) {
+      setError(publicHydrationError(cause));
+    } finally {
+      setRequestBusy(false);
     }
   }
 
@@ -224,8 +252,11 @@ export default function DocumentsRehydratePage() {
       <p className="eyebrow text-primary">Documents</p>
       <h1 className="mt-3 text-2xl font-semibold tracking-tight">Rehydrate</h1>
       <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-        Upload the public bundle. Ciphertexts never come from events. A delivered
-        READ grant is a permanent capability — there is no revoke.
+        Upload the public bundle, then request rehydration — the request tx
+        binds your wallet to your rehydration key on-chain. The author grants
+        from their Grants tab; delivered grants arrive as events. Ciphertexts
+        never come from events. A delivered READ grant is a permanent
+        capability — there is no revoke.
       </p>
       {connector === "ledger" ? (
         <p className="mt-2 text-xs text-muted-foreground">
@@ -250,21 +281,47 @@ export default function DocumentsRehydratePage() {
             }}
           />
         </label>
-        <Button onClick={() => void attest()} disabled={!address}>
-          {connector === "ledger" ? "Attest rehydration key on Ledger" : "Attest rehydration key"}
+        <Button onClick={() => void requestOnchain()} disabled={!address || !bundle || requestBusy}>
+          {requestBusy
+            ? connector === "ledger"
+              ? "Confirm on Ledger…"
+              : "Requesting…"
+            : connector === "ledger"
+              ? "Request rehydration on Ledger"
+              : "Request rehydration"}
         </Button>
-        {attestation ? (
-          <Button
-            variant="outline"
-            onClick={() =>
-              navigator.clipboard.writeText(
-                JSON.stringify(attestation, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2),
-              )
-            }
-          >
-            Copy attestation JSON
-          </Button>
+        {requestTx ? (
+          <p className="mt-2 w-full font-mono text-xs break-all">
+            Request posted — tx {requestTx}. The author grants from their Grants
+            tab; grants appear here as they land.
+          </p>
         ) : null}
+        <details className="mt-2 w-full border border-border bg-card p-4">
+          <summary className="cursor-pointer text-sm font-medium">
+            Manual attestation (for authors who grant by pasted JSON)
+          </summary>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Only needed when the author is not watching on-chain requests. Sign
+            the rehydration-key attestation and copy the JSON to them directly.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button onClick={() => void attest()} disabled={!address}>
+              {connector === "ledger" ? "Attest rehydration key on Ledger" : "Attest rehydration key"}
+            </Button>
+            {attestation ? (
+              <Button
+                variant="outline"
+                onClick={() =>
+                  navigator.clipboard.writeText(
+                    JSON.stringify(attestation, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2),
+                  )
+                }
+              >
+                Copy attestation JSON
+              </Button>
+            ) : null}
+          </div>
+        </details>
       </div>
 
       {world.mode === "required" ? (

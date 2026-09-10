@@ -23,10 +23,12 @@ import {
 } from '@/lib/onchain/client';
 import { resolveDocumentEventSource } from '@/lib/document-registry';
 import { resolveIdentityEventSource } from '@/lib/identity-registry';
-import type { ActiveGrant, SoulVaultDeployment, SoulVaultEvent } from '@/lib/onchain/types';
+import type { ActiveGrant, SoulVaultContractKind, SoulVaultDeployment, SoulVaultEvent } from '@/lib/onchain/types';
 import { mergeEventBatches, SoulVaultEventWatcher } from '@/lib/onchain/watcher';
 
 export type SoulVaultEventsStatus = 'idle' | 'loading' | 'ready' | 'error';
+
+export type WatchedSource = { address: string; kind: SoulVaultContractKind; label?: string };
 
 export type SoulVaultEventsContextValue = {
   events: SoulVaultEvent[];
@@ -35,6 +37,10 @@ export type SoulVaultEventsContextValue = {
   isLive: boolean;
   /** Chain the shared watcher scans (its single publicClient's chain). */
   chainId: number | null;
+  /** Event sources currently registered on the watcher — surfaces runtime
+   * discovery (ENS) in the UI so an empty page can be told apart from a
+   * pipeline that never learned about the contract. */
+  sources: readonly WatchedSource[];
   refresh: () => Promise<void>;
   startLive: (pollSeconds?: number) => Promise<void>;
   stopLive: () => void;
@@ -57,6 +63,17 @@ export function SoulVaultEventsProvider({
   const resolvedConfig = useRef<SoulVaultClientConfig | null>(config ?? getBrowserSoulVaultClientConfig());
   const watcherRef = useRef<SoulVaultEventWatcher | null>(null);
   const stopRef = useRef<(() => void) | null>(null);
+  /** Monotonic scan id — only the newest-started scan may write state.
+   * Concurrent scans (initial mount + ENS-discovered sources arriving from the
+   * bridge/registry effects) would otherwise race last-writer-wins, and a scan
+   * that started before a source was added would wipe already-scanned events. */
+  const scanSeq = useRef(0);
+  /** Shared in-flight history scan — multiple mount-time triggers (registry
+   * effects, bridge, page startLive) would otherwise each run a full scanHistory
+   * concurrently, multiplying RPC load on rate-limited public nodes.
+   * sourceCount is captured at scan start: sources added mid-scan are not in
+   * its snapshot, so joiners re-scan once after it settles. */
+  const inFlightScanRef = useRef<{ promise: Promise<SoulVaultEvent[]>; sourceCount: number } | null>(null);
   const [state, setState] = useState<{ events: SoulVaultEvent[]; status: SoulVaultEventsStatus; error: unknown }>({
     events: [],
     status: 'idle',
@@ -79,20 +96,52 @@ export function SoulVaultEventsProvider({
     return watcherRef.current;
   }, []);
 
-  const refresh = useCallback(async () => {
+  const runScan = useCallback(async () => {
     const watcher = getWatcher();
     if (!watcher) {
       setState({ events: [], status: 'error', error: new Error(CONFIG_ERROR) });
       return;
     }
+    const seq = ++scanSeq.current;
     setState((s) => ({ ...s, status: 'loading', error: null }));
     try {
-      const events = await watcher.scanHistory();
-      setState({ events, status: 'ready', error: null });
+      for (;;) {
+        const inFlight = inFlightScanRef.current;
+        if (!inFlight) {
+          const promise = watcher.scanHistory();
+          inFlightScanRef.current = { promise, sourceCount: watcher.sources.length };
+          const settle = () => {
+            if (inFlightScanRef.current?.promise === promise) inFlightScanRef.current = null;
+          };
+          promise.then(settle, settle);
+          const events = await promise;
+          // A newer scan (started after this one) supersedes this snapshot.
+          if (seq !== scanSeq.current) return;
+          setState({ events, status: 'ready', error: null });
+          return;
+        }
+        // Join the shared scan instead of starting a duplicate.
+        const events = await inFlight.promise;
+        if (seq !== scanSeq.current) return;
+        if (watcher.sources.length === inFlight.sourceCount) {
+          setState({ events, status: 'ready', error: null });
+          return;
+        }
+        // Sources were added while the shared scan ran. Give any other
+        // in-flight discovery (registry effects, ENS bridge) a moment to land
+        // too, so the fresh scan includes them instead of chaining re-scans.
+        await new Promise((resolve) => setTimeout(resolve, 750));
+        if (seq !== scanSeq.current) return;
+        // Sources were added while the shared scan was running; loop for one
+        // fresh scan now that it has settled.
+      }
     } catch (error) {
+      if (seq !== scanSeq.current) return;
       setState((s) => ({ ...s, status: 'error', error }));
     }
   }, [getWatcher]);
+
+  const refresh = useCallback(() => runScan(), [runScan]);
 
   const startLive = useCallback(
     async (pollSeconds?: number) => {
@@ -103,13 +152,7 @@ export function SoulVaultEventsProvider({
       }
       if (stopRef.current) return;
       setIsLive(true);
-      setState((s) => ({ ...s, status: 'loading', error: null }));
-      try {
-        const events = await watcher.scanHistory();
-        setState({ events, status: 'ready', error: null });
-      } catch (error) {
-        setState((s) => ({ ...s, status: 'error', error }));
-      }
+      await runScan();
       const latest = await watcher.latestBlock().catch(() => null);
       stopRef.current = watcher.watchLive({
         pollSeconds: pollSeconds ?? 5,
@@ -118,7 +161,7 @@ export function SoulVaultEventsProvider({
         onError: (error) => setState((s) => ({ ...s, error })),
       });
     },
-    [getWatcher],
+    [getWatcher, runScan],
   );
 
   const stopLive = useCallback(() => {
@@ -134,9 +177,14 @@ export function SoulVaultEventsProvider({
       const chainId = resolvedConfig.current?.chainId;
       // One watcher per chain today: drop sources announced for other chains
       // (multi-chain watchers are the extension point).
-      const added = sources
-        .filter((source) => source.chainId === undefined || source.chainId === chainId)
-        .some((source) => watcher.addSource(source));
+      // NB: add every source — never .some() here, it short-circuits and used to
+      // silently drop every source after the first new one (the org's swarm was
+      // lost whenever a treasury was added in the same batch).
+      let added = false;
+      for (const source of sources) {
+        if (source.chainId !== undefined && source.chainId !== chainId) continue;
+        if (watcher.addSource(source)) added = true;
+      }
       if (added) await refresh();
       return added;
     },
@@ -202,6 +250,9 @@ export function SoulVaultEventsProvider({
       ...state,
       isLive,
       chainId: resolvedConfig.current?.chainId ?? null,
+      // Read at value-computation time: addSources → refresh → state change
+      // recomputes this, so the UI sees discovery land.
+      sources: (watcherRef.current?.sources ?? []).map(({ address, kind, label }) => ({ address, kind, label })),
       refresh,
       startLive,
       stopLive,

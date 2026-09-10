@@ -96,3 +96,32 @@ buttons were pressed. Store artifacts as CI artifacts, not in git.
 - Default approve matcher is `/approve|accept and send|sign/i`; pass a
   custom matcher if the flow shows different screen text (e.g. EIP-712
   attestation signing screens).
+
+## Status / TODO (paused — demo testing is manual for now)
+
+Scaffolded in this session (not yet runnable end-to-end):
+
+- `apps/web/e2e/` — Playwright config (production `next build --webpack`
+  + `next start -p 3100`), `global-setup.ts` (deploys a fresh
+  `SoulVaultDocumentRegistry` on the local node, checks chain id + funding),
+  `fixtures.ts` (worker-scoped sidecar HTTP signer for Alice/Mallory +
+  Speculos controller helpers), and `documents-flow.speculos.e2e.ts`
+  (Alice/Charlie/Mallory scenario, serial, video+trace on).
+- **Alice's leg passes** (redact → manual author span → encrypt → bundle
+  download → publish ≈13s). Charlie's leg is blocked on connecting the
+  emulated Ledger through the dashboard connect panel — the device never
+  showed the address-verification screen in headless runs.
+- App-side enabler already merged into this branch: `AppProviders` accepts
+  `?apduUrl=` (dev server or `SOULVAULT_WEB_E2E=1` build) and registers the
+  Speculos transport in place of WebHID; regular production builds
+  dead-code-eliminate the emulation package.
+- Speculos infra provisioned: nanosp Ethereum ELF 1.22.3 at
+  `packages/node/test/speculos/apps/nanosp-ethereum.elf` (gitignored),
+  speculos image pinned at
+  `ghcr.io/ledgerhq/speculos@sha256:6ed9eefd51cddd862b746719af4cd7a3265fe43d0588c388359753cab8d46d11`.
+
+To resume: debug why the DMK-driven connect never surfaces device screens
+in the prod build (suspect: transport not yet registered when discovery
+starts — consider gating the connect button on transport-ready state or
+adding a dev-only log to the gate), then run
+`pnpm --filter soulvault-web test:e2e:ledger`.

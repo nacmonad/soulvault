@@ -65,7 +65,7 @@ export type AgentUriPayload = {
   description?: string;
   image?: string;
   harness?: string;
-  services?: Array<Record<string, unknown>>;
+  services?: Array<{ type?: string; url?: string }>;
   supportedTrust?: string[];
   soulvault?: {
     swarmContract?: string;

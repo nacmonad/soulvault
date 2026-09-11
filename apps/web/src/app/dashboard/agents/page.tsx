@@ -9,6 +9,7 @@ import { useDashboardSelection } from "@/components/dashboard/selection-provider
 import { useAgentEvents } from "@/hooks/useAgentEvents";
 import { useSwarmEvents } from "@/hooks/useSwarmEvents";
 import { useOrgDiscovery } from "@/hooks/useOrgDiscovery";
+import { AgentIdentityCard } from "@/components/dashboard/agent-identity-card";
 import { shortAddress } from "@/lib/format";
 
 export default function AgentsPage() {
@@ -73,11 +74,7 @@ export default function AgentsPage() {
         <ul className="mt-6 space-y-px border border-border bg-border">
           {rows.map((profile) => (
             <li key={profile.agentId.toString()} className="bg-card p-5">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="font-mono text-sm">#{profile.agentId.toString()}</p>
-                <p className="font-mono text-xs text-muted-foreground">{shortAddress(profile.wallet)}</p>
-              </div>
-              <p className="mt-2 break-all text-sm">{profile.uri ?? "— no URI —"}</p>
+              <AgentIdentityCard agentId={profile.agentId} wallet={profile.wallet} uri={profile.uri} />
               {Object.keys(profile.metadata).length > 0 ? (
                 <dl className="mt-3 grid gap-1 text-xs">
                   {Object.entries(profile.metadata).map(([key, value]) => (
@@ -87,9 +84,7 @@ export default function AgentsPage() {
                     </div>
                   ))}
                 </dl>
-              ) : (
-                <p className="mt-2 text-xs text-muted-foreground">No metadata keys.</p>
-              )}
+              ) : null}
               <div className="mt-4 flex flex-wrap gap-2">
                 <Button disabled variant="outline" size="xs">
                   Edit metadata <span className="chip ml-2">soon</span>

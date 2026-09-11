@@ -192,7 +192,8 @@ export async function deployEnsV2OrgRegistry(input: {
     labelStoreAddress: await labelStore.getAddress(),
     verifiableFactoryAddress: factoryAddress,
     owner: signer.address,
-    salt,
+    // JSON.stringify throws on bigint — emit the salt as a hex string.
+    salt: `0x${salt.toString(16)}`,
     txHash: receipt?.hash as string | undefined,
   };
 }

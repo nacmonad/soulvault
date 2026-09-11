@@ -462,10 +462,6 @@ function MemberRow({ member, agents, swarmLabel, resolveRoles }: { member: Membe
   const identity = agents[0] ?? null;
   return (
     <li className="border-b border-border px-4 py-2 text-sm last:border-b-0">
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="font-mono text-sm">{shortAddress(member.wallet)}</span>
-        <span className="font-mono text-xs text-muted-foreground">epoch {member.joinedEpoch.toString()}</span>
-      </div>
       {identity ? (
         <div className="mt-1">
           <AgentIdentityCard

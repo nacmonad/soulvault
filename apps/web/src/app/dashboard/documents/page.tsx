@@ -24,7 +24,7 @@ export default function DocumentsIndexPage() {
           n="2"
           href="/dashboard/documents/grants"
           title="Grant"
-          body="Someone requests rehydration. You sign which slots they may see. Ledger or injected wallet."
+          body="You sign which slots a wallet may see — they can request first, or you grant ahead. Ledger or injected wallet."
         />
         <Step
           n="3"

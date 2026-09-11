@@ -1,5 +1,30 @@
 ## SoulVault ##
 
+**One line:** Redact on your machine. Authorized wallets rehydrate only the fields they were granted.
+
+#### Demo (record today) ####
+
+Order — Documents, not org/swarm/treasury unless they ask:
+
+1. **Redact** — paste a note. Presidio runs in the browser. Classify slots, encrypt, publish the hash.
+2. **Grant** — author signs which slots a wallet may see (request first, or grant ahead). Ledger HITL if connected.
+3. **Rehydrate** — paste the public bundle. Only granted slots decrypt. World Selfie optional on READ.
+
+Honest: a READ grant is permanent (no revoke). Live Sepolia v1 `.eth` register is off — use an existing org name. ENSv2 is a parallel lane.
+
+#### Redaction landscape (one slide) ####
+
+OpenAI Privacy Filter / Presidio / GLiNER detect and mask. They do not grant. SoulVault is detect → encrypt slots → wallet grant → rehydrate only what was granted. Plaintext never leaves the author machine.
+
+| | Detect | Where | Output | Access control |
+|---|---|---|---|---|
+| Presidio | Regex + NER | Self-hosted / this browser | Masked text | None |
+| OpenAI Privacy Filter (1.5B, Apr 2026) | Contextual PII | Local weights or API | Masked spans | None |
+| GLiNER2-PII | Schema-flexible NER | Local | Spans | None |
+| **SoulVault** | Presidio (+ optional GLiNER) on the author machine | Author laptop | Encrypted slots + on-chain hash | Wallet grant per slot; optional World Selfie on READ |
+
+Sources: OpenAI Privacy Filter; arXiv:2608.02616; Presidio; GLiNER2-PII (May 2026). Longer note: `docs/dashboard-ui/022-presentation-g0.md`.
+
 #### Background ####
 
 ###### Cannes 2026 #####

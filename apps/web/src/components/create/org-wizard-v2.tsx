@@ -32,6 +32,7 @@ export function OrgWizardV2() {
   const { rememberOrg } = useDashboardSelection();
   const [displayName, setDisplayName] = useState("");
   const [ensName, setEnsName] = useState("");
+  const [expiryDays, setExpiryDays] = useState("30");
   const [steps, setSteps] = useState<WizardStep[]>(INITIAL_STEPS);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +63,10 @@ export function OrgWizardV2() {
 
   const cliCommand = `pnpm soulvault organization register-ens --organization ${preview ? preview : "<slug>"} --ens-v2`;
 
+  // Epoch length in days → seconds. Clamped to >= 1 so a cleared field can't mint
+  // an instantly-expired name.
+  const epochDays = Math.max(1, Math.floor(Number(expiryDays) || 0));
+
   async function onCreate() {
     if (!address) return;
     setBusy(true);
@@ -73,7 +78,7 @@ export function OrgWizardV2() {
         from: address,
         displayName,
         ensName,
-        epochSeconds: DEFAULT_EPOCH_SECONDS,
+        epochSeconds: epochDays * 86400,
         onStep: (stepId, update) =>
           updateStep(stepId, {
             // lib speaks "active"/"done"; StepStatus speaks signing/mining/done.
@@ -106,7 +111,7 @@ export function OrgWizardV2() {
       <p className="mt-1 text-sm text-muted-foreground">
         Deploys the org&apos;s registry through the ENSv2 VerifiableFactory and registers{" "}
         <span className="font-mono">{preview || "<name>.eth"}</span> with a{" "}
-        {Math.round(DEFAULT_EPOCH_SECONDS / 86400)}-day epoch expiry. No commit/reveal wait;
+        {epochDays}-day epoch expiry. No commit/reveal wait;
         the owner holds EAC roles (set-resolver, renew) on the name.
       </p>
 
@@ -126,6 +131,17 @@ export function OrgWizardV2() {
             value={ensName}
             onChange={(event) => setEnsName(event.target.value)}
             placeholder="soulvault.eth"
+            className="mt-1 block h-8 w-full border border-border bg-card px-2 font-mono text-sm outline-none focus:border-ring"
+          />
+        </label>
+        <label className="text-sm">
+          Epoch expiry (days)
+          <input
+            type="number"
+            min={1}
+            value={expiryDays}
+            onChange={(event) => setExpiryDays(event.target.value)}
+            placeholder="30"
             className="mt-1 block h-8 w-full border border-border bg-card px-2 font-mono text-sm outline-none focus:border-ring"
           />
         </label>

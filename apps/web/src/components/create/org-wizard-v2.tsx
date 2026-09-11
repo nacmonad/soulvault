@@ -23,6 +23,7 @@ import type { WizardStep } from "@/lib/create-flows";
 const INITIAL_STEPS: WizardStep[] = [
   { id: "deploy", label: "Deploy org registry via VerifiableFactory (tx 1/2)", status: "pending" },
   { id: "register", label: "Register name with epoch expiry (tx 2/2)", status: "pending" },
+  { id: "resolver", label: "Deploy + attach PermissionedResolver", status: "pending" },
   { id: "mirror", label: "Write soulvault.ensv2Registry pointer record", status: "pending" },
   { id: "metadata", label: "Write class and name records", status: "pending" },
 ];

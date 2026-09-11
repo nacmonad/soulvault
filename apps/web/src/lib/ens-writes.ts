@@ -21,6 +21,14 @@ import { normalize } from "viem/ens";
 import { getBrowserSoulVaultClientConfig, createSoulVaultPublicClient } from "@/lib/onchain/client";
 import { SEPOLIA_CHAIN_ID } from "@/lib/chains";
 import { sendWalletTransaction, waitForWalletReceipt } from "@/lib/wallet-tx";
+import {
+  ENSV2_REGISTRY_TEXT_KEY,
+  computeVerifiableProxyAddress,
+  decodeEnsV2RegistryRecord,
+  getEnsV2SharedAddresses,
+  orgRegistrySalt,
+  parseEnsV2OrgLabel,
+} from "@/lib/ens-register-v2";
 
 // Sepolia ENS contracts — same addresses the CLI uses (packages/node/src/ens.ts).
 export const ENS_REGISTRY = "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e" as Address;
@@ -174,11 +182,162 @@ async function requireOrgOwnership(input: { orgEnsName: string; from: Address })
     functionName: "owner",
     args: [orgNode],
   })) as Address;
-  if (owner.toLowerCase() !== input.from.toLowerCase()) {
-    throw new Error(
-      `Wallet ${input.from} does not own ${input.orgEnsName} (owner ${owner}). ENS writes must come from the org owner.`,
-    );
+  if (owner.toLowerCase() === input.from.toLowerCase()) return;
+  // ENSv2 fallback: a v2 org name is registered in the org's own registry, not
+  // the v1 registry — v1 owner stays 0x0 forever. Verify v2 ownership via the
+  // label's latestOwner in the org registry (deterministic CREATE2 recompute,
+  // no local artifacts).
+  const v2Owner = await readEnsV2OrgOwner(client, input.orgEnsName, input.from).catch(() => null);
+  if (v2Owner && v2Owner.toLowerCase() === input.from.toLowerCase()) return;
+  throw new Error(
+    `Wallet ${input.from} does not own ${input.orgEnsName} (owner ${owner}). ENS writes must come from the org owner.`,
+  );
+}
+
+const ENSV2_STATE_ABI = [
+  {
+    type: "function",
+    name: "getState",
+    stateMutability: "view",
+    inputs: [{ name: "anyId", type: "uint256" }],
+    outputs: [
+      {
+        name: "state",
+        type: "tuple",
+        components: [
+          { name: "status", type: "uint8" },
+          { name: "expiry", type: "uint64" },
+          { name: "latestOwner", type: "address" },
+          { name: "tokenId", type: "uint256" },
+          { name: "resource", type: "uint256" },
+        ],
+      },
+    ],
+  },
+  {
+    type: "function",
+    name: "getResolver",
+    stateMutability: "view",
+    inputs: [{ name: "label", type: "string" }],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "hasRoles",
+    stateMutability: "view",
+    inputs: [
+      { name: "resource", type: "uint256" },
+      { name: "roleBitmap", type: "uint256" },
+      { name: "account", type: "address" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+  },
+] as const;
+
+/**
+ * Resolve the ENSv2 org registry + owner for a name. Discovery order:
+ *   1. The `soulvault.ensv2Registry` pointer text record (post-mirror names).
+ *   2. Deterministic CREATE2 recompute from the wallet + label — works for
+ *      pre-mirror registrations (pointer write skipped when no resolver
+ *      existed), keeps everything onchain with zero local artifacts.
+ * Returns null when the name isn't v2-managed.
+ */
+export async function readEnsV2OrgContext(
+  orgEnsName: string,
+  from?: Address,
+): Promise<{ registry: Address; resolver: Address | null; owner: Address } | null> {
+  const client = publicClient();
+  const { label } = parseEnsV2OrgLabel(orgEnsName);
+  const shared = getEnsV2SharedAddresses();
+  const candidates: Address[] = [];
+  let pointerRecord: { registry: Address; owner: Address } | null = null;
+
+  // 1) Pointer record — but viem's getEnsText can't resolve pre-mirror v2
+  // names; read text via any resolver the client can find, best-effort.
+  try {
+    const { getEnsText } = await import("viem/ens");
+    const value = await client.getEnsText({ name: normalize(orgEnsName), key: ENSV2_REGISTRY_TEXT_KEY });
+    pointerRecord = value ? decodeEnsV2RegistryRecord(value) : null;
+    if (pointerRecord) candidates.push(pointerRecord.registry);
+  } catch {
+    // no v1-resolvable name — fall through to CREATE2 recompute
   }
+
+  // 2) CREATE2 recompute from the deployer wallet: the pointer record's owner
+  // when available, otherwise the connected wallet.
+  const deployers: Address[] = [];
+  if (pointerRecord?.owner) deployers.push(pointerRecord.owner);
+  if (from && !deployers.some((d) => d.toLowerCase() === from.toLowerCase())) deployers.push(from);
+  if (!deployers.length) return null;
+  for (const deployer of deployers) {
+    try {
+      const proxyLogic = (await client.readContract({
+        address: shared.verifiableFactory as Address,
+        abi: [{ type: "function", name: "proxyLogic", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] }] as const,
+        functionName: "proxyLogic",
+      })) as Address;
+      candidates.push(
+        computeVerifiableProxyAddress({
+          factory: shared.verifiableFactory as Address,
+          proxyLogic,
+          deployer,
+          salt: orgRegistrySalt(label),
+        }),
+      );
+    } catch {
+      // factory read failed — skip this candidate
+    }
+  }
+
+  const labelStateId = BigInt(
+    (await import("viem")).labelhash(label),
+  );
+  for (const candidate of candidates) {
+    const state = (await client
+      .readContract({
+        address: candidate,
+        abi: ENSV2_STATE_ABI,
+        functionName: "getState",
+        args: [labelStateId],
+      })
+      .catch(() => null)) as readonly [number, bigint, Address, bigint, bigint] | null;
+    if (!state || state[0] !== 2) continue; // not REGISTERED here
+    const resolver = (await client
+      .readContract({
+        address: candidate,
+        abi: ENSV2_STATE_ABI,
+        functionName: "getResolver",
+        args: [label],
+      })
+      .catch(() => null)) as Address | null;
+    return {
+      registry: candidate,
+      resolver: resolver && resolver !== "0x0000000000000000000000000000000000000000" ? resolver : null,
+      owner: state[2],
+    };
+  }
+  return null;
+}
+
+async function readEnsV2OrgOwner(
+  client: PublicClient,
+  orgEnsName: string,
+  from: Address,
+): Promise<Address | null> {
+  const ctx = await readEnsV2OrgContext(orgEnsName, from);
+  return ctx?.owner ?? null;
+}
+
+/**
+ * Resolve the resolver to use for org text records. v2 orgs use their own
+ * PermissionedResolver (discovered via readEnsV2OrgContext); v1 orgs keep the
+ * shared PUBLIC_RESOLVER. Returns null when a v2 org has no resolver attached
+ * yet (caller decides: skip best-effort writes or surface an error).
+ */
+export async function resolveOrgResolver(orgEnsName: string): Promise<Address | null> {
+  const v2 = await readEnsV2OrgContext(orgEnsName).catch(() => null);
+  if (v2) return v2.resolver;
+  return PUBLIC_RESOLVER;
 }
 
 // ---------------------------------------------------------------------------
@@ -232,10 +391,12 @@ export function encodeSwarmsListDataUri(labels: string[]): string {
 export async function readOrgSwarmsList(orgEnsName: string): Promise<string[]> {
   const client = publicClient();
   const node = namehash(normalize(orgEnsName));
+  const resolver = await resolveOrgResolver(orgEnsName).catch(() => null);
+  if (!resolver) return [];
   const raw = (await coalesceRead(`text:${node}:${"soulvault.swarms"}`, () =>
     withTransientRetry(() =>
       client.readContract({
-        address: PUBLIC_RESOLVER,
+        address: resolver,
         abi: RESOLVER_ABI,
         functionName: "text",
         args: [node, "soulvault.swarms"],
@@ -299,13 +460,19 @@ export async function setAddrMultichain(input: {
   address: Address;
 }): Promise<{ txHash: Hex; coinType: number }> {
   await requireOrgOwnership({ orgEnsName: input.ensName, from: input.from });
+  const resolver = await resolveOrgResolver(input.ensName);
+  if (!resolver) {
+    throw new Error(
+      `${input.ensName} is ENSv2-managed but has no resolver attached — re-run the org wizard to attach one.`,
+    );
+  }
   const node = namehash(normalize(input.ensName));
   const coinType = coinTypeForChain(input.chainId);
   const txHash = await sendWalletTransaction({
     // ENS coordination is pinned to Sepolia — registry/resolver live there.
     chainId: SEPOLIA_CHAIN_ID,
     from: input.from,
-    to: PUBLIC_RESOLVER,
+    to: resolver,
     data: encodeFunctionData({
       abi: RESOLVER_ABI,
       // 3-arg ENSIP-11 overload; args tuple disambiguates from the 2-arg setAddr.
@@ -331,10 +498,12 @@ export async function getAddrMultichain(input: {
   const client = input.client ?? publicClient();
   const node = namehash(normalize(input.ensName));
   const coinType = coinTypeForChain(input.chainId);
+  const resolver = await resolveOrgResolver(input.ensName).catch(() => null);
+  if (!resolver) return null;
   const bytes = (await coalesceRead(`addr:${node}:${coinType}`, () =>
     withTransientRetry(() =>
       client.readContract({
-        address: PUBLIC_RESOLVER,
+        address: resolver,
         abi: RESOLVER_ABI,
         functionName: "addr",
         args: [node, BigInt(coinType)],
@@ -345,14 +514,16 @@ export async function getAddrMultichain(input: {
   return `0x${bytes.slice(-40)}` as Address;
 }
 
-/** Read a text record off any ENS name (Sepolia resolver). */
+/** Read a text record off any ENS name (v2 org resolver when managed, else Sepolia public resolver). */
 export async function readEnsText(ensName: string, key: string): Promise<string | null> {
   const client = publicClient();
   const node = namehash(normalize(ensName));
+  const resolver = await resolveOrgResolver(ensName).catch(() => null);
+  if (!resolver) return null;
   const raw = (await coalesceRead(`text:${node}:${key}`, () =>
     withTransientRetry(() =>
       client.readContract({
-        address: PUBLIC_RESOLVER,
+        address: resolver,
         abi: RESOLVER_ABI,
         functionName: "text",
         args: [node, key],
@@ -366,10 +537,12 @@ export async function readEnsText(ensName: string, key: string): Promise<string 
 export async function readEnsAddress(ensName: string): Promise<Address | null> {
   const client = publicClient();
   const node = namehash(normalize(ensName));
+  const resolver = await resolveOrgResolver(ensName).catch(() => null);
+  if (!resolver) return null;
   const bytes = (await coalesceRead(`addr:${node}:60`, () =>
     withTransientRetry(() =>
       client.readContract({
-        address: PUBLIC_RESOLVER,
+        address: resolver,
         abi: RESOLVER_ABI,
         functionName: "addr",
         args: [node, 60n],
@@ -437,10 +610,12 @@ export function upsertTreasuryEntry(
 export async function readOrgTreasuries(orgEnsName: string): Promise<OrgTreasuryEntry[]> {
   const client = publicClient();
   const node = namehash(normalize(orgEnsName));
+  const resolver = await resolveOrgResolver(orgEnsName).catch(() => null);
+  if (!resolver) return [];
   const raw = (await coalesceRead(`text:${node}:${TREASURIES_TEXT_RECORD_KEY}`, () =>
     withTransientRetry(() =>
       client.readContract({
-        address: PUBLIC_RESOLVER,
+        address: resolver,
         abi: RESOLVER_ABI,
         functionName: "text",
         args: [node, TREASURIES_TEXT_RECORD_KEY],
@@ -457,6 +632,12 @@ export async function upsertOrgTreasury(input: {
   entry: OrgTreasuryEntry;
 }): Promise<Hex | null> {
   await requireOrgOwnership({ orgEnsName: input.organizationEnsName, from: input.from });
+  const resolver = await resolveOrgResolver(input.organizationEnsName);
+  if (!resolver) {
+    throw new Error(
+      `${input.organizationEnsName} is ENSv2-managed but has no resolver attached — re-run the org wizard to attach one.`,
+    );
+  }
   const existing = await readOrgTreasuries(input.organizationEnsName);
   const next = upsertTreasuryEntry(existing, input.entry);
   const value = JSON.stringify(next, null, 0);
@@ -465,7 +646,7 @@ export async function upsertOrgTreasury(input: {
     // ENS coordination is pinned to Sepolia — registry/resolver live there.
     chainId: SEPOLIA_CHAIN_ID,
     from: input.from,
-    to: PUBLIC_RESOLVER,
+    to: resolver,
     data: encodeFunctionData({
       abi: RESOLVER_ABI,
       functionName: "setText",
@@ -531,8 +712,10 @@ export async function readDocumentRegistryEntries(
 ): Promise<DocumentRegistryEnsRecord[]> {
   const readClient = client ?? publicClient();
   const node = namehash(normalize(rootEnsName));
+  const resolver = await resolveOrgResolver(rootEnsName).catch(() => null);
+  if (!resolver) return [];
   const raw = (await readClient.readContract({
-    address: PUBLIC_RESOLVER,
+    address: resolver,
     abi: RESOLVER_ABI,
     functionName: "text",
     args: [node, DOCUMENT_REGISTRY_TEXT_RECORD_KEY],
@@ -547,6 +730,12 @@ export async function upsertDocumentRegistryEnsRecord(input: {
   entry: DocumentRegistryEnsRecord;
 }): Promise<Hex | null> {
   await requireOrgOwnership({ orgEnsName: input.rootEnsName, from: input.from });
+  const resolver = await resolveOrgResolver(input.rootEnsName);
+  if (!resolver) {
+    throw new Error(
+      `${input.rootEnsName} is ENSv2-managed but has no resolver attached — re-run the org wizard to attach one.`,
+    );
+  }
   const existing = await readDocumentRegistryEntries(input.rootEnsName);
   const next = upsertDocumentRegistryEntry(existing, input.entry);
   const value = JSON.stringify(next, null, 0);
@@ -555,7 +744,7 @@ export async function upsertDocumentRegistryEnsRecord(input: {
     // ENS coordination is pinned to Sepolia — registry/resolver live there.
     chainId: SEPOLIA_CHAIN_ID,
     from: input.from,
-    to: PUBLIC_RESOLVER,
+    to: resolver,
     data: encodeFunctionData({
       abi: RESOLVER_ABI,
       functionName: "setText",
@@ -580,6 +769,12 @@ export async function bindSwarmEnsSubdomain(input: {
   chainId: number;
 }): Promise<{ subnodeTxHash: Hex; addrTxHash: Hex; chainIdTxHash: Hex; contractTxHash: Hex }> {
   await requireOrgOwnership({ orgEnsName: input.organizationEnsName, from: input.from });
+  const orgResolver = await resolveOrgResolver(input.organizationEnsName);
+  if (!orgResolver) {
+    throw new Error(
+      `${input.organizationEnsName} is ENSv2-managed but has no resolver attached — re-run the org wizard to attach one.`,
+    );
+  }
   const orgNode = namehash(normalize(input.organizationEnsName));
   const swarmLabel = input.swarmEnsName.replace(`.${input.organizationEnsName}`, "");
   const swarmNode = namehash(normalize(input.swarmEnsName));
@@ -592,7 +787,7 @@ export async function bindSwarmEnsSubdomain(input: {
     data: encodeFunctionData({
       abi: REGISTRY_ABI,
       functionName: "setSubnodeRecord",
-      args: [orgNode, labelhash(swarmLabel), input.from, PUBLIC_RESOLVER, 0n],
+      args: [orgNode, labelhash(swarmLabel), input.from, orgResolver, 0n],
     }),
   });
   const subnodeReceipt = await waitForWalletReceipt(subnodeTxHash);
@@ -602,7 +797,7 @@ export async function bindSwarmEnsSubdomain(input: {
     // ENS coordination is pinned to Sepolia — registry/resolver live there.
     chainId: SEPOLIA_CHAIN_ID,
     from: input.from,
-    to: PUBLIC_RESOLVER,
+    to: orgResolver,
     data: encodeFunctionData({
       abi: RESOLVER_ABI,
       functionName: "setAddr",
@@ -616,7 +811,7 @@ export async function bindSwarmEnsSubdomain(input: {
     // ENS coordination is pinned to Sepolia — registry/resolver live there.
     chainId: SEPOLIA_CHAIN_ID,
     from: input.from,
-    to: PUBLIC_RESOLVER,
+    to: orgResolver,
     data: encodeFunctionData({
       abi: RESOLVER_ABI,
       functionName: "setText",
@@ -630,7 +825,7 @@ export async function bindSwarmEnsSubdomain(input: {
     // ENS coordination is pinned to Sepolia — registry/resolver live there.
     chainId: SEPOLIA_CHAIN_ID,
     from: input.from,
-    to: PUBLIC_RESOLVER,
+    to: orgResolver,
     data: encodeFunctionData({
       abi: RESOLVER_ABI,
       functionName: "setText",
@@ -653,11 +848,17 @@ export async function addSwarmToOrgList(input: {
   const list = await readOrgSwarmsList(input.organizationEnsName);
   if (list.includes(input.label)) return null;
   const value = encodeSwarmsListDataUri([...list, input.label]);
+  const resolver = await resolveOrgResolver(input.organizationEnsName);
+  if (!resolver) {
+    throw new Error(
+      `${input.organizationEnsName} is ENSv2-managed but has no resolver attached — re-run the org wizard to attach one.`,
+    );
+  }
   const txHash = await sendWalletTransaction({
     // ENS coordination is pinned to Sepolia — registry/resolver live there.
     chainId: SEPOLIA_CHAIN_ID,
     from: input.from,
-    to: PUBLIC_RESOLVER,
+    to: resolver,
     data: encodeFunctionData({
       abi: RESOLVER_ABI,
       functionName: "setText",

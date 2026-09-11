@@ -2,17 +2,29 @@
 // packages/node/src/ensv2-registry.ts. Structurally different from the v1
 // commit/reveal flow (ens-register.ts): no controller, no commitment wait, no
 // unwrap. Steps = deploy org registry via the VerifiableFactory → register the
-// name in it with epoch-bound expiry → mirror the registry address on the org
-// name's resolver → metadata records.
+// name in it with epoch-bound expiry → deploy + attach a PermissionedResolver
+// (setResolver) → mirror the registry address on the org name's resolver →
+// metadata records.
 //
 // Protocol detection (backwards compat): the v2 registry address is mirrored
 // under the `soulvault.ensv2Registry` text record on the org name. Presence ⇒
 // v2, absence ⇒ v1 — orgs built on the legacy controller keep using the v1
 // wizard untouched.
+//
+// Idempotency: CREATE2 salts are label-derived, so a re-run from the same
+// wallet would collide at deployProxy. Before deploying we read the label's
+// state from the previously deployed registry (address recomputed onchain via
+// the factory's proxyLogic() + CREATE2 — no local artifacts) and skip
+// deploy/register when the name is already registered and unexpired.
 import {
+  concatHex,
   encodeFunctionData,
+  getCreate2Address,
   getAddress,
+  keccak256,
   labelhash,
+  namehash,
+  pad,
   zeroAddress,
   type Address,
   type Hex,
@@ -30,6 +42,8 @@ import { sendWalletTransaction, waitForWalletReceipt } from "@/lib/wallet-tx";
 export const ENSV2_SHARED_ADDRESSES = {
   userRegistryImpl: "0x624a25d67b59d587752ebec8dded8827dae52050",
   verifiableFactory: "0x10dc6333cdfe1fcef624c6e0a8221b91804cd7ef",
+  // PermissionedResolver implementation (deployments/sepolia/PermissionedResolverImpl.json).
+  permissionedResolverImpl: "0x7e4b2d59938930168024201752ee5503df402303",
 } as const;
 
 /** Runtime overrides (browser equivalent of the node env vars). */
@@ -101,6 +115,70 @@ const INITIALIZE_ABI = [
   },
 ] as const;
 
+const RESOLVER_INITIALIZE_ABI = [
+  {
+    type: "function",
+    name: "initialize",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "admin", type: "address" },
+      { name: "roleBitmap", type: "uint256" },
+      { name: "setters", type: "bytes[]" },
+    ],
+  },
+] as const;
+
+/** VerifiableFactory view helpers — CREATE2 precompute + proxy verification. */
+const FACTORY_VIEW_ABI = [
+  {
+    type: "function",
+    name: "proxyLogic",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "verifyContract",
+    stateMutability: "view",
+    inputs: [{ name: "proxy", type: "address" }],
+    outputs: [{ name: "implementation", type: "address" }],
+  },
+] as const;
+
+/** getState on the org registry — label registration status + resolver slot. */
+const REGISTRY_STATE_ABI = [
+  {
+    type: "function",
+    name: "getState",
+    stateMutability: "view",
+    inputs: [{ name: "anyId", type: "uint256" }],
+    outputs: [
+      {
+        name: "state",
+        type: "tuple",
+        components: [
+          { name: "status", type: "uint8" },
+          { name: "expiry", type: "uint64" },
+          { name: "latestOwner", type: "address" },
+          { name: "tokenId", type: "uint256" },
+          { name: "resource", type: "uint256" },
+        ],
+      },
+    ],
+  },
+  {
+    type: "function",
+    name: "setResolver",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "anyId", type: "uint256" },
+      { name: "resolver", type: "address" },
+    ],
+    outputs: [],
+  },
+] as const;
+
 // --- Role constants (parity: RegistryRolesLib + EACBaseRolesLib).
 
 export const ENSV2_ROLES = {
@@ -149,6 +227,52 @@ export function expiryFromNow(epochSeconds: number, nowSeconds?: number): bigint
 /** Deterministic CREATE2 salt per org label — redeploys converge, clashes fail loudly. */
 export function orgRegistrySalt(label: string): bigint {
   return BigInt(labelhash(label));
+}
+
+/** Deterministic resolver-proxy salt per org label (distinct from the registry salt). */
+export function orgResolverSalt(label: string): bigint {
+  return BigInt(keccak256(toHexBytes(`${label}-resolver`)));
+}
+
+function toHexBytes(s: string): Hex {
+  return `0x${Array.from(new TextEncoder().encode(s))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")}` as Hex;
+}
+
+/**
+ * Recompute the VerifiableFactory's CREATE2 proxy address for (deployer, salt,
+ * initData) — byte-exact port of CloneProxyBytecode.creationCode. The proxy is
+ * a 77-byte EIP-1167-style clone: 45-byte runtime with the shared proxyLogic
+ * address in the PUSH20 slot, plus the 32-byte outerSalt appended for the
+ * factory's verifyContract(). The factory derives the outer salt as
+ * keccak256(abi.encode(msg.sender, salt)) so the same user salt from a
+ * different wallet never collides.
+ */
+export function computeVerifiableProxyAddress(input: {
+  factory: Address;
+  proxyLogic: Address;
+  deployer: Address;
+  salt: bigint;
+}): Address {
+  const outerSalt = keccak256(
+    encodeFunctionData({
+      abi: [{ type: "function", name: "__abiEncodeOnly", inputs: [{ type: "address" }, { type: "uint256" }], outputs: [] }],
+      functionName: "__abiEncodeOnly",
+      args: [input.deployer, input.salt],
+    }).slice(10) as Hex,
+  );
+  const creationCode = concatHex([
+    "0x3d604d80600a3d3981f3363d3d373d3d3d363d73" as Hex, // creation stub + runtime prefix (20B)
+    pad(input.proxyLogic, { size: 20 }), // PUSH20 proxyLogic
+    "0x5af43d82803e903d91602b57fd5bf3" as Hex, // runtime suffix (15B)
+    pad(outerSalt, { size: 32 }), // appended salt for verifyContract()
+  ]);
+  return getCreate2Address({
+    from: input.factory,
+    salt: outerSalt,
+    bytecodeHash: keccak256(creationCode),
+  });
 }
 
 export function encodeInitializeData(owner: Address): Hex {
@@ -221,7 +345,7 @@ export async function detectOrgEnsVersion(orgName: string): Promise<OrgEnsVersio
 
 // --- Registration flow (one wallet prompt per step).
 
-export type EnsV2RegisterStepId = "deploy" | "register" | "mirror" | "metadata";
+export type EnsV2RegisterStepId = "deploy" | "register" | "resolver" | "mirror" | "metadata";
 
 export type EnsV2OrgRegisterResult = {
   ensName: string;
@@ -250,35 +374,81 @@ export async function registerOrganizationEnsV2(input: {
   // The registry pointer record on the org name mirrors the org profile's
   // `ensv2Registry` (packages/node organization.ts) — one source of truth for
   // detection on both sides.
+  //
+  // Idempotent re-run: salts are label-derived, so deploying twice from the
+  // same wallet would CREATE2-collide. When the label is already registered and
+  // unexpired in the previously deployed registry, skip deploy + register and
+  // resume at resolver-attach / mirror (the partial-state repair path).
   input.onStep?.("deploy", { status: "active" });
-  const deployData = encodeInitializeData(owner);
-  const deployHash = await sendWalletTransaction({
-    from: owner,
-    to: shared.verifiableFactory as Address,
-    data: encodeFunctionData({
-      abi: ENSV2_VERIFIABLE_FACTORY_ABI,
-      functionName: "deployProxy",
-      args: [shared.userRegistryImpl as Address, orgRegistrySalt(label), deployData],
-    }),
+  const client = createSoulVaultPublicClient(getBrowserSoulVaultClientConfig()!);
+  const labelStateId = BigInt(labelhash(label));
+  let registryAddress: Address | null = null;
+  let existingState: { status: number; expiry: bigint; latestOwner: Address; resolver?: never } | null =
+    null;
+
+  // Recompute the previously deployed registry address from CREATE2 math —
+  // works for any prior run of the same wallet, no local artifacts needed.
+  const expectedRegistry = computeVerifiableProxyAddress({
+    factory: getAddress(shared.verifiableFactory),
+    proxyLogic: await readFactoryProxyLogic(client, shared.verifiableFactory as Address),
+    deployer: owner,
+    salt: orgRegistrySalt(label),
   });
-  const deployReceipt = await waitForWalletReceipt(deployHash);
-  if (deployReceipt.status !== "success") {
-    throw new Error(`Registry deploy reverted (tx ${deployHash}).`);
+  const existing = await client
+    .readContract({
+      address: expectedRegistry,
+      abi: ENSV2_USER_REGISTRY_ABI,
+      functionName: "hasRoles",
+      args: [0n, ENSV2_ROLES.ROLE_REGISTRAR, owner],
+    })
+    .catch(() => null);
+  if (existing) {
+    // A registry exists at the deterministic address — check the label state.
+    const state = (await client.readContract({
+      address: expectedRegistry,
+      abi: REGISTRY_STATE_ABI,
+      functionName: "getState",
+      args: [labelStateId],
+    })) as unknown as readonly [number, bigint, Address, bigint, bigint];
+    const nowSec = BigInt(Math.floor(Date.now() / 1000));
+    if (state[0] === 2 && state[1] > nowSec) {
+      // Already registered + unexpired → skip deploy + register.
+      registryAddress = expectedRegistry;
+      existingState = { status: state[0], expiry: state[1], latestOwner: state[2] };
+      input.onStep?.("deploy", { status: "done", detail: registryAddress });
+      input.onStep?.("register", { status: "done", detail: "already registered" });
+    }
   }
-  const registryAddress = deployReceipt.contractAddress
-    ? getAddress(deployReceipt.contractAddress)
-    : await resolveProxyAddressFromLogs(deployHash);
+
   if (!registryAddress) {
-    throw new Error(
-      `deployProxy succeeded but the proxy address could not be parsed (tx ${deployHash}).`,
-    );
+    const deployData = encodeInitializeData(owner);
+    const deployHash = await sendWalletTransaction({
+      from: owner,
+      to: shared.verifiableFactory as Address,
+      data: encodeFunctionData({
+        abi: ENSV2_VERIFIABLE_FACTORY_ABI,
+        functionName: "deployProxy",
+        args: [shared.userRegistryImpl as Address, orgRegistrySalt(label), deployData],
+      }),
+    });
+    const deployReceipt = await waitForWalletReceipt(deployHash);
+    if (deployReceipt.status !== "success") {
+      throw new Error(`Registry deploy reverted (tx ${deployHash}).`);
+    }
+    registryAddress = deployReceipt.contractAddress
+      ? getAddress(deployReceipt.contractAddress)
+      : await resolveProxyAddressFromLogs(deployHash);
+    if (!registryAddress) {
+      throw new Error(
+        `deployProxy succeeded but the proxy address could not be parsed (tx ${deployHash}).`,
+      );
+    }
+    txHashes.deploy = deployHash;
+    input.onStep?.("deploy", { status: "done", detail: registryAddress });
   }
-  txHashes.deploy = deployHash;
-  input.onStep?.("deploy", { status: "done", detail: registryAddress });
 
   // Post-deploy verification — same trust rule as the node package: only trust
   // the registry if it really granted the owner ROLE_REGISTRAR on root.
-  const client = createSoulVaultPublicClient(getBrowserSoulVaultClientConfig()!);
   const rootHasRegistrar = await client.readContract({
     address: registryAddress,
     abi: ENSV2_USER_REGISTRY_ABI,
@@ -292,30 +462,115 @@ export async function registerOrganizationEnsV2(input: {
   }
 
   // Step 2 — register the org name in the new registry with epoch-bound expiry.
-  input.onStep?.("register", { status: "active" });
-  const expiry = expiryFromNow(epochSeconds);
-  const registerHash = await sendWalletTransaction({
-    from: owner,
-    to: registryAddress,
-    data: encodeFunctionData({
-      abi: ENSV2_USER_REGISTRY_ABI,
-      functionName: "register",
-      args: [label, owner, zeroAddress, zeroAddress, ORG_NAME_ROLES, expiry],
-    }),
-  });
-  const registerReceipt = await waitForWalletReceipt(registerHash);
-  if (registerReceipt.status !== "success") {
-    throw new Error(`Org name registration reverted (tx ${registerHash}).`);
+  if (!existingState) {
+    input.onStep?.("register", { status: "active" });
+    const expiry = expiryFromNow(epochSeconds);
+    const registerHash = await sendWalletTransaction({
+      from: owner,
+      to: registryAddress,
+      data: encodeFunctionData({
+        abi: ENSV2_USER_REGISTRY_ABI,
+        functionName: "register",
+        args: [label, owner, zeroAddress, zeroAddress, ORG_NAME_ROLES, expiry],
+      }),
+    });
+    const registerReceipt = await waitForWalletReceipt(registerHash);
+    if (registerReceipt.status !== "success") {
+      throw new Error(`Org name registration reverted (tx ${registerHash}).`);
+    }
+    txHashes.register = registerHash;
+    input.onStep?.("register", { status: "done" });
   }
-  txHashes.register = registerHash;
-  input.onStep?.("register", { status: "done" });
+  const expiry = existingState ? existingState.expiry : expiryFromNow(epochSeconds);
+
+  // Step 2.5 — deploy + attach a PermissionedResolver for the org name.
+  // Without a resolver slot the name is unresolvable (UI shows Resolver 0x0)
+  // and no text records can ever be written — this was the gap that left
+  // freshly registered v2 names dead in the water. Deterministic salt ⇒ a
+  // re-run converges on the same resolver address; if the registry's resolver
+  // slot is already set we skip both txs.
+  input.onStep?.("resolver", { status: "active" });
+  const labelState = (await client.readContract({
+    address: registryAddress,
+    abi: REGISTRY_STATE_ABI,
+    functionName: "getState",
+    args: [labelStateId],
+  })) as unknown as readonly [number, bigint, Address, bigint, bigint];
+  let resolverAddress = labelState[2] === zeroAddress ? null : await readRegistryResolver(client, registryAddress, label);
+  if (!resolverAddress) {
+    const proxyLogic = await readFactoryProxyLogic(client, shared.verifiableFactory as Address);
+    const expectedResolver = computeVerifiableProxyAddress({
+      factory: getAddress(shared.verifiableFactory),
+      proxyLogic,
+      deployer: owner,
+      salt: orgResolverSalt(label),
+    });
+    const resolverCode = await client.getBytecode({ address: expectedResolver }).catch(() => null);
+    if (resolverCode && resolverCode !== "0x") {
+      // Resolver proxy already exists from a prior partial run — just attach it.
+      resolverAddress = expectedResolver;
+    } else {
+      const resolverInitData = encodeFunctionData({
+        abi: RESOLVER_INITIALIZE_ABI,
+        functionName: "initialize",
+        args: [owner, EAC_ALL_ROLES, []],
+      });
+      const resolverDeployHash = await sendWalletTransaction({
+        from: owner,
+        to: shared.verifiableFactory as Address,
+        data: encodeFunctionData({
+          abi: ENSV2_VERIFIABLE_FACTORY_ABI,
+          functionName: "deployProxy",
+          args: [shared.permissionedResolverImpl as Address, orgResolverSalt(label), resolverInitData],
+        }),
+      });
+      const resolverReceipt = await waitForWalletReceipt(resolverDeployHash);
+      if (resolverReceipt.status !== "success") {
+        throw new Error(`Resolver deploy reverted (tx ${resolverDeployHash}).`);
+      }
+      resolverAddress =
+        resolverReceipt.contractAddress
+          ? getAddress(resolverReceipt.contractAddress)
+          : await resolveProxyAddressFromLogs(resolverDeployHash);
+      if (!resolverAddress) {
+        throw new Error(
+          `Resolver deployProxy succeeded but the proxy address could not be parsed (tx ${resolverDeployHash}).`,
+        );
+      }
+      txHashes.resolver = resolverDeployHash;
+    }
+    // Attach: setResolver on the name's token (owner holds ROLE_SET_RESOLVER
+    // via ORG_NAME_ROLES granted at register()).
+    const setResolverHash = await sendWalletTransaction({
+      from: owner,
+      to: registryAddress,
+      data: encodeFunctionData({
+        abi: REGISTRY_STATE_ABI,
+        functionName: "setResolver",
+        args: [labelStateId, resolverAddress],
+      }),
+    });
+    const setResolverReceipt = await waitForWalletReceipt(setResolverHash);
+    if (setResolverReceipt.status !== "success") {
+      throw new Error(`setResolver reverted (tx ${setResolverHash}).`);
+    }
+    txHashes.resolver = txHashes.resolver ?? setResolverHash;
+    input.onStep?.("resolver", { status: "done", detail: resolverAddress });
+  } else {
+    input.onStep?.("resolver", { status: "done", detail: `${resolverAddress} (already attached)` });
+  }
 
   // Step 3 — mirror the registry address on the org name's resolver so any
   // reader (and this wizard's auto-detect) can discover the v2 protocol.
+  // Written DIRECTLY to the org's resolver: viem's getEnsResolver walks the v1
+  // registry, where a fresh v2 name has no owner (0x0) — it can never find the
+  // resolver we just attached.
   input.onStep?.("mirror", { status: "active" });
   const mirrorHash = await writeEnsV2RegistryPointer({
     from: owner,
     orgName: normalized,
+    orgNode: namehash(normalized),
+    resolver: resolverAddress!,
     record: encodeEnsV2RegistryRecord({
       registry: registryAddress,
       owner,
@@ -336,6 +591,8 @@ export async function registerOrganizationEnsV2(input: {
   const metadataHash = await writeOrgMetadataRecordsV2({
     from: owner,
     orgName: normalized,
+    orgNode: namehash(normalized),
+    resolver: resolverAddress!,
     displayName: input.displayName,
   });
   if (metadataHash) {
@@ -426,28 +683,68 @@ async function resolveProxyAddressFromLogs(txHash: Hex): Promise<Address | null>
 }
 
 /**
+ * Read the org registry's proxyLogic() — needed for the CREATE2 precompute.
+ */
+async function readFactoryProxyLogic(
+  client: ReturnType<typeof createSoulVaultPublicClient>,
+  factory: Address,
+): Promise<Address> {
+  const logic = (await client.readContract({
+    address: factory,
+    abi: FACTORY_VIEW_ABI,
+    functionName: "proxyLogic",
+  })) as Address;
+  return getAddress(logic);
+}
+
+/**
+ * Read the resolver slot for `label` from the registry (getResolver(label)).
+ */
+async function readRegistryResolver(
+  client: ReturnType<typeof createSoulVaultPublicClient>,
+  registry: Address,
+  label: string,
+): Promise<Address | null> {
+  const resolver = (await client
+    .readContract({
+      address: registry,
+      abi: [
+        {
+          type: "function",
+          name: "getResolver",
+          stateMutability: "view",
+          inputs: [{ name: "label", type: "string" }],
+          outputs: [{ name: "", type: "address" }],
+        },
+      ] as const,
+      functionName: "getResolver",
+      args: [label],
+    })
+    .catch(() => null)) as Address | null;
+  if (!resolver || resolver === zeroAddress) return null;
+  return getAddress(resolver);
+}
+
+/**
  * Write the `soulvault.ensv2Registry` pointer on the org name's resolver.
- * Best-effort: if the org name has no resolver yet (possible when registering a
- * freshly deployed name), the step is skipped and the caller can set records later.
+ * Takes the resolver address explicitly — viem's getEnsResolver walks the v1
+ * registry where fresh v2 names have no owner, so discovery there is
+ * impossible by construction.
  */
 async function writeEnsV2RegistryPointer(input: {
   from: Address;
   orgName: string;
+  orgNode: Hex;
+  resolver: Address;
   record: string;
 }): Promise<Hex | null> {
-  const client = createSoulVaultPublicClient(getBrowserSoulVaultClientConfig()!);
-  const { getEnsResolver } = await import("viem/ens");
-  const resolver = await client
-    .getEnsResolver({ name: input.orgName })
-    .catch(() => null);
-  if (!resolver || resolver === zeroAddress) return null;
   return sendWalletTransaction({
     from: input.from,
-    to: resolver,
+    to: input.resolver,
     data: encodeFunctionData({
       abi: SET_TEXT_ABI,
       functionName: "setText",
-      args: [labelhash(normalize(input.orgName)), ENSV2_REGISTRY_TEXT_KEY, input.record],
+      args: [input.orgNode, ENSV2_REGISTRY_TEXT_KEY, input.record],
     }),
   });
 }
@@ -469,15 +766,11 @@ const SET_TEXT_ABI = [
 async function writeOrgMetadataRecordsV2(input: {
   from: Address;
   orgName: string;
+  orgNode: Hex;
+  resolver: Address;
   displayName: string;
 }): Promise<Hex | null> {
-  const client = createSoulVaultPublicClient(getBrowserSoulVaultClientConfig()!);
-  const { getEnsResolver } = await import("viem/ens");
-  const resolver = await client
-    .getEnsResolver({ name: input.orgName })
-    .catch(() => null);
-  if (!resolver || resolver === zeroAddress) return null;
-  const node = labelhash(normalize(input.orgName));
+  const node = input.orgNode;
   let lastHash: Hex | null = null;
   const records: Array<[string, string]> = [
     ["class", ORG_ENS_CLASS_VALUE],
@@ -487,7 +780,7 @@ async function writeOrgMetadataRecordsV2(input: {
   for (const [key, value] of records) {
     lastHash = await sendWalletTransaction({
       from: input.from,
-      to: resolver,
+      to: input.resolver,
       data: encodeFunctionData({
         abi: SET_TEXT_ABI,
         functionName: "setText",

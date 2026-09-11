@@ -230,7 +230,9 @@ export default function DocumentsGrantsPage() {
         Step 2 of 3 — you sign which slots a requester may see.
         A delivered READ grant is a permanent capability. There is no revoke.
         Wrapped keys ride <span className="font-mono">SlotKeyGranted</span>. Raw
-        slot keys never leave this session.
+        slot keys stay in this browser (localStorage) so a refresh does not
+        drop them. Re-running Redact rotates keys — pick the archived run
+        that matches the bundle you shared.
       </p>
       {connector === "ledger" ? (
         <p className="mt-2 text-xs text-muted-foreground">

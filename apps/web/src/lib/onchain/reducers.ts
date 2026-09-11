@@ -53,15 +53,42 @@ export type AgentDirectory = {
  * Parse it here so consumers can org-scope the directory.
  */
 export function agentSwarmContractFromUri(uri: string | null): Address | null {
+  const parsed = parseAgentUri(uri);
+  const sc = parsed?.soulvault?.swarmContract;
+  if (typeof sc !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(sc)) return null;
+  return sc as Address;
+}
+
+export type AgentUriPayload = {
+  type?: string;
+  name?: string;
+  description?: string;
+  image?: string;
+  harness?: string;
+  services?: Array<Record<string, unknown>>;
+  supportedTrust?: string[];
+  soulvault?: {
+    swarmContract?: string;
+    memberAddress?: string;
+    role?: string;
+    harness?: string;
+    backupHarnessCommand?: string;
+    registryAddress?: string;
+  };
+};
+
+/**
+ * Decode an ERC-8004 agentURI into the SoulVault registration payload shape
+ * (packages/node/src/identity.ts buildAgentRegistration). Returns null for
+ * http(s) URIs, non-JSON payloads, and garbage — callers render a fallback.
+ */
+export function parseAgentUri(uri: string | null): AgentUriPayload | null {
   const prefix = 'data:application/json;base64,';
   if (!uri || !uri.startsWith(prefix)) return null;
   try {
-    const parsed = JSON.parse(atob(uri.slice(prefix.length))) as {
-      soulvault?: { swarmContract?: unknown };
-    };
-    const sc = parsed?.soulvault?.swarmContract;
-    if (typeof sc !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(sc)) return null;
-    return sc as Address;
+    const parsed = JSON.parse(atob(uri.slice(prefix.length))) as AgentUriPayload;
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed;
   } catch {
     return null;
   }

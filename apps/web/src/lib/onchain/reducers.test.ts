@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { SECP_WRAP_ALGORITHM } from '@soulvault/protocol';
 import type { Address, Hex, Log, PublicClient } from 'viem';
-import { agentSwarmContractFromUri, reduceAgentState, reduceDocumentState, reduceSwarmState, resolveActiveGrants } from './reducers';
+import { agentSwarmContractFromUri, parseAgentUri, reduceAgentState, reduceDocumentState, reduceSwarmState, resolveActiveGrants } from './reducers';
 import { parseDocumentEvent, SoulVaultEventWatcher } from './watcher';
 import {
   ALICE,
@@ -53,6 +53,7 @@ async function decodeDocEvents(logs: Log[]): Promise<SoulVaultDocumentEvent[]> {
 // --- agents ---------------------------------------------------------------------
 
 const SWARM_CONTRACT = '0x8888888888888888888888888888888888888888';
+const WALLET = '0x1111111111111111111111111111111111111111' as `0x${string}`;
 
 function agentUri(payload: { soulvault?: { swarmContract?: string } }): string {
   return 'data:application/json;base64,' + btoa(JSON.stringify(payload));
@@ -344,5 +345,31 @@ describe('resolveActiveGrants', () => {
     const events = await decodeDocEvents([grant('sv_a_1', 1n, { recipient: BOB })]);
     expect(resolveActiveGrants(events, CHARLIE)).toHaveLength(0);
     expect(resolveActiveGrants(events, BOB)).toHaveLength(1);
+  });
+});
+
+describe('parseAgentUri', () => {
+  const uri = (payload: unknown) =>
+    'data:application/json;base64,' + btoa(JSON.stringify(payload));
+
+  it('decodes the full SoulVault registration payload', () => {
+    const payload = {
+      type: 'SoulVaultAgent',
+      name: 'ops-agent',
+      description: 'Demo agent',
+      soulvault: { swarmContract: SWARM_CONTRACT, memberAddress: WALLET, harness: 'claude-code' },
+    };
+    const parsed = parseAgentUri(uri(payload));
+    expect(parsed?.name).toBe('ops-agent');
+    expect(parsed?.description).toBe('Demo agent');
+    expect(parsed?.soulvault?.harness).toBe('claude-code');
+    expect(parsed?.soulvault?.memberAddress?.toLowerCase()).toBe(WALLET.toLowerCase());
+    expect(agentSwarmContractFromUri(uri(payload))).toBe(SWARM_CONTRACT);
+  });
+
+  it('returns null for http(s) URIs and non-JSON data payloads', () => {
+    expect(parseAgentUri('https://example.com/agent.json')).toBeNull();
+    expect(parseAgentUri('data:application/json;base64,not-json')).toBeNull();
+    expect(parseAgentUri(null)).toBeNull();
   });
 });

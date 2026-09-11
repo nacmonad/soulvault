@@ -11,9 +11,10 @@ import { useOrgDiscovery } from "@/hooks/useOrgDiscovery";
 import { useSwarmEvents } from "@/hooks/useSwarmEvents";
 import { SwarmWizard } from "@/components/create/swarm-wizard";
 import { publicClientForChainId } from "@/lib/chains";
-import { reduceSwarmState, type SwarmState } from "@/lib/onchain/reducers";
+import { reduceSwarmState, parseAgentUri, type SwarmState } from "@/lib/onchain/reducers";
 import { approveJoin, rejectJoin } from "@/lib/treasury-contract";
 import { shortAddress, shortTx, explorerTxUrl } from "@/lib/format";
+import { useAgentEvents } from "@/hooks/useAgentEvents";
 
 type SwarmListItem = {
   id: string;
@@ -87,6 +88,26 @@ export default function SwarmPage() {
   }, [items, events]);
 
   const globalState = useMemo(() => reduceSwarmState(events), [events]);
+
+  /**
+   * ERC-8004 identities for member enrichment: the identity registry is
+   * global, so scope to profiles whose registration URI attributes them to
+   * this swarm's contract (soulvault.swarmContract in the base64 payload).
+   * Members without an on-chain identity render exactly as before.
+   */
+  const { agentProfiles } = useAgentEvents({ live: true, pollSeconds: 15 });
+  const agentsByWallet = useMemo(() => {
+    const map = new Map<string, typeof agentProfiles>();
+    for (const profile of agentProfiles) {
+      if (!profile.swarmContract) continue;
+      if (current?.address && !isAddressEqual(profile.swarmContract, current.address as Address)) continue;
+      const key = profile.wallet.toLowerCase();
+      const list = map.get(key) ?? [];
+      list.push(profile);
+      map.set(key, list);
+    }
+    return map;
+  }, [agentProfiles, current?.address]);
 
   /**
    * State scoped to the selected swarm's contract (events can span 1:M swarm
@@ -250,10 +271,7 @@ export default function SwarmPage() {
           ) : (
             <ul className="mt-2 border border-border">
               {members.map((member) => (
-                <li key={member.wallet} className="flex justify-between gap-3 border-b border-border px-4 py-2 font-mono text-sm last:border-b-0">
-                  <span>{shortAddress(member.wallet)}</span>
-                  <span className="text-muted-foreground">epoch {member.joinedEpoch.toString()}</span>
-                </li>
+                <MemberRow key={member.wallet} member={member} agents={agentsByWallet.get(member.wallet.toLowerCase()) ?? []} />
               ))}
             </ul>
           )}
@@ -384,5 +402,59 @@ function Field({ label, value, mono }: { label: string; value: string; mono?: bo
       <dt className="eyebrow text-muted-foreground">{label}</dt>
       <dd className={`mt-2 text-sm ${mono ? "font-mono" : ""}`}>{value}</dd>
     </div>
+  );
+}
+
+type MemberRowMember = {
+  wallet: Address;
+  joinedEpoch: bigint;
+};
+
+type MemberRowAgent = {
+  agentId: bigint;
+  wallet: Address;
+  uri: string | null;
+};
+
+/**
+ * One member row: wallet + join epoch, enriched with whatever the member's
+ * ERC-8004 registration carries (name, harness, agentId, memberAddress
+ * attribution). Identity data is additive — a wallet with no registration
+ * (or an http(s) URI the decoder can't read) shows the plain row.
+ */
+function MemberRow({ member, agents }: { member: MemberRowMember; agents: Array<{ agentId: bigint; wallet: Address; uri: string | null }> }) {
+  const identity = agents[0] ?? null;
+  const payload = parseAgentUri(identity?.uri ?? null);
+  const name = typeof payload?.name === "string" && payload.name ? payload.name : null;
+  const harness = payload?.soulvault?.harness ?? payload?.harness ?? null;
+  const memberAddress = payload?.soulvault?.memberAddress;
+  const attributionMismatch =
+    typeof memberAddress === "string" && !isAddressEqual(memberAddress as Address, member.wallet);
+
+  return (
+    <li className="border-b border-border px-4 py-2 text-sm last:border-b-0">
+      <div className="flex flex-wrap items-center gap-3 font-mono">
+        <span>{shortAddress(member.wallet)}</span>
+        <span className="text-muted-foreground">epoch {member.joinedEpoch.toString()}</span>
+        {identity ? (
+          <span className="ml-auto text-xs text-muted-foreground">
+            ERC-8004 #{identity.agentId.toString()}
+            {harness ? ` · ${harness}` : ""}
+          </span>
+        ) : null}
+      </div>
+      {name || payload?.description ? (
+        <p className="mt-1 text-xs">
+          {name ? <span className="font-medium">{name}</span> : null}
+          {name && payload?.description ? <span className="text-muted-foreground"> — </span> : null}
+          {payload?.description ? <span className="text-muted-foreground">{payload.description}</span> : null}
+        </p>
+      ) : null}
+      {attributionMismatch ? (
+        <p className="mt-1 text-xs text-amber-600">
+          registration attributes memberAddress {shortAddress(memberAddress as Address)} — wallet mismatch
+        </p>
+      ) : null}
+    </li>
   );
 }

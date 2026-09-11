@@ -75,6 +75,11 @@ export async function renderAgentUri(input: {
   });
 
   payload.soulvault.memberAddress = profile.address;
+  // The ENSv2 bridge name, when the agent registered one (agent register-ens
+  // sets identity.ensName). The identity card (and any external ERC-8004
+  // reader) titles the agent by it; every URI render embeds the current value
+  // so agent update keeps it fresh alongside the register-time backfill.
+  payload.soulvault.ensName = profile.identity?.ensName;
 
   const json = JSON.stringify(payload);
   const encoded = Buffer.from(json, 'utf8').toString('base64');

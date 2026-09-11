@@ -14,6 +14,15 @@ export function registerEpochCommands(program: Command) {
         swarm: options.swarm,
         newEpoch: options.newEpoch ? Number(options.newEpoch) : undefined,
       });
+      if (result.ensRenewal) {
+        if (result.ensRenewal.renewed) {
+          console.error(
+            `ENSv2 subname renewed: ${result.ensRenewal.fullName} → expiry ${result.ensRenewal.newExpiry} (tx: ${result.ensRenewal.txHash})`,
+          );
+        } else {
+          console.error(`ENSv2 subname renewal skipped: ${result.ensRenewal.reason}`);
+        }
+      }
       console.log(JSON.stringify(result, null, 2));
     });
 

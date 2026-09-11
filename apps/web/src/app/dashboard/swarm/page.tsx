@@ -14,10 +14,16 @@ import { publicClientForChainId } from "@/lib/chains";
 import { reduceSwarmState, type SwarmState } from "@/lib/onchain/reducers";
 import { approveJoin, rejectJoin } from "@/lib/treasury-contract";
 import { shortAddress, shortTx, explorerTxUrl } from "@/lib/format";
+import { useAgentEvents } from "@/hooks/useAgentEvents";
+import { AgentIdentityCard, type EacRolesResolver } from "@/components/dashboard/agent-identity-card";
+import { EacDelegationPanel } from "@/components/dashboard/eac-delegation-panel";
+import { resolveNameEacContext, readNameEacRoles } from "@/lib/ensv2-eac";
+import { getBrowserSoulVaultClientConfig, createSoulVaultPublicClient } from "@/lib/onchain/client";
 
 type SwarmListItem = {
   id: string;
   label: string;
+  ensName: string;
   address: Address | null;
   chainId: number | null;
   source: "ens";
@@ -36,7 +42,7 @@ const OWNER_ABI = [
 export default function SwarmPage() {
   const { address } = useSoulVaultWallet();
   const { selection, setSwarm } = useDashboardSelection();
-  const { events, status, error, refresh, sources } = useSwarmEvents({ live: true, pollSeconds: 5 });
+  const { events, status, error, refresh, sources } = useSwarmEvents({ live: true });
   const discovery = useOrgDiscovery(selection.orgId);
 
   const [busy, setBusy] = useState<string | null>(null);
@@ -53,6 +59,7 @@ export default function SwarmPage() {
       (discovery.swarms ?? []).map((entry) => ({
         id: entry.label,
         label: entry.label,
+        ensName: entry.ensName,
         address: entry.address,
         chainId: entry.chainId,
         source: "ens" as const,
@@ -87,6 +94,54 @@ export default function SwarmPage() {
   }, [items, events]);
 
   const globalState = useMemo(() => reduceSwarmState(events), [events]);
+
+  /**
+   * ERC-8004 identities for member enrichment, keyed by wallet. Matched by
+   * WALLET, not by URI attribution: registrations made before the swarm was
+   * deployed carry an empty or stale soulvault.swarmContract (seen live:
+   * agent #4 attributed to a previous swarm, #3 to none) — excluding those
+   * would hide identities for members whose wallet is provably in the swarm.
+   * A stale attribution is surfaced as a row warning instead (MemberRow).
+   */
+  const { agentProfiles } = useAgentEvents({ live: true });
+  const agentsByWallet = useMemo(() => {
+    const map = new Map<string, typeof agentProfiles>();
+    for (const profile of agentProfiles) {
+      const key = profile.wallet.toLowerCase();
+      const list = map.get(key) ?? [];
+      list.push(profile);
+      map.set(key, list);
+    }
+    // Highest agentId first — the latest registration wins the row header.
+    for (const list of map.values()) list.sort((a, b) => (a.agentId >= b.agentId ? -1 : 1));
+    return map;
+  }, [agentProfiles]);
+
+  /**
+   * ENSv2 EAC role reader for identity cards: the roles each wallet holds on
+   * the selected swarm's name resource (ops.<org>.eth). Cached per wallet —
+   * roles only change on a grant/revoke tx, so a session-long memo is honest.
+   */
+  const resolveRoles = useMemo<EacRolesResolver | undefined>(() => {
+    if (!current?.ensName) return undefined;
+    const config = getBrowserSoulVaultClientConfig();
+    if (!config) return undefined;
+    const client = createSoulVaultPublicClient(config);
+    const cache = new Map<string, Promise<bigint | null>>();
+    return (wallet: Address) => {
+      const key = wallet.toLowerCase();
+      let promise = cache.get(key);
+      if (!promise) {
+        promise = resolveNameEacContext({ fullName: current.ensName, viewer: wallet, client })
+          .then((ctx) =>
+            ctx ? readNameEacRoles({ ctx, client, account: wallet }).then((r) => r.bitmap) : null,
+          )
+          .catch(() => null);
+        cache.set(key, promise);
+      }
+      return promise;
+    };
+  }, [current?.ensName]);
 
   /**
    * State scoped to the selected swarm's contract (events can span 1:M swarm
@@ -250,10 +305,7 @@ export default function SwarmPage() {
           ) : (
             <ul className="mt-2 border border-border">
               {members.map((member) => (
-                <li key={member.wallet} className="flex justify-between gap-3 border-b border-border px-4 py-2 font-mono text-sm last:border-b-0">
-                  <span>{shortAddress(member.wallet)}</span>
-                  <span className="text-muted-foreground">epoch {member.joinedEpoch.toString()}</span>
-                </li>
+                <MemberRow key={member.wallet} member={member} agents={agentsByWallet.get(member.wallet.toLowerCase()) ?? []} swarmLabel={current?.label ?? null} resolveRoles={resolveRoles} />
               ))}
             </ul>
           )}
@@ -355,6 +407,8 @@ export default function SwarmPage() {
         </>
       )}
 
+      {current ? <EacDelegationPanel swarmEnsName={current.ensName} /> : null}
+
       <div className="mt-8 flex flex-wrap gap-2">
         <Button disabled variant="outline" size="sm">
           Fund requests <span className="chip ml-2">soon</span>
@@ -384,5 +438,46 @@ function Field({ label, value, mono }: { label: string; value: string; mono?: bo
       <dt className="eyebrow text-muted-foreground">{label}</dt>
       <dd className={`mt-2 text-sm ${mono ? "font-mono" : ""}`}>{value}</dd>
     </div>
+  );
+}
+
+type MemberRowMember = {
+  wallet: Address;
+  joinedEpoch: bigint;
+};
+
+type MemberRowAgent = {
+  agentId: bigint;
+  wallet: Address;
+  uri: string | null;
+  swarmContract: Address | null;
+};
+
+/**
+ * One member row: wallet + join epoch, enriched with whatever the member's
+ * ERC-8004 registration carries (via the shared AgentIdentityCard). Identity
+ * data is additive — a wallet with no registration shows the plain row.
+ */
+function MemberRow({ member, agents, swarmLabel, resolveRoles }: { member: MemberRowMember; agents: MemberRowAgent[]; swarmLabel: string | null; resolveRoles?: EacRolesResolver }) {
+  const identity = agents[0] ?? null;
+  return (
+    <li className="border-b border-border px-4 py-2 text-sm last:border-b-0">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="font-mono text-sm">{shortAddress(member.wallet)}</span>
+        <span className="font-mono text-xs text-muted-foreground">epoch {member.joinedEpoch.toString()}</span>
+      </div>
+      {identity ? (
+        <div className="mt-1">
+          <AgentIdentityCard
+            agentId={identity.agentId}
+            wallet={identity.wallet}
+            uri={identity.uri}
+            compareWallet={member.wallet}
+            swarmName={identity.swarmContract && swarmLabel ? swarmLabel : null}
+            resolveRoles={resolveRoles}
+          />
+        </div>
+      ) : null}
+    </li>
   );
 }

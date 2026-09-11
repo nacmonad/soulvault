@@ -1,6 +1,6 @@
 import fs from 'fs-extra';
-import { ZeroAddress, ZeroHash, hexlify, randomBytes, type Provider } from 'ethers';
-import { namehash } from 'viem/ens';
+import { Contract, ZeroAddress, ZeroHash, getAddress, hexlify, randomBytes, type Provider } from 'ethers';
+import { labelhash, namehash, normalize } from 'viem/ens';
 import { keccak256, toUtf8Bytes } from 'ethers';
 import {
   getEthRegistrarController,
@@ -8,9 +8,21 @@ import {
   createEnsSigner,
   getEnsContracts,
   getNameWrapperContract,
+  setEnsText,
   writeOrgMetadata,
 } from './ens.js';
-import { getOrganizationProfile, normalizeRootEthEnsName } from './organization.js';
+import {
+  deployEnsV2OrgRegistry,
+  ENSV2_USER_REGISTRY_ABI,
+  getEnsV2SharedAddresses,
+  REGISTRY_ROLES,
+} from './ensv2-registry.js';
+import { getEnsV2Provider } from './ensv2.js';
+import {
+  getOrganizationProfile,
+  normalizeRootEthEnsName,
+  updateOrganizationProfile,
+} from './organization.js';
 import { writeConfig } from './state.js';
 import { resolveOrganizationPath } from './paths.js';
 import type { OrganizationProfile } from './organization.js';
@@ -327,4 +339,173 @@ export async function registerOrganizationEns(nameOrSlug: string) {
     metadata: metadataResult,
     organization: updated,
   };
+}
+
+// ---------------------------------------------------------------------------
+// ENSv2 registration (Phase 2, spec §4): org subname registration on the org's
+// SoulVaultRegistry instead of the v1 ETHRegistrar commit/reveal flow.
+// ---------------------------------------------------------------------------
+
+const ENSV2_REGISTRY_TEXT_KEY = 'soulvault.ensv2Registry';
+const ENSV2_DEFAULT_EPOCH_SECONDS = 30 * 24 * 60 * 60; // 30d epoch cadence
+
+export type RegisterOrganizationEnsV2Result = {
+  protocol: 'v2';
+  note: string;
+  ensName: string;
+  registryAddress: string;
+  ownerAddress: string;
+  expiry: string;
+  roleBitmap: string;
+  deployTxHash?: string;
+  registerTxHash?: string;
+  mirrorTxHash?: string;
+  metadataTxHashes: Record<string, string | undefined>;
+  organization: OrganizationProfile;
+};
+
+function parseEnsV2OrgLabel(name: string): { normalized: string; label: string } {
+  const normalized = normalize(name.trim());
+  if (!normalized.endsWith('.eth')) {
+    throw new Error(`ENSv2 org name must end in .eth (got ${normalized})`);
+  }
+  const label = normalized.slice(0, -4);
+  if (!label || label.includes('.')) {
+    throw new Error(`ENSv2 org name must be a single label under .eth (got ${normalized})`);
+  }
+  return { normalized, label };
+}
+
+/**
+ * Register the org name on ENSv2: deploy (or reuse) the org's SoulVaultRegistry,
+ * register the label with epoch-bound expiry, then mirror the registry pointer +
+ * metadata text records. One signer path, no commit/reveal wait, no unwrap.
+ *
+ * Registry reuse: if the profile already records `ensv2Registry`, it is trusted
+ * only when the owner still holds ROLE_REGISTRAR on the root resource (same trust
+ * rule as `organization deploy-registry`); otherwise a fresh registry is deployed.
+ */
+export async function registerOrganizationEnsV2(nameOrSlug: string, input?: {
+  epochSeconds?: number;
+  salt?: bigint;
+}) {
+  const profile = await getOrganizationProfile(nameOrSlug);
+  if (!profile) throw new Error(`Organization not found: ${nameOrSlug}`);
+  if (!profile.ensName) {
+    throw new Error(
+      `Organization ${profile.slug} does not have an ENS root name configured. ` +
+        `Use \`soulvault organization set-ens-name --organization ${profile.slug} --ens-name yourname.eth\` first.`,
+    );
+  }
+
+  const { normalized, label } = parseEnsV2OrgLabel(profile.ensName);
+  const epochSeconds = input?.epochSeconds ?? ENSV2_DEFAULT_EPOCH_SECONDS;
+  const signer = await createEnsSigner();
+  const expiry = BigInt(Math.floor(Date.now() / 1000) + epochSeconds);
+
+  // Step 1 — resolve or deploy the org registry.
+  let registryAddress: string | null = null;
+  let deployTxHash: string | undefined;
+  if (profile.ensv2Registry?.address) {
+    const candidate = getAddress(profile.ensv2Registry.address);
+    const provider = await getEnsV2Provider();
+    const registry = new Contract(candidate, ENSV2_USER_REGISTRY_ABI, provider);
+    const rootHasRegistrar: boolean = await registry.hasRoles(
+      0n,
+      REGISTRY_ROLES.ROLE_REGISTRAR,
+      profile.ensv2Registry.owner,
+    );
+    if (rootHasRegistrar) {
+      registryAddress = candidate;
+      registerEnsLog('Reusing recorded org registry', candidate);
+    } else {
+      registerEnsLog(
+        `Recorded registry ${candidate} no longer grants its owner ROLE_REGISTRAR on root — deploying a fresh one.`,
+      );
+    }
+  }
+  if (!registryAddress) {
+    registerEnsLog('Deploying org SoulVaultRegistry via VerifiableFactory (step 1/3)…');
+    const deployed = await deployEnsV2OrgRegistry(input?.salt ? { salt: input.salt } : {});
+    registryAddress = deployed.registryAddress;
+    deployTxHash = deployed.txHash;
+    registerEnsLog('Registry deployed:', registryAddress);
+  }
+
+  // Step 2 — register the org label with epoch-bound expiry.
+  const registry = new Contract(registryAddress, ENSV2_USER_REGISTRY_ABI, signer);
+  const anyId = BigInt(labelhash(label));
+  const [status] = await registry.getState(anyId);
+  if (Number(status) === 2) {
+    throw new Error(
+      `Label "${label}" is already registered in ${registryAddress}. ` +
+        `Renew it (\`swarm renew\` path) or pick a different org name.`,
+    );
+  }
+  const ORG_NAME_ROLES = REGISTRY_ROLES.ROLE_SET_RESOLVER | REGISTRY_ROLES.ROLE_RENEW;
+  registerEnsLog('Registering', `${label}.eth`, 'in the org registry (step 2/3)…');
+  const registerTx = await registry.register(label, signer.address, ZeroAddress, ZeroAddress, ORG_NAME_ROLES, expiry);
+  const registerReceipt = await registerTx.wait();
+  registerEnsLog('Register confirmed:', registerReceipt?.hash);
+  const [statusRet, expiryRet] = await registry.getState(anyId);
+
+  // Step 3 — mirror registry pointer + metadata on the org name's resolver (best-effort;
+  // needs a resolver on the org name — same skip-if-no-resolver rule as the web wizard).
+  const record = JSON.stringify({
+    version: 2,
+    registry: registryAddress,
+    owner: signer.address,
+    deployedAt: new Date().toISOString(),
+  });
+  const metadataTxHashes: Record<string, string | undefined> = {};
+  let mirrorTxHash: string | undefined;
+  try {
+    registerEnsLog('Mirroring registry pointer + metadata records (step 3/3)…');
+    const mirror = await setEnsText(normalized, ENSV2_REGISTRY_TEXT_KEY, record);
+    mirrorTxHash = mirror.txHash;
+    const metadata = await writeOrgMetadata(normalized, { name: profile.name });
+    Object.assign(metadataTxHashes, metadata.txHashes);
+  } catch (err) {
+    registerEnsLog(
+      'WARNING: resolver mirror/metadata failed:',
+      (err as Error).message,
+      '— registration is still durable; re-run register-ens --ens-v2 or organization set-metadata to retry.',
+    );
+  }
+
+  const nowIso = new Date().toISOString();
+  const updated = await updateOrganizationProfile(profile.slug, {
+    ensRegistration: {
+      status: 'registered',
+      checkedAt: nowIso,
+      txHash: deployTxHash ?? registerReceipt?.hash,
+      ownerAddress: signer.address,
+    },
+    ensv2Registry: {
+      address: registryAddress,
+      owner: signer.address,
+      deploymentTxHash: deployTxHash,
+      deployedAt: profile.ensv2Registry?.deployedAt ?? nowIso,
+    },
+    metadata: Object.keys(metadataTxHashes).length
+      ? { publishedAt: nowIso, txHashes: metadataTxHashes, values: { name: profile.name } }
+      : profile.metadata,
+    updatedAt: nowIso,
+  });
+  await writeConfig({ activeOrganization: profile.slug });
+
+  return {
+    protocol: 'v2' as const,
+    note: `Registered ${normalized} on ENSv2 (epoch expiry ${expiryRet.toString()}).`,
+    ensName: normalized,
+    registryAddress,
+    ownerAddress: signer.address,
+    expiry: expiryRet.toString(),
+    roleBitmap: ORG_NAME_ROLES.toString(),
+    deployTxHash,
+    registerTxHash: registerReceipt?.hash,
+    mirrorTxHash,
+    metadataTxHashes,
+    organization: updated,
+  } satisfies RegisterOrganizationEnsV2Result & { organization: OrganizationProfile };
 }

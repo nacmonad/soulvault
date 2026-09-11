@@ -6,7 +6,7 @@ import { writeAgentProfile, writeConfig } from './state.js';
 
 type ServiceInput = { type: string; url: string };
 
-const ERC8004_ADAPTER_ABI = [
+export const ERC8004_ADAPTER_ABI = [
   'function registerAgent(address agentWallet, string agentURI) returns (uint256 agentId)',
   'function updateAgentURI(uint256 agentId, string agentURI)',
   'function agentURI(uint256 agentId) view returns (string)',
@@ -39,6 +39,11 @@ export function buildAgentRegistration(input: {
       harness: input.harness,
       backupHarnessCommand: input.backupCommand,
       registryAddress: input.registryAddress,
+      // ENSv2 bridge name (<agent>.<swarm>.<org>.eth), backfilled by
+      // registerAgentEnsName after the name exists. Consumers (dashboard
+      // identity card, external ERC-8004 readers) use it as the agent's
+      // canonical title; the wallet address is the fallback.
+      ensName: undefined as string | undefined,
     }
   };
 

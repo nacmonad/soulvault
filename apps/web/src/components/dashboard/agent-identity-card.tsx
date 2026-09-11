@@ -10,6 +10,7 @@ import { isAddressEqual, type Address } from 'viem';
 
 import { parseAgentUri } from '@/lib/onchain/reducers';
 import { shortAddress } from '@/lib/format';
+import { CopyableAddress } from '@/components/dashboard/copyable-address';
 
 const AVATAR_SIZE_PX = 40;
 
@@ -48,7 +49,8 @@ export function AgentIdentityCard({
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
           {name ? <span className="text-sm font-medium">{name}</span> : null}
           <span className="font-mono text-xs text-muted-foreground">#{agentId.toString()}</span>
-          <span className="font-mono text-xs text-muted-foreground">{shortAddress(wallet)}</span>
+          {/* Copyable — paste into the EAC delegation panel / CLI --to flags. */}
+          <CopyableAddress address={wallet} />
           {harness ? <span className="chip text-xs">{harness}</span> : null}
         </div>
         {attributedSwarm ? (

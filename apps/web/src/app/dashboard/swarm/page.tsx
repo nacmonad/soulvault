@@ -16,10 +16,12 @@ import { approveJoin, rejectJoin } from "@/lib/treasury-contract";
 import { shortAddress, shortTx, explorerTxUrl } from "@/lib/format";
 import { useAgentEvents } from "@/hooks/useAgentEvents";
 import { AgentIdentityCard } from "@/components/dashboard/agent-identity-card";
+import { EacDelegationPanel } from "@/components/dashboard/eac-delegation-panel";
 
 type SwarmListItem = {
   id: string;
   label: string;
+  ensName: string;
   address: Address | null;
   chainId: number | null;
   source: "ens";
@@ -55,6 +57,7 @@ export default function SwarmPage() {
       (discovery.swarms ?? []).map((entry) => ({
         id: entry.label,
         label: entry.label,
+        ensName: entry.ensName,
         address: entry.address,
         chainId: entry.chainId,
         source: "ens" as const,
@@ -375,6 +378,8 @@ export default function SwarmPage() {
           ) : null}
         </>
       )}
+
+      {current ? <EacDelegationPanel swarmEnsName={current.ensName} /> : null}
 
       <div className="mt-8 flex flex-wrap gap-2">
         <Button disabled variant="outline" size="sm">

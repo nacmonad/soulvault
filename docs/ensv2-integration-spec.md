@@ -4,11 +4,28 @@ Target prizes (https://ethglobal.com/events/ethonline2026/prizes#ens):
 
 | Prize | Pool | Track | Fit |
 |---|---|---|---|
-| Best Use of ENSv2 | $4,500 | open | ✓ primary |
+| Best Use of ENSv2 | $4,500 (1st $1,500 / 2nd $1,500 / 3rd $1,000 / runner-up $500) | open | ✓ primary |
 | Best Integration of ENSv2 into an Existing Project | $500 | Continuity only | ✓ we are a Continuity project |
 
 Qualification requirements (both): built on **ENSv2 Sepolia**, ENSv2 features **central not
 cosmetic**, functional demo (no hardcoded values), video/live demo, open-source repo.
+
+**Prize-page resources (refreshed 2026-09-11 from ethglobal.com/events/ethonline2026/prizes#ens):**
+
+| Resource | URL | Relevance |
+|---|---|---|
+| ENSv2 docs | https://docs.ens.domains/ensv2/overview | architecture hub (registry hierarchy, EAC, mutable token IDs, Verifiable Factory) |
+| Permissioned Registry | https://docs.ens.domains/ensv2/permissioned-registry | the contract our SoulVaultRegistry proxies |
+| Permissioned Resolver | https://docs.ens.domains/ensv2/permissioned-resolver | per-record roles + record aliasing |
+| Enhanced Access Control | https://docs.ens.domains/ensv2/enhanced-access-control | role model details (below) |
+| Guide for Contract Developers | https://docs.ens.domains/ensv2/tutorial-contract-developers | UserRegistry pattern we implement |
+| Guide for App Developers | https://docs.ens.domains/ensv2/tutorial-app-developers | read/write integration guidance |
+| ENSv2 readiness (library versions) | https://docs.ens.domains/web/ensv2-readiness | tracks viem/ethers/ENSjs minimums + test names |
+| Building with AI | https://docs.ens.domains/building-with-ai/ | agent-native tooling context |
+| Agent-native CLI | https://github.com/ensdomains/ens-cli | agent-native CLI; compare with our CLI surface |
+| ENSIP-25 (draft) | https://docs.ens.domains/ensip/25/ | AI-agent-registry ↔ ENS name verification |
+| ENSIP-26 (draft) | https://docs.ens.domains/ensip/26/ | `agent-context` / `agent-endpoint[<protocol>]` text records |
+| Workshop recording | https://www.youtube.com/watch?v=2wd-uZN11fE | onboarding walkthrough |
 
 ---
 
@@ -43,6 +60,7 @@ Code: `packages/node/src/ens.ts` (456 lines), consumed by `ens-name.ts`, CLI
 | **Namespace aliasing** | Alias `soulvault.eth` entries to a mirror namespace (e.g. `soulvault.wallet.eth`) for migration bridging / multi-tenant orgs. | One registry, two namespaces — zero-copy aliasing. |
 | **Emancipated / forever names** | The org root and the canonical registry name are emancipated (no parent control) — identity survives even if the .eth parent changes hands. | Trust story for a continuity layer: the namespace cannot be revoked upstream. |
 | **Agents as namespaces** (bonus) | Each ERC-8004 agent identity maps to `<agent>.swarm.soulvault.eth` with its own Permissioned Resolver + EAC roles; ERC-8004 registration writes the ENSv2 name into agent metadata. | "Agents as namespaces, each with their own identity and permissions" — verbatim prize bonus. |
+| **ENSIP-25/26 agent records (bonus)** | On each agent namespace: `agent-context` (agent description, ENSIP-26), `agent-endpoint[mcp|a2a|web]` for MCP/A2A/web surfaces, and the ENSIP-25 verification key `agent-registration[<erc7930-registry>][<agentId>]` = `"1"` (value is opaque; non-empty = verified) — making `agent show --ens` a standards-based trust check instead of our own `erc8004.*` keys. | Prize page lists ENSIP-25/26 as first-class resources; ERC-8004 is explicitly named in both drafts — a cross-standard fit for our ERC-8004 ↔ ENSv2 bridge. |
 
 ## 3. Architecture
 
@@ -76,6 +94,31 @@ chain ID 11155111, RPC `https://ethereum-sepolia-rpc.publicnode.com`).
 | BatchRegistrar | `0x8b16d15f3e51074d0e06f3cf4a0053f7cb92a7fb` |
 | Universal Resolver V2 | see deployments page (resolution entrypoint) |
 
+Refreshed guidance from the current docs (2026-09-11):
+
+- **Universal Resolver V2 is an upgradeable proxy at the same address on mainnet and
+  Sepolia** — supported libraries (viem, wagmi, ethers, ENSjs) ship it for both chains, so
+  targeting ENSv2 Sepolia is just "select the sepolia chain". **Do not hardcode a UR
+  address** — pinned implementation addresses get superseded while the proxy stays put.
+  Same rule for write flows: never cache a resolver address; look it up fresh (a name's
+  resolver pointer can change, and writes to a stale resolver update records nobody reads).
+- **Registration fee is ERC20, not ETH**: the ETHRegistrar collects the fee in
+  `MockUSDC` on Sepolia, whose `mint` has **no access control** — anyone mints a balance,
+  then `approve`s the registrar. So a funded wallet only needs Sepolia gas; see
+  tutorial-app-developers "Getting Test Funds".
+- **Reverse resolution is enforced onchain**: during reverse resolution the Universal
+  Resolver forward-resolves the returned name and reverts with `ReverseAddressMismatch`
+  on mismatch — the Phase 4 `agent show --ens` reverse-resolve no longer needs a
+  client-side forward-check.
+- **Grace period is 28 days** (v1 had 90), renewable by anyone during the window. Our
+  30-day epoch cadence sits *inside* one grace window — an epoch miss still leaves a
+  renew-at-the-next-epoch window before premium.
+- **EAC specifics** (https://docs.ens.domains/ensv2/enhanced-access-control): 64 roles
+  per resource (32 regular + 32 admin), **max 15 holders per role per resource**, roles
+  on `ROOT_RESOURCE` (0) act as master keys, `grantRoles`/`revokeRoles` reject
+  `ROOT_RESOURCE` by design (must use `grantRootRoles`/`revokeRootRoles`). Our
+  UserRegistry role constants must respect the nybble layout (role N at bits `4N`).
+
 Contracts repo: `ensdomains/contracts-v2` (Foundry remappings per the official tutorial:
 `@ensdomains/contracts-v2/` + its bundled OpenZeppelin).
 
@@ -108,7 +151,15 @@ Contracts repo: `ensdomains/contracts-v2` (Foundry remappings per the official t
 9. Swarm subname expiry = epoch end; treasury renewal job calls `registry.renew()`.
 10. Namespace aliasing: mirror namespace via shared registry (migration/tenant story).
 11. ERC-8004 bridge: agent registration writes `<agent>.<swarm>.soulvault.eth` into the
-    ERC-8004 URI; `soulvault agent show` resolves reverse records via ENSv2.
+    ERC-8004 URI; `soulvault agent show` resolves reverse records via ENSv2 (the UR
+    enforces the forward-match onchain — see the guidance block in §3). Write the
+    standards-based agent records, not ad-hoc keys:
+    - ENSIP-26: `agent-context` + `agent-endpoint[mcp|a2a|web]` on the agent namespace
+    - ENSIP-25: `agent-registration[<erc7930-registry-address>][<agentId>]` = `"1"` —
+      registry address encoded as ERC-7930 interoperable address (EIP-155 chain id +
+      20-byte address); the dashboard verifies by resolving that key on the claimed name
+    - keep our existing `erc8004.registry` / `erc8004.agentId` records as redundant
+      human-readable metadata alongside the parameterized verification keys
 
 ### Phase 5 — Migration + docs + demo
 12. Migration path for existing v1 names (per docs: locked/unlocked/unwrapped taxonomy;
@@ -116,13 +167,14 @@ Contracts repo: `ensdomains/contracts-v2` (Foundry remappings per the official t
     **DONE:** `docs/ensv2-migration.md` (commit 63802d6+) — taxonomy mapped to
     MigrationHelper/Unlocked/Locked controllers, mirror-resolver read lane, per-layer
     re-registration flow, compatibility via Phase 1 dispatch. Live rehearsal pending
-    funded wallet.
+    (gas wallet exists; registration fee via MockUSDC free mint).
 13. README: **ENS track progress** + **ENS developer challenge notes** tables (same format
     as Ledger/World sections — sponsor feedback requirement). **DONE (63802d6).**
 14. Demo script: register org registry → register swarm with expiry → grant agent scoped
     role → agent self-updates record → wildcard resolution from otto dashboard → expiry/
     renewal via treasury. **DONE:** `docs/ensv2-demo-script.md` (runbook, acts 0–5 mapped
-    to spec items; live execution + video pending funded wallet).
+    to spec items; live execution + video pending — wallet has gas, fee via MockUSDC
+    free mint).
 
 ## 5. Qualification checklist
 
@@ -153,6 +205,9 @@ Contracts repo: `ensdomains/contracts-v2` (Foundry remappings per the official t
   `0xa88553f454b77203b0d036a05c894d555eaaa2cc` registration to prove end-to-end).
   Confirmed independent: `viem`'s stock `getEnsText`/`getEnsAddress` for
   `soulvault.eth` on Sepolia also return null (no records exist to find).
+  **Funding unblock (refreshed 2026-09-11):** the ETHRegistrar fee is collected in
+  Sepolia `MockUSDC` whose public `mint` is unguarded — no sponsor wallet needed; only
+  Sepolia gas is required (see "Getting Test Funds" in tutorial-app-developers).
 - **Existing org name migration:** `soulvault.eth`-style names registered via the v1
   ETHRegistrar on Sepolia need the v1→v2 migration flow (Graveyard / DNSV1 mirror paths) —
   validate whether a *fresh* v2 registration is simpler for the demo.

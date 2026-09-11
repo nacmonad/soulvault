@@ -59,8 +59,8 @@ export const SoulVaultEventsContext = createContext<SoulVaultEventsContextValue 
 const CONFIG_ERROR = 'SoulVault events config missing — set NEXT_PUBLIC_SOULVAULT_RPC_URL (or the settings override)';
 
 /** Retries for initial runtime discovery (transient ENS/RPC failures). */
-const DISCOVERY_RETRIES = 2;
-const DISCOVERY_RETRY_MS = 2000;
+const DISCOVERY_RETRIES = 4;
+const DISCOVERY_RETRY_MS = 3000;
 /** Re-resolve cadence: ENS announcements can land after mount (fresh registry
  * deploy/announce from another tab or the CLI), and the record can point at a
  * newly redeployed contract. addSources dedupes unchanged addresses, so an

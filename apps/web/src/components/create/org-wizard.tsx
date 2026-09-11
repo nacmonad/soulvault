@@ -96,7 +96,7 @@ export function OrgWizard() {
           <input
             value={displayName}
             onChange={(event) => setDisplayName(event.target.value)}
-            placeholder="ottox"
+            placeholder="Soulvault"
             className="mt-1 block h-8 w-full border border-border bg-card px-2 font-mono text-sm outline-none focus:border-ring"
           />
         </label>
@@ -106,7 +106,7 @@ export function OrgWizard() {
             value={ensName}
             onChange={(event) => setEnsName(event.target.value)}
             onBlur={() => void onQuoteBlur()}
-            placeholder="ottoxorg.eth"
+            placeholder="soulvault.eth"
             className="mt-1 block h-8 w-full border border-border bg-card px-2 font-mono text-sm outline-none focus:border-ring"
           />
         </label>

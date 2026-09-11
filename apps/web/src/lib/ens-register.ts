@@ -111,6 +111,13 @@ export const CONTROLLER_ABI = [
     inputs: [],
     outputs: [{ type: "address" }],
   },
+  {
+    type: "function",
+    name: "commitments",
+    stateMutability: "view",
+    inputs: [{ name: "commitment", type: "bytes32" }],
+    outputs: [{ type: "uint256" }],
+  },
 ] as const;
 
 const NAME_WRAPPER_ABI = [
@@ -244,11 +251,43 @@ async function makeCommitment(registration: Registration): Promise<Hex> {
   });
 }
 
+async function rpcCall(url: string, method: string, params: unknown[]): Promise<unknown> {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+  });
+  const body = (await response.json()) as { result?: unknown; error?: { message?: string } };
+  if (body.error) throw new Error(body.error.message ?? method);
+  return body.result;
+}
+
+/** Anvil/Hardhat only. Wall-clock sleep does not advance `block.timestamp`. */
+async function jumpAnvilTime(totalSec: number): Promise<boolean> {
+  const config = getBrowserSoulVaultClientConfig();
+  const url = config?.rpcUrl.split(",")[0]?.trim();
+  if (!url) return false;
+  const seconds = Math.max(1, Math.floor(totalSec));
+  try {
+    const before = (await rpcCall(url, "eth_getBlockByNumber", ["latest", false])) as { timestamp: string };
+    await rpcCall(url, "evm_increaseTime", [seconds]);
+    await rpcCall(url, "evm_mine", []);
+    const after = (await rpcCall(url, "eth_getBlockByNumber", ["latest", false])) as { timestamp: string };
+    return BigInt(after.timestamp) >= BigInt(before.timestamp) + BigInt(seconds);
+  } catch {
+    return false;
+  }
+}
+
 async function sleepCommitmentMaturation(
   totalSec: number,
   onTick: (remaining: number) => void,
 ): Promise<void> {
   const n = Math.max(1, Math.floor(totalSec));
+  if (await jumpAnvilTime(n)) {
+    onTick(0);
+    return;
+  }
   let remaining = n;
   onTick(remaining);
   while (remaining > 0) {

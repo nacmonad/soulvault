@@ -357,10 +357,18 @@ export async function registerOrganizationEnsV2(input: {
 }
 
 /**
- * Parse the proxy address from the deployProxy receipt via eth_getTransactionReceipt
- * — the proxy is the child contract created inside the tx. Used when the wallet
- * channel doesn't surface contractAddress (e.g. raw broadcast on the Ledger channel).
+ * Parse the proxy address from the deployProxy receipt. The deploy is a CALL to
+ * the VerifiableFactory, so receipt.contractAddress is never set (that field is
+ * only populated for direct contract-creation txs). Two sources, in order:
+ *   1. The factory's ProxyDeployed(Owner,proxy) event — emitter == the pinned
+ *      factory, proxy address in topics[2]. Most precise.
+ *   2. The first log emitted by a contract other than the factory — the proxy
+ *      emits its own initialization logs (initialize() storage writes/events).
+ * Mirrors packages/node ensv2-registry.ts resolveProxyAddressFromReceipt.
  */
+const PROXY_DEPLOYED_TOPIC =
+  "0x0a2c575ff341b41da136c9ccae74ec230a927a024d18f0dccf46d123f28f5f54"; // ProxyDeployed(address,address)
+
 async function resolveProxyAddressFromLogs(txHash: Hex): Promise<Address | null> {
   const config = getBrowserSoulVaultClientConfig();
   if (!config) return null;
@@ -377,11 +385,44 @@ async function resolveProxyAddressFromLogs(txHash: Hex): Promise<Address | null>
     }),
   });
   const body = (await response.json()) as {
-    result?: { contractAddress?: string; status?: string } | null;
+    result?: {
+      contractAddress?: string | null;
+      logs?: Array<{ address?: string; topics?: string[] }> | null;
+    } | null;
   };
-  const address = body.result?.contractAddress;
-  if (!address || address === zeroAddress) return null;
-  return getAddress(address);
+  const receipt = body.result;
+  if (!receipt) return null;
+
+  const factory = getEnsV2SharedAddresses().verifiableFactory;
+
+  // 1) Factory's ProxyDeployed event: topics = [sig, owner, proxy].
+  const deployed = receipt.logs?.find(
+    (log) =>
+      log.address &&
+      log.address.toLowerCase() === factory.toLowerCase() &&
+      log.topics?.[0]?.toLowerCase() === PROXY_DEPLOYED_TOPIC &&
+      log.topics.length >= 3,
+  );
+  if (deployed?.topics?.[2]) {
+    const proxy = `0x${deployed.topics[2].slice(-40)}`;
+    if (proxy !== zeroAddress) return getAddress(proxy);
+  }
+
+  // 2) First log emitted by anything that isn't the factory (the proxy's own
+  //    initialization logs come FROM the proxy).
+  const firstProxyLog = receipt.logs?.find(
+    (log) =>
+      log.address &&
+      log.address !== zeroAddress &&
+      log.address.toLowerCase() !== factory.toLowerCase(),
+  );
+  if (firstProxyLog?.address) return getAddress(firstProxyLog.address);
+
+  // Direct-creation fallback (defensive; not expected for factory deploys).
+  if (receipt.contractAddress && receipt.contractAddress !== zeroAddress) {
+    return getAddress(receipt.contractAddress);
+  }
+  return null;
 }
 
 /**

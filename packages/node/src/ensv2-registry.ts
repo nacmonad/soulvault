@@ -193,7 +193,7 @@ export async function deployEnsV2OrgRegistry(input: {
   };
 }
 
-async function resolveProxyAddressFromReceipt(receipt: { logs: any[] }): Promise<string | null> {
+export async function resolveProxyAddressFromReceipt(receipt: { logs: any[] }): Promise<string | null> {
   // VerifiableFactory emits no dedicated event we can rely on across versions;
   // the proxy address is the contract created in the deployProxy tx. Parse the
   // receipt logs for the first log with an address that isn't the factory.

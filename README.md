@@ -135,7 +135,7 @@ The CLI follows an entity-first model:
 | `organization list` | List org profiles |
 | `organization use <name>` | Set active org |
 | `organization status` | Show active org |
-| `organization register-ens` | Register ENS root on Sepolia + write org metadata records (`class`, `name`) |
+| `organization register-ens` | Register ENS root on Sepolia + write org metadata records (`class`, `name`); `--ens-v2` forces the ENSv2 flow (org registry + epoch-bound expiry) |
 | `organization set-ens-name` | Attach a root `.eth` name to an existing profile |
 | `organization deploy-registry` | Deploy the org's ENSv2 SoulVaultRegistry (custom subname registry via VerifiableFactory) + record it on the org profile |
 

@@ -40,6 +40,11 @@ subnames in one approval flow.
 - Re-registration into the org registry uses `swarm register-ens` with
   `--expiry-days` matching the current epoch cadence — the epoch-renewal hook
   (Phase 4a) then owns expiry from the first rotation onward.
+- Org root names can be registered directly on ENSv2 with
+  `organization register-ens --ens-v2`: deploy (or reuse, trust-checked) the org
+  SoulVaultRegistry, register the label with an epoch-bound expiry, then mirror
+  the `soulvault.ensv2Registry` pointer + metadata records. Skips the v1
+  commit/reveal registrar and NameWrapper unwrap entirely.
 
 ### 3. Agent subnames (`<agent>.<swarm>.soulvault.eth`)
 

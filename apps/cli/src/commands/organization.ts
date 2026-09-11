@@ -12,6 +12,7 @@ import {
   EnsNameInvalidError,
   EnsNameUnavailableError,
   registerOrganizationEns,
+  registerOrganizationEnsV2,
 } from '@soulvault/node/ens-name';
 import { setEnsResolver } from '@soulvault/node/ens';
 import { deployEnsV2OrgRegistry } from '@soulvault/node/ensv2-registry';
@@ -88,10 +89,25 @@ export function registerOrganizationCommands(program: Command) {
   organization
     .command('register-ens')
     .option('--organization <nameOrEns>')
+    .option('--ens-v2', 'Force the ENSv2 flow: deploy/reuse the org SoulVaultRegistry and register the label with an epoch-bound expiry (skips the v1 commit/reveal registrar)')
     .action(async (options) => {
       const target = options.organization ?? (await getActiveOrganization())?.slug;
       if (!target) {
         throw new Error('No organization selected. Pass --organization or set an active organization first.');
+      }
+      if (options.ensV2) {
+        const result = await registerOrganizationEnsV2(target);
+        console.error(
+          `\n✓ ${result.note}\n` +
+            `  registry: ${result.registryAddress}\n` +
+            `  owner: ${result.ownerAddress}\n` +
+            `  roles on name: ${result.roleBitmap} (SET_RESOLVER | RENEW)\n` +
+            (result.deployTxHash ? `  deploy tx: ${result.deployTxHash}\n` : '') +
+            `  register tx: ${result.registerTxHash}\n` +
+            (result.mirrorTxHash ? `  mirror tx: ${result.mirrorTxHash}\n` : ''),
+        );
+        console.log(JSON.stringify(result, null, 2));
+        return;
       }
       try {
         const result = await registerOrganizationEns(target);

@@ -227,6 +227,7 @@ export default function DocumentsGrantsPage() {
       <p className="eyebrow text-primary">Documents</p>
       <h1 className="mt-3 text-2xl font-semibold tracking-tight">Grants</h1>
       <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+        Step 2 of 3 — you sign which slots a requester may see.
         A delivered READ grant is a permanent capability. There is no revoke.
         Wrapped keys ride <span className="font-mono">SlotKeyGranted</span>. Raw
         slot keys never leave this session.

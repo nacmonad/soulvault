@@ -428,7 +428,8 @@ export default function DocumentsRedactPage() {
       <p className="eyebrow text-primary">Documents</p>
       <h1 className="mt-3 text-2xl font-semibold tracking-tight">Redact</h1>
       <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-        Same scan loop as{" "}
+        Step 1 of 3 — PII is detected on this machine. The chain only sees a hash
+        and slot ids. Same scan loop as{" "}
         <a
           href="https://nacmonad.github.io/presidio-web-demo/"
           target="_blank"

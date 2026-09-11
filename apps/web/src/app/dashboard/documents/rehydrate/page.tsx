@@ -427,7 +427,8 @@ export default function DocumentsRehydratePage() {
       <p className="eyebrow text-primary">Documents</p>
       <h1 className="mt-3 text-2xl font-semibold tracking-tight">Rehydrate</h1>
       <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-        Upload the public bundle, then request rehydration — the request tx
+        Step 3 of 3 — only granted slots decrypt. Upload the public bundle, then
+        request rehydration — the request tx
         binds your wallet to your rehydration key on-chain. The author grants
         from their Grants tab; delivered grants arrive as events. Ciphertexts
         never come from events. A delivered READ grant is a permanent

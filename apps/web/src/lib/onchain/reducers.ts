@@ -23,7 +23,7 @@ export function orderEvents<T extends SoulVaultEvent>(events: readonly T[]): T[]
 
 const at = (event: SoulVaultEvent) => ({ blockNumber: event.blockNumber, txHash: event.txHash });
 
-function argsOf(event: SoulVaultEvent): Record<string, unknown> {
+export function argsOf(event: SoulVaultEvent): Record<string, unknown> {
   if ('args' in event) return event.args;
   return {} as Record<string, unknown>;
 }

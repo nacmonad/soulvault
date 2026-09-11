@@ -10,6 +10,7 @@ import { useAgentEvents } from "@/hooks/useAgentEvents";
 import { useSwarmEvents } from "@/hooks/useSwarmEvents";
 import { useOrgDiscovery } from "@/hooks/useOrgDiscovery";
 import { AgentIdentityCard } from "@/components/dashboard/agent-identity-card";
+import { argsOf } from "@/lib/onchain/reducers";
 import { shortAddress } from "@/lib/format";
 
 export default function AgentsPage() {
@@ -30,6 +31,26 @@ export default function AgentsPage() {
     [discovery.swarms],
   );
 
+  /**
+   * Wallets provably in the org: members of any of the org's swarm contracts.
+   * URI attribution alone is not enough — registrations made against a
+   * previous swarm (or without attribution, both seen live) would hide
+   * members whose wallet is on-chain in the org's current swarm.
+   */
+  const orgMemberWallets = useMemo(() => {
+    const wallets = new Set<string>();
+    for (const event of swarm.events) {
+      if (event.sourceKind !== "swarm") continue;
+      if (!orgSwarmContracts.includes(event.source.toLowerCase())) continue;
+      const args = argsOf(event) as Record<string, unknown>;
+      const requester = args.requester;
+      if (typeof requester === "string" && /^0x[0-9a-fA-F]{40}$/.test(requester)) {
+        wallets.add(requester.toLowerCase());
+      }
+    }
+    return wallets;
+  }, [swarm.events, orgSwarmContracts]);
+
   const rows = useMemo(() => {
     if (!address) return [];
     return agentProfiles.filter((profile) => {
@@ -37,12 +58,14 @@ export default function AgentsPage() {
       if (scope === "wallet") return isAddressEqual(profile.wallet, address);
       if (scope === "org") {
         // The identity registry is global; org-scope by the swarmContract the
-        // registration URI carries. Agents without attribution stay hidden.
-        return !!profile.swarmContract && orgSwarmContracts.includes(profile.swarmContract.toLowerCase());
+        // registration URI carries OR by on-chain membership in one of the
+        // org's swarms (covers stale/empty attribution).
+        if (profile.swarmContract && orgSwarmContracts.includes(profile.swarmContract.toLowerCase())) return true;
+        return orgMemberWallets.has(profile.wallet.toLowerCase());
       }
       return swarmWallets.some((member) => isAddressEqual(member, profile.wallet));
     });
-  }, [address, agentProfiles, scope, swarmWallets, orgSwarmContracts]);
+  }, [address, agentProfiles, scope, swarmWallets, orgSwarmContracts, orgMemberWallets]);
 
   if (!address) return null;
 

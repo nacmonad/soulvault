@@ -255,12 +255,19 @@ export function computeVerifiableProxyAddress(input: {
   deployer: Address;
   salt: bigint;
 }): Address {
+  // NOTE: slice(10) strips the selector but ALSO leaves no `0x` prefix — viem's
+  // keccak256 then hashes the wrong bytes (treats the bare hex string as
+  // non-hex), producing a wrong outerSalt and thus a wrong predicted address.
+  // Without the correct address the step-1 idempotency probe reads a
+  // non-registry contract and the re-run tries to deploy again → CREATE2
+  // collision at the REAL address → factory reverts with empty data.
   const outerSalt = keccak256(
-    encodeFunctionData({
-      abi: [{ type: "function", name: "__abiEncodeOnly", inputs: [{ type: "address" }, { type: "uint256" }], outputs: [] }],
-      functionName: "__abiEncodeOnly",
-      args: [input.deployer, input.salt],
-    }).slice(10) as Hex,
+    ("0x" +
+      encodeFunctionData({
+        abi: [{ type: "function", name: "__abiEncodeOnly", inputs: [{ type: "address" }, { type: "uint256" }], outputs: [] }],
+        functionName: "__abiEncodeOnly",
+        args: [input.deployer, input.salt],
+      }).slice(10)) as Hex,
   );
   const creationCode = concatHex([
     "0x3d604d80600a3d3981f3363d3d373d3d3d363d73" as Hex, // creation stub + runtime prefix (20B)

@@ -11,18 +11,17 @@ export const dashboardNav: DashboardNavItem[] = [
   { href: "/dashboard/treasury", label: "Treasury" },
   { href: "/dashboard/swarm", label: "Swarm" },
   { href: "/dashboard/agents", label: "Agents" },
-  { href: "/dashboard/events", label: "Events" },
   {
     href: "/dashboard/documents",
     label: "Documents",
     children: [
-      { href: "/dashboard/documents/registry", label: "Document Registry" },
-      { href: "/dashboard/documents/redact", label: "Redact" },
-      { href: "/dashboard/documents/grants", label: "Grants" },
-      { href: "/dashboard/documents/rehydrate", label: "Rehydrate" },
-
+      { href: "/dashboard/documents/registry", label: "Registry" },
+      { href: "/dashboard/documents/redact", label: "1. Redact" },
+      { href: "/dashboard/documents/grants", label: "2. Grants" },
+      { href: "/dashboard/documents/rehydrate", label: "3. Rehydrate" },
     ],
   },
+  { href: "/dashboard/events", label: "Events" },
   { href: "/dashboard/settings", label: "Settings" },
 ];
 

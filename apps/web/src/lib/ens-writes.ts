@@ -23,8 +23,10 @@ import { SEPOLIA_CHAIN_ID } from "@/lib/chains";
 import { sendWalletTransaction, waitForWalletReceipt } from "@/lib/wallet-tx";
 
 // Sepolia ENS contracts — same addresses the CLI uses (packages/node/src/ens.ts).
-const ENS_REGISTRY = "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e" as Address;
-const PUBLIC_RESOLVER = "0xE99638b40E4Fff0129D56f03b55b6bbC4BBE49b5" as Address;
+export const ENS_REGISTRY = "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e" as Address;
+export const PUBLIC_RESOLVER = "0xE99638b40E4Fff0129D56f03b55b6bbC4BBE49b5" as Address;
+export const ETH_REGISTRAR_CONTROLLER = "0xfb3cE5D01e0f33f41DbB39035dB9745962F1f968" as Address;
+export const BASE_REGISTRAR = "0x57f1887a8BF19b14fC0dF6Fd9B2acc9Af147eA85" as Address;
 
 /** Transient read failures worth retrying (public-RPC 429s, hiccups). */
 const TRANSIENT_READ_PATTERN = /rate limit|429|too many|timeout|temporarily|network|fetch failed/i;

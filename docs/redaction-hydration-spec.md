@@ -389,3 +389,82 @@ swarm and treasury contracts deploy to Sepolia via `SOULVAULT_RPC_URL` /
   re-enter if/when x402 or USE un-defer (see `TODO_2.md`).
 - **Arc, 1inch, Uniswap Foundation, Privy**: no fit — Privy in particular would
   make a managed backend load-bearing, against the backend-free principle.
+
+## 11. Per-slot rehydration requests (planned — post-demo)
+
+**Status: spec only, deliberately not implemented for the ETHOnline demo.**
+
+Today `requestRehydration(docHash, rehydrationPublicKey)` is document-wide:
+the request carries no slot list, so a requester cannot *express* which slots
+they want. This is not an access-control gap — the author picks slots at grant
+time (any subset), and the recipient rehydrates exactly the delivered grants —
+but the request carries no intent, so the author grants blind to what the
+requester actually needs.
+
+### 11.1 Proposed contract change
+
+```solidity
+function requestRehydration(
+    bytes32 docHash,
+    string[] calldata slotIds,        // NEW — requested slots
+    string calldata rehydrationPublicKey
+) external;
+
+event RehydrationRequested(
+    bytes32 indexed docHash,
+    address indexed recipient,
+    string[] slotIds,                 // NEW
+    string rehydrationPublicKey
+);
+```
+
+- Empty `slotIds` array = "all slots" — backward compatible with v0 requests.
+- Each entry must be a slot published for the docHash? **No — do not enforce
+  this on-chain.** The publication event (not storage) is the slot-list source;
+  validating would require a `slotId => published` mapping (extra storage per
+  slot) for a check the author's client performs anyway. A request naming an
+  unpublished slot is simply ungrantable — the author's client filters it.
+
+### 11.2 Are requests binding on the author?
+
+**Recommendation: advisory.** The request declares intent; the author still
+grants any subset (which may exceed or fall short of the request). Making it
+binding would mean the contract reverts when the author grants outside the
+requested set — that breaks the legitimate "grant them more while I'm here"
+flow and adds contract state for no security gain (grants remain the only
+authorization, unchanged from §3). The Grants UI shows the requested slots
+pre-checked; the author trims or expands freely.
+
+### 11.3 Why not now (demo)
+
+Every array element in calldata costs signing overhead on the Ledger path:
+clear-signing walks one parameter screen per dynamic element, so a
+K-element `slotIds[]` turns one device confirmation into K+ confirmations —
+minutes of device-walk for a multi-slot demo. v0's document-wide request is
+the right demo tradeoff: one tx, one review, and slot selection still happens
+at grant time where it is enforceable.
+
+### 11.4 Client surface (when implemented)
+
+- `pendingRehydrationRequests` (`apps/web/src/lib/document-grants.ts`) carries
+  the requested slot list; the pending-request callout shows it.
+- The Grants page pre-checks the requested slots when a request row is
+  clicked; other rows unchanged.
+- ABI fragments in `apps/web/src/lib/contracts-artifacts.ts` and the
+  deploy/registry wrappers pick up the new signature; old events (no
+  `slotIds`) decode as "all slots".
+- The Rehydrate tab sends the full slot list of the uploaded bundle by
+  default, with checkboxes to deselect slots the consumer does not need.
+
+### 11.5 Related (shipped 2026-09-11): pre-request grants
+
+The inverse problem — granting *before* any request exists — needs no
+contract change and is already possible: the author wraps to any recipient
+pubkey via `createSlotKeyGrantsForRecipient` (§7). The Grants page exposes a
+"Grant without a request" panel (recipient address + pasted rehydration
+public key + slot selection); the Rehydrate tab gained a "Copy rehydration
+public key" affordance so the consumer can hand the key over out-of-band.
+Unlike the onchain-request path, the wallet↔key binding is **not**
+authenticated in this lane — the key fingerprint is shown on both sides and
+the parties confirm it out-of-band (same trust level as the §7 attestation
+file, minus the signature).

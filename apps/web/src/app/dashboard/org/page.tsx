@@ -5,6 +5,7 @@ import { type Address } from "viem";
 import { sepolia } from "viem/chains";
 
 import { Button } from "@/components/ui/button";
+import { OrgWizard } from "@/components/create/org-wizard";
 import { useDashboardSelection } from "@/components/dashboard/selection-provider";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
 import { createSepoliaEnsClient, getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
@@ -105,9 +106,47 @@ export default function OrgPage() {
       <p className="eyebrow text-primary">Organization</p>
       <h1 className="mt-3 text-2xl font-semibold tracking-tight">ENS profile</h1>
       <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-        Read-only. Switcher remembers names for this wallet. Edit stays soon.
+        Register a new .eth name, or remember one this wallet already owns.
       </p>
+      {record ? (
+        <dl className="mt-8 grid gap-px border border-border bg-border sm:grid-cols-2">
+          <Field label="ENS name" value={record.name} mono />
+          <Field label="Addr" value={record.addr ? shortAddress(record.addr as Address) : "—"} mono />
+          <Field label="Resolver" value={record.resolver ? shortAddress(record.resolver as Address) : "—"} mono />
+          <Field label="Owner / reverse" value={record.owner ? shortAddress(record.owner as Address) : "—"} mono />
+          {TEXT_KEYS.map((key) => (
+            <Field key={key} label={key} value={record.texts[key] ?? "—"} />
+          ))}
+        </dl>
+      ) : null}
+      {status === "loading" ? <p className="mt-3 text-sm text-muted-foreground">Resolving ENS…</p> : null}
+      {record?.error ? <p className="mt-3 text-sm text-destructive">{record.error}</p> : null}
 
+      <div className="mt-8">
+        <Button disabled variant="outline" size="sm">
+          Edit ENS metadata
+          <span className="chip ml-2">soon</span>
+        </Button>
+      </div>
+
+      {names.length === 0 ? (
+        <p className="mt-8 text-sm text-muted-foreground">No organization for this wallet.</p>
+      ) : (
+        <ul className="mt-6 border border-border">
+          {names.map((name) => (
+            <li key={name} className="flex items-center justify-between gap-3 border-b border-border px-4 py-3 last:border-b-0">
+              <button
+                type="button"
+                className={`font-mono text-sm ${selection.orgId === name ? "text-primary" : "text-foreground"}`}
+                onClick={() => setOrg(name)}
+              >
+                {name}
+              </button>
+              {selection.orgId === name ? <span className="chip text-primary">current</span> : null}
+            </li>
+          ))}
+        </ul>
+      )}
       <form onSubmit={onRemember} className="mt-6 flex flex-wrap gap-2">
         <input
           value={draft}
@@ -147,45 +186,10 @@ export default function OrgPage() {
         import of <span className="font-mono">~/.soulvault/organizations/*.json</span>.
       </p>
 
-      {names.length === 0 ? (
-        <p className="mt-8 text-sm text-muted-foreground">No organization for this wallet.</p>
-      ) : (
-        <ul className="mt-6 border border-border">
-          {names.map((name) => (
-            <li key={name} className="flex items-center justify-between gap-3 border-b border-border px-4 py-3 last:border-b-0">
-              <button
-                type="button"
-                className={`font-mono text-sm ${selection.orgId === name ? "text-primary" : "text-foreground"}`}
-                onClick={() => setOrg(name)}
-              >
-                {name}
-              </button>
-              {selection.orgId === name ? <span className="chip text-primary">current</span> : null}
-            </li>
-          ))}
-        </ul>
-      )}
 
-      {record ? (
-        <dl className="mt-8 grid gap-px border border-border bg-border sm:grid-cols-2">
-          <Field label="ENS name" value={record.name} mono />
-          <Field label="Addr" value={record.addr ? shortAddress(record.addr as Address) : "—"} mono />
-          <Field label="Resolver" value={record.resolver ? shortAddress(record.resolver as Address) : "—"} mono />
-          <Field label="Owner / reverse" value={record.owner ? shortAddress(record.owner as Address) : "—"} mono />
-          {TEXT_KEYS.map((key) => (
-            <Field key={key} label={key} value={record.texts[key] ?? "—"} />
-          ))}
-        </dl>
-      ) : null}
-      {status === "loading" ? <p className="mt-3 text-sm text-muted-foreground">Resolving ENS…</p> : null}
-      {record?.error ? <p className="mt-3 text-sm text-destructive">{record.error}</p> : null}
 
-      <div className="mt-8">
-        <Button disabled variant="outline" size="sm">
-          Edit ENS metadata
-          <span className="chip ml-2">soon</span>
-        </Button>
-      </div>
+      <OrgWizard />
+
     </div>
   );
 }

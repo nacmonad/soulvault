@@ -427,7 +427,8 @@ export default function DocumentsRehydratePage() {
       <p className="eyebrow text-primary">Documents</p>
       <h1 className="mt-3 text-2xl font-semibold tracking-tight">Rehydrate</h1>
       <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-        Upload the public bundle, then request rehydration — the request tx
+        Step 3 of 3 — only granted slots decrypt. Upload the public bundle, then
+        request rehydration — the request tx
         binds your wallet to your rehydration key on-chain. The author grants
         from their Grants tab; delivered grants arrive as events. Ciphertexts
         never come from events. A delivered READ grant is a permanent
@@ -484,6 +485,8 @@ export default function DocumentsRehydratePage() {
           <p className="mt-2 text-xs text-muted-foreground">
             Only needed when the author is not watching on-chain requests. Sign
             the rehydration-key attestation and copy the JSON to them directly.
+            Or, for a pre-request grant, send them just your rehydration public
+            key — an address alone cannot carry the wrap.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button onClick={() => void attest()} disabled={!address}>
@@ -501,7 +504,21 @@ export default function DocumentsRehydratePage() {
                 Copy attestation JSON
               </Button>
             ) : null}
+            {key ? (
+              <Button
+                variant="outline"
+                onClick={() => navigator.clipboard.writeText(key.publicKey)}
+                title="Send this to the author so they can grant before you post a request"
+              >
+                Copy rehydration public key
+              </Button>
+            ) : null}
           </div>
+          {key ? (
+            <p className="mt-2 font-mono text-xs break-all text-muted-foreground">
+              key fp {key.fingerprint.slice(0, 16)}…
+            </p>
+          ) : null}
         </details>
       </div>
 

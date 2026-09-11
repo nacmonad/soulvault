@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { formatEther, type Address } from "viem";
 
 import { CopyableAddress } from "@/components/dashboard/copyable-address";
@@ -33,10 +34,14 @@ export default function DashboardOverviewPage() {
   return (
     <div>
       <p className="eyebrow text-primary">Overview</p>
-      <h1 className="mt-3 text-2xl font-semibold tracking-tight">Connected wallet</h1>
+      <h1 className="mt-3 text-2xl font-semibold tracking-tight">Redact on this machine</h1>
       <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-        Identity is this address. State below is read from the org&apos;s ENS records
-        and chain events — no user database.
+        Authorized wallets rehydrate only the fields they were granted. Identity is
+        this address — no account database. Start at{" "}
+        <Link href="/dashboard/documents" className="underline">
+          Documents
+        </Link>
+        .
       </p>
       {walletError ? <p className="mt-4 text-sm text-destructive">{walletError}</p> : null}
       {configError ? <p className="mt-4 text-sm text-destructive">{configError}</p> : null}

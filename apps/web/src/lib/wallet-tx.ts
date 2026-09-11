@@ -11,6 +11,8 @@ import {
   createSoulVaultPublicClient,
   getBrowserSoulVaultClientConfig,
 } from "@/lib/onchain/client";
+import { parseRpcUrlList } from "@/lib/rpc-settings";
+import { getEip1559Enabled } from "@/lib/tx-settings";
 
 type Injected = {
   request(args: { method: string; params?: unknown[] }): Promise<unknown>;
@@ -56,43 +58,162 @@ export type TxChannel = {
   signTypedData?(input: { address: Address; payload: string }): Promise<string>;
 };
 
-/**
- * Pre-estimate gas with the app's own public client before handing the tx to
- * the injected wallet. MetaMask runs its internal estimator against whatever
- * network RPC it has configured, which can fail (revert-timeout on large
- * contract-creation payloads) even when the tx is perfectly valid; when `gas`
- * is present in eth_sendTransaction params the wallet uses it and skips its
- * own estimation. Returns `undefined` on any failure so the request falls
- * back to wallet-side estimation.
- */
-async function estimateGasUpfront(input: TxSubmitInput): Promise<bigint | undefined> {
-  try {
-    const config = getBrowserSoulVaultClientConfig();
-    if (!config) return undefined;
-    const client =
-      input.chainId !== undefined && input.chainId !== config.chainId
-        ? publicClientForChainId(input.chainId)
-        : createSoulVaultPublicClient(config);
-    if (!client) return undefined;
-    return await client.estimateGas({
-      account: input.from,
-      ...(input.to !== null ? { to: input.to } : {}),
-      data: input.data,
-      ...(input.value !== undefined ? { value: input.value } : {}),
-    });
-  } catch (error) {
-    console.warn(
-      `[wallet-tx] App-side gas estimate failed for ${
-        input.to === null ? "contract creation" : `call to ${input.to}`
-      }; falling back to wallet-side estimation.`,
-      error instanceof Error ? error.message : error,
-    );
-    return undefined;
+type AppRpcClient = {
+  estimateGas: (args: {
+    account: Address;
+    to?: Address;
+    data: Hex;
+    value?: bigint;
+  }) => Promise<bigint>;
+  getGasPrice: () => Promise<bigint>;
+  getTransactionCount: (args: { address: Address }) => Promise<number>;
+  sendRawTransaction: (args: { serializedTransaction: Hex }) => Promise<Hex>;
+  /**
+   * Optional EIP-1559 fee estimate (viem clients have it; bare mocks may not).
+   * When the 1559 setting is on and this answers, the tx is built as type-2
+   * with maxFeePerGas/maxPriorityFeePerGas; anything missing or throwing falls
+   * back to the legacy gasPrice path.
+   */
+  estimateFeesPerGas?: () => Promise<
+    { maxFeePerGas?: bigint; maxPriorityFeePerGas?: bigint } | undefined
+  >;
+  waitForTransactionReceipt?: (args: {
+    hash: Hex;
+    pollingInterval?: number;
+    timeout?: number;
+  }) => Promise<{
+    status: "success" | "reverted";
+    contractAddress?: Address;
+    blockNumber: bigint;
+  }>;
+};
+
+function appRpcClient(input: { chainId?: number }): AppRpcClient | null {
+  const config = getBrowserSoulVaultClientConfig();
+  if (!config) return null;
+  if (input.chainId !== undefined && input.chainId !== config.chainId) {
+    return (publicClientForChainId(input.chainId) as AppRpcClient | null) ?? null;
   }
+  return createSoulVaultPublicClient(config) as AppRpcClient;
+}
+
+function toQuantity(value: bigint | number): Hex {
+  return `0x${value.toString(16)}` as Hex;
+}
+
+type PreparedTx = {
+  from: Address;
+  to?: Address;
+  data: Hex;
+  value: Hex;
+  nonce: Hex;
+  gas: Hex;
+  gasPrice?: Hex;
+  /** EIP-1559 (type-2) fields — mutually exclusive with gasPrice. */
+  type?: Hex;
+  maxFeePerGas?: Hex;
+  maxPriorityFeePerGas?: Hex;
+  chainId?: Hex;
+};
+
+/**
+ * Build a fully specified tx against the dashboard RPC. Rabby still
+ * calls eth_gasPrice on WalletConnect (free plan has no Sepolia) when any of
+ * nonce/gas/fees is missing, even if the dapp passed a partial tx.
+ *
+ * Fees: EIP-1559 (type-2) by default — the RPC's fee estimate gives a real
+ * priority tip, so the tx does not depend on the base fee staying under a
+ * stale gas-price snapshot. Falls back to a legacy tx when the setting is
+ * off, the client has no fee estimator, or the estimate comes back unusable.
+ */
+async function prepareAppTx(input: TxSubmitInput): Promise<{ client: AppRpcClient; tx: PreparedTx; gas: bigint }> {
+  const client = appRpcClient(input);
+  if (!client) {
+    throw new Error("SoulVault dashboard config missing — set NEXT_PUBLIC_SOULVAULT_* env vars.");
+  }
+  const estimateArgs = {
+    account: input.from,
+    ...(input.to !== null ? { to: input.to } : {}),
+    data: input.data,
+    ...(input.value !== undefined ? { value: input.value } : {}),
+  };
+  let nonce: number;
+  let gas: bigint;
+  let gasPrice: bigint;
+  let fees: { maxFeePerGas?: bigint; maxPriorityFeePerGas?: bigint } | undefined;
+  try {
+    [nonce, gas, gasPrice, fees] = await Promise.all([
+      client.getTransactionCount({ address: input.from }),
+      client.estimateGas(estimateArgs),
+      client.getGasPrice(),
+      // A failed fee estimate must not fail tx preparation — it only selects
+      // between the 1559 and legacy pricing paths below.
+      getEip1559Enabled() && client.estimateFeesPerGas
+        ? client.estimateFeesPerGas().catch(() => undefined)
+        : Promise.resolve(undefined),
+    ]);
+  } catch (error) {
+    throw new Error(
+      `Could not prepare the transaction against the dashboard RPC (${error instanceof Error ? error.message : String(error)}). Check the RPC in /dashboard/settings.`,
+    );
+  }
+  const eip1559Fees =
+    fees?.maxFeePerGas !== undefined && fees?.maxPriorityFeePerGas !== undefined
+      ? { maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas }
+      : undefined;
+  const tx: PreparedTx = {
+    from: input.from,
+    ...(input.to !== null ? { to: input.to } : {}),
+    data: input.data,
+    value: toQuantity(input.value ?? 0n),
+    nonce: toQuantity(nonce),
+    gas: toQuantity(gas),
+    ...(eip1559Fees
+      ? {
+          type: "0x2" as const,
+          maxFeePerGas: toQuantity(eip1559Fees.maxFeePerGas),
+          maxPriorityFeePerGas: toQuantity(eip1559Fees.maxPriorityFeePerGas),
+        }
+      : { gasPrice: toQuantity(gasPrice) }),
+    ...(input.chainId !== undefined ? { chainId: toQuantity(input.chainId) } : {}),
+  };
+  return { client, tx, gas };
+}
+
+function walletErrorText(cause: unknown): string {
+  if (cause == null || typeof cause !== "object") return typeof cause === "string" ? cause : "";
+  const e = cause as Record<string, unknown>;
+  const nested = [e.data, e.error, e.cause]
+    .filter((value) => value && typeof value === "object")
+    .map((value) => walletErrorText(value))
+    .join(" ");
+  return [e.message, e.details, e.shortMessage, nested].filter(Boolean).join(" ");
+}
+
+function isUserRejected(cause: unknown): boolean {
+  return (cause as { code?: number } | null)?.code === 4001;
+}
+
+function isMissingMethod(cause: unknown): boolean {
+  const e = cause as { code?: number; message?: string } | null;
+  if (e?.code === -32601) return true;
+  return /method .*not (found|supported|available)|does not exist|eth_signTransaction/i.test(
+    e?.message ?? "",
+  );
+}
+
+function isWalletConnectRpcFailure(cause: unknown): boolean {
+  return /not available on free plan|rpc\.walletconnect\.org/i.test(walletErrorText(cause));
 }
 
 /** Map raw wallet RPC rejections (EIP-1193 provider errors) to actionable copy. */
 function walletRequestError(cause: unknown): Error {
+  const text = walletErrorText(cause);
+  if (/not available on free plan|rpc\.walletconnect\.org/i.test(text)) {
+    return new Error(
+      "The wallet's Sepolia RPC is WalletConnect (free plan does not include this chain). Retry the step — gas and gasPrice are filled from the dashboard RPC. If it persists, set Rabby's Sepolia RPC to the URL in Settings.",
+    );
+  }
   const e = cause as { code?: number; message?: string };
   if (e?.code === 4100) {
     return new Error(
@@ -131,39 +252,58 @@ async function ensureWalletAuthorized(from?: Address): Promise<Injected> {
   return provider;
 }
 
+function addChainParams(chain: SoulVaultChain, rpcUrl: string) {
+  return {
+    chainId: `0x${chain.id.toString(16)}`,
+    chainName: chain.name,
+    nativeCurrency: chain.currency,
+    rpcUrls: [rpcUrl],
+    blockExplorerUrls: [chain.explorer],
+  };
+}
+
+function rpcUrlForChain(chainId: number): string | undefined {
+  const config = getBrowserSoulVaultClientConfig();
+  if (config && chainId === config.chainId) {
+    return parseRpcUrlList(config.rpcUrl)[0] ?? config.rpcUrl;
+  }
+  return chainById(chainId)?.rpcUrl;
+}
+
 /**
- * Make sure the injected wallet's active network matches `chainId`, switching
- * (and adding the chain) if needed. No-op when the wallet is already there.
+ * Point the wallet at the dashboard RPC for this chain. Rabby defaults Sepolia
+ * to WalletConnect's free endpoint, which rejects eth_gasPrice. add+switch is
+ * best-effort: a rejected prompt must not block eth_signTransaction + raw send.
  */
-async function ensureWalletOnChain(provider: Injected, chainId: number): Promise<void> {
+async function pinChainRpc(provider: Injected, chainId: number): Promise<void> {
+  const chain = chainById(chainId);
+  const rpcUrl = rpcUrlForChain(chainId);
+  if (!chain || !rpcUrl) return;
+  try {
+    await provider.request({
+      method: "wallet_addEthereumChain",
+      params: [addChainParams(chain, rpcUrl)],
+    });
+  } catch (cause) {
+    if (!isUserRejected(cause)) throw walletRequestError(cause);
+  }
   const current = (await provider.request({ method: "eth_chainId" })) as Hex;
   if (Number(BigInt(current)) === chainId) return;
-  const chain = chainById(chainId);
   try {
     await provider.request({
       method: "wallet_switchEthereumChain",
       params: [{ chainId: `0x${chainId.toString(16)}` }],
     });
   } catch (cause) {
-    // 4902 = chain not added to the wallet yet.
-    if ((cause as { code?: number })?.code !== 4902 || !chain) {
-      throw walletRequestError(cause);
+    if ((cause as { code?: number })?.code === 4902) {
+      await provider.request({
+        method: "wallet_addEthereumChain",
+        params: [addChainParams(chain, rpcUrl)],
+      });
+      return;
     }
-    await provider.request({
-      method: "wallet_addEthereumChain",
-      params: [addChainParams(chain)],
-    });
+    if (!isUserRejected(cause)) throw walletRequestError(cause);
   }
-}
-
-function addChainParams(chain: SoulVaultChain) {
-  return {
-    chainId: `0x${chain.id.toString(16)}`,
-    chainName: chain.name,
-    nativeCurrency: chain.currency,
-    rpcUrls: [chain.rpcUrl],
-    blockExplorerUrls: [chain.explorer],
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -202,38 +342,70 @@ function walletSendError(cause: unknown, gas: bigint | undefined): Error {
   );
 }
 
+const RECEIPT_TIMEOUT_MS = 240_000;
+const receiptChainByHash = new Map<Hex, number | undefined>();
+
+function looksLikeTxHash(value: string): value is Hex {
+  return /^0x[0-9a-fA-F]{64}$/.test(value);
+}
+
+async function signAndBroadcast(
+  provider: Injected,
+  client: AppRpcClient,
+  tx: PreparedTx,
+  gas: bigint,
+): Promise<Hex> {
+  try {
+    const signed = (await provider.request({
+      method: "eth_signTransaction",
+      params: [tx],
+    })) as string;
+    if (looksLikeTxHash(signed)) return signed;
+    return await client.sendRawTransaction({ serializedTransaction: signed as Hex });
+  } catch (cause) {
+    if (isUserRejected(cause)) throw walletRequestError(cause);
+    if (!isMissingMethod(cause) && !isWalletConnectRpcFailure(cause)) {
+      throw walletSendError(cause, gas);
+    }
+  }
+  try {
+    return (await provider.request({
+      method: "eth_sendTransaction",
+      params: [tx],
+    })) as Hex;
+  } catch (cause) {
+    throw walletSendError(cause, gas);
+  }
+}
+
 const browserChannel: TxChannel = {
   async submit(input) {
     const provider = await ensureWalletAuthorized(input.from);
     if (input.chainId !== undefined) {
-      await ensureWalletOnChain(provider, input.chainId);
+      await pinChainRpc(provider, input.chainId);
     }
-    const gas = await estimateGasUpfront(input);
-    let hash: unknown;
-    try {
-      hash = await provider.request({
-        method: "eth_sendTransaction",
-        params: [
-          {
-            from: input.from,
-            ...(input.to !== null ? { to: input.to } : {}),
-            data: input.data,
-            ...(input.value !== undefined ? { value: `0x${input.value.toString(16)}` } : {}),
-            ...(gas !== undefined ? { gas: `0x${gas.toString(16)}` } : {}),
-          },
-        ],
-      });
-    } catch (cause) {
-      throw walletSendError(cause, gas);
-    }
-    return hash as Hex;
+    const { client, tx, gas } = await prepareAppTx(input);
+    const txHash = await signAndBroadcast(provider, client, tx, gas);
+    receiptChainByHash.set(txHash, input.chainId);
+    return txHash;
   },
 
   async waitForReceipt(hash) {
+    const client = appRpcClient({ chainId: receiptChainByHash.get(hash) });
+    if (client?.waitForTransactionReceipt) {
+      const receipt = await client.waitForTransactionReceipt({
+        hash,
+        pollingInterval: 2_000,
+        timeout: RECEIPT_TIMEOUT_MS,
+      });
+      return {
+        status: receipt.status === "success" ? "success" : "reverted",
+        contractAddress: receipt.contractAddress,
+        blockNumber: receipt.blockNumber,
+      };
+    }
     const provider = injected();
     if (!provider) throw new Error("No injected browser wallet.");
-    // Poll eth_getTransactionReceipt — static export has no viem public client wired
-    // into this module, and every browser wallet exposes the standard JSON-RPC methods.
     for (let attempt = 0; attempt < 120; attempt++) {
       const receipt = (await provider.request({
         method: "eth_getTransactionReceipt",

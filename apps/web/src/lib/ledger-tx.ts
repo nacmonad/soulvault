@@ -5,8 +5,10 @@
  * Ledger connected.
  *
  * Mirrors the CLI's LedgerEthersSigner path (packages/node/src/signer.ts):
- * - legacy type-0 txs (the Ledger Ethereum app frequently rejects typed-tx
- *   payloads with 6a80 "Invalid data"),
+ * - type-2 (EIP-1559) txs when the tx-settings switch is on and the RPC
+ *   estimates fees, falling back to legacy type-0 when the device rejects the
+ *   typed payload (the Ledger Ethereum app frequently answers 6a80 "Invalid
+ *   data"), or when the estimate / setting is unavailable,
  * - the device's signature `v` byte read as a parity bit and the full EIP-155
  *   `v` reconstructed (the device returns one byte; Sepolia's v ≈ 22.3M cannot
  *   fit, and 27/28 vs 0/1 conventions differ between app versions).
@@ -15,7 +17,9 @@ import { createPublicClient, http, keccak256, serializeTransaction, type Address
 
 import { chainById, publicClientForChainId } from "@/lib/chains";
 import { createSoulVaultPublicClient, type SoulVaultClientConfig } from "@/lib/onchain/client";
+import { getEip1559Enabled } from "@/lib/tx-settings";
 import type { TxChannel, TxSubmitInput } from "@/lib/wallet-tx";
+import { yParityFromV } from "@/lib/wallet-tx";
 
 export type DeviceTransactionSignature = { r: Hex; s: Hex; v: number };
 
@@ -24,6 +28,15 @@ type LedgerRpcClient = {
   getTransactionCount(args: { address: Address }): Promise<number>;
   getGasPrice(): Promise<bigint>;
   estimateGas(args: { account: Address; to?: Address; data: Hex; value?: bigint }): Promise<bigint>;
+  /**
+   * Optional EIP-1559 fee estimate (viem clients have it; bare mocks may not).
+   * When the 1559 setting is on and this answers, the tx is signed as type-2
+   * with maxFeePerGas/maxPriorityFeePerGas; anything missing or throwing falls
+   * back to the legacy gasPrice path.
+   */
+  estimateFeesPerGas?: () => Promise<
+    { maxFeePerGas?: bigint; maxPriorityFeePerGas?: bigint } | undefined
+  >;
   request(args: { method: string; params?: unknown[] }): Promise<unknown>;
   waitForTransactionReceipt(args: {
     hash: Hex;
@@ -157,19 +170,21 @@ export function createLedgerTxChannel(input: {
     return candidates;
   }
 
-  type Preflight = { candidate: Candidate; nonce: number; gasPrice: bigint; gas: bigint };
+  type Preflight = { candidate: Candidate; nonce: number; gasPrice: bigint; gas: bigint; fees?: { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint } };
 
   /**
    * Pre-flight (nonce + gas price + gas estimate) against the first RPC that
    * answers. The Ledger channel has no wallet-side estimator to fall back on,
    * so a flaky public endpoint here would otherwise hard-fail a deploy the
-   * device is already primed to sign.
+   * device is already primed to sign. The fee estimate rides along in the same
+   * round trip but never fails the pre-flight — it only selects between the
+   * 1559 and legacy signing paths.
    */
   async function preflight(tx: TxSubmitInput, candidates: Candidate[]): Promise<Preflight> {
     const failures: string[] = [];
     for (const candidate of candidates) {
       try {
-        const [nonce, gasPrice, gas] = await Promise.all([
+        const [nonce, gasPrice, gas, fees] = await Promise.all([
           candidate.client.getTransactionCount({ address: tx.from }),
           candidate.client.getGasPrice(),
           candidate.client.estimateGas({
@@ -178,8 +193,15 @@ export function createLedgerTxChannel(input: {
             data: tx.data,
             ...(tx.value !== undefined ? { value: tx.value } : {}),
           }),
+          getEip1559Enabled() && candidate.client.estimateFeesPerGas
+            ? candidate.client.estimateFeesPerGas().catch(() => undefined)
+            : Promise.resolve(undefined),
         ]);
-        return { candidate, nonce, gasPrice, gas };
+        const eip1559Fees =
+          fees?.maxFeePerGas !== undefined && fees?.maxPriorityFeePerGas !== undefined
+            ? { maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas }
+            : undefined;
+        return { candidate, nonce, gasPrice, gas, ...(eip1559Fees ? { fees: eip1559Fees } : {}) };
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : String(cause);
         failures.push(`${candidate.label}: ${message.replace(/\s+/g, " ").slice(0, 240)}`);
@@ -221,27 +243,59 @@ export function createLedgerTxChannel(input: {
     const primary = primaryForChain(tx.chainId);
     const candidates = candidatesFor(signedChainId, primary);
     const preflighted = await preflight(tx, candidates);
-    const { nonce, gasPrice, gas } = preflighted;
-    // Legacy type-0 with a single gasPrice — same workaround as the CLI signer.
-    const unsignedTx = {
-      type: "legacy" as const,
+    const { nonce, gasPrice, gas, fees } = preflighted;
+    const base = {
       chainId: signedChainId,
       nonce,
-      gasPrice,
       gas,
       to: tx.to ?? undefined,
       value: tx.value ?? 0n,
       data: tx.data,
     };
-    const unsignedSerialized = serializeTransaction(unsignedTx);
-    input.onSigningPrompt?.(keccak256(unsignedSerialized));
-    const signature = await input.signTransaction(unsignedSerialized);
-    // Device v is a single byte: the full EIP-155 v for chainId 1 (fixture v:38),
-    // byte-truncated for large chainIds, or 27/28. All legacy conventions share
-    // "odd → yParity 0, even → yParity 1" (full v = 35 + 2c + y flips parity).
-    const yParity = (signature.v + 1) & 1;
-    const v = BigInt(35 + 2 * signedChainId + yParity);
-    const signed = serializeTransaction(unsignedTx, { r: signature.r, s: signature.s, v });
+    let unsignedTx =
+      fees !== undefined
+        ? {
+            ...base,
+            type: "eip1559" as const,
+            maxFeePerGas: fees.maxFeePerGas,
+            maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
+          }
+        : { ...base, type: "legacy" as const, gasPrice };
+    let signature: DeviceTransactionSignature;
+    try {
+      const unsignedSerialized = serializeTransaction(unsignedTx);
+      input.onSigningPrompt?.(keccak256(unsignedSerialized));
+      signature = await input.signTransaction(unsignedSerialized);
+    } catch (cause) {
+      if (fees === undefined || !/6a80|invalid data/i.test(cause instanceof Error ? cause.message : String(cause))) {
+        throw cause;
+      }
+      // The device refused the typed payload (6a80 "Invalid data") — rebuild as
+      // legacy type-0 with the same pre-flight values and prompt once more. The
+      // operator sees a second screen; a user rejection never reaches here
+      // because it does not match the 6a80 signature.
+      unsignedTx = { ...base, type: "legacy" as const, gasPrice };
+      const unsignedSerialized = serializeTransaction(unsignedTx);
+      input.onSigningPrompt?.(keccak256(unsignedSerialized));
+      signature = await input.signTransaction(unsignedSerialized);
+    }
+    if (unsignedTx.type === "legacy") {
+      // Device v is a single byte: the full EIP-155 v for chainId 1 (fixture v:38),
+      // byte-truncated for large chainIds, or 27/28. All legacy conventions share
+      // "odd → yParity 0, even → yParity 1" (full v = 35 + 2c + y flips parity).
+      const yParity = (signature.v + 1) & 1;
+      const v = BigInt(35 + 2 * signedChainId + yParity);
+      const signed = serializeTransaction(unsignedTx, { r: signature.r, s: signature.s, v });
+      const hash = await broadcast(signed, preflighted, candidates);
+      receiptChainByHash.set(hash, signedChainId);
+      return hash;
+    }
+    // Typed txs: the device returns v as the yParity directly.
+    const signed = serializeTransaction(unsignedTx, {
+      r: signature.r,
+      s: signature.s,
+      yParity: yParityFromV(signature.v),
+    });
     const hash = await broadcast(signed, preflighted, candidates);
     receiptChainByHash.set(hash, signedChainId);
     return hash;

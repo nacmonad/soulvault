@@ -14,6 +14,7 @@ import { describeTransaction, type TxSummary } from "@/lib/tx-decode";
 import { errorMessage } from "@/lib/error-message";
 import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 import { sendWalletTransaction, serializedLedgerSignature, setTxChannel, signTypedData as signInjectedTypedData, type ChainSender } from "@/lib/wallet-tx";
+import { createFoundryProvider } from "@/lib/foundry-provider";
 
 /** What the dashboard shows while a Ledger signing prompt is up. */
 export type DeviceSigningPrompt = {
@@ -295,7 +296,18 @@ export function SoulVaultLedgerProvider({ children, developmentLedgerTransport }
 
 function getInjectedProvider(): InjectedProvider | undefined {
   if (typeof window === "undefined") return undefined;
-  return (window as typeof window & { ethereum?: InjectedProvider }).ethereum;
+  const w = window as typeof window & { ethereum?: InjectedProvider & { isFoundry?: boolean } };
+  if (
+    process.env.NEXT_PUBLIC_SOULVAULT_FOUNDRY_PROVIDER === "1" &&
+    process.env.NEXT_PUBLIC_SOULVAULT_RPC_URL &&
+    !w.ethereum?.isFoundry
+  ) {
+    w.ethereum = createFoundryProvider({
+      rpcUrl: process.env.NEXT_PUBLIC_SOULVAULT_RPC_URL.split(",")[0]!.trim(),
+      chainId: Number(process.env.NEXT_PUBLIC_SOULVAULT_CHAIN_ID ?? 11155111),
+    });
+  }
+  return w.ethereum;
 }
 
 export function useSoulVaultWallet() {

@@ -53,7 +53,7 @@ function makeWatcher(logs: Log[], latest?: bigint, sources = SOURCES) {
 // --- per-event catalog -------------------------------------------------------
 
 const FIXTURES: Array<{ kind: SoulVaultContractKind; address: Address; eventName: string; args: Record<string, unknown> }> = [
-  { kind: 'document', address: DOC_ADDRESS, eventName: 'DocumentPublished', args: { docHash: DOC_HASH, author: ALICE, slotIds: ['sv_name_1', 'sv_salary_1'] } },
+  { kind: 'document', address: DOC_ADDRESS, eventName: 'DocumentPublished', args: { docHash: DOC_HASH, author: ALICE, slotIds: ['sv_name_1', 'sv_salary_1'], selfieRequired: false } },
   { kind: 'document', address: DOC_ADDRESS, eventName: 'SlotKeyGranted', args: { docHash: DOC_HASH, slotId: 'sv_salary_1', recipient: CHARLIE, wrappedKey: 'AAECAw==', algorithm: SECP_WRAP_ALGORITHM, ephemeralPublicKey: '04' + 'ee'.repeat(32), nonce: '11'.repeat(12) } },
   // swarm (19) — membership, epochs, backups, messaging, funds
   { kind: 'swarm', address: SWARM, eventName: 'JoinRequested', args: { requestId: 1n, requester: ALICE, pubkey: '0x1234', pubkeyRef: 'k.json', metadataRef: 'm.json' } },
@@ -281,7 +281,7 @@ describe('scanHistory bounds', () => {
   });
 
   it('still returns logs that fall across chunk boundaries', async () => {
-    const logAtBoundary = makeRawLog({ kind: 'document', address: DOC_ADDRESS, eventName: 'DocumentPublished', args: { docHash: DOC_HASH, author: ALICE, slotIds: [] }, blockNumber: 39_999n, logIndex: 0 });
+    const logAtBoundary = makeRawLog({ kind: 'document', address: DOC_ADDRESS, eventName: 'DocumentPublished', args: { docHash: DOC_HASH, author: ALICE, slotIds: [], selfieRequired: false }, blockNumber: 39_999n, logIndex: 0 });
     const sources: SoulVaultDeployment[] = [{ address: DOC_ADDRESS, kind: 'document', fromBlock: 0n }];
     const { watcher } = makeWatcher([logAtBoundary], 50_000n, sources);
     const events = await watcher.scanHistory();
@@ -290,7 +290,7 @@ describe('scanHistory bounds', () => {
   });
 
   it('shrinks getLogs ranges when the provider caps them (Infura-style 10_000)', async () => {
-    const log = makeRawLog({ kind: 'document', address: DOC_ADDRESS, eventName: 'DocumentPublished', args: { docHash: DOC_HASH, author: ALICE, slotIds: [] }, blockNumber: 21_000n, logIndex: 0 });
+    const log = makeRawLog({ kind: 'document', address: DOC_ADDRESS, eventName: 'DocumentPublished', args: { docHash: DOC_HASH, author: ALICE, slotIds: [], selfieRequired: false }, blockNumber: 21_000n, logIndex: 0 });
     const base = mockClient([log], 25_000n);
     const getLogs = vi.fn(async (args: { address: Address; fromBlock: bigint; toBlock: bigint | 'latest' }) => {
       if (args.toBlock !== 'latest' && args.toBlock - args.fromBlock >= 10_000n) {
@@ -345,7 +345,7 @@ describe('zero sources', () => {
 
 describe('addSource', () => {
   it('adds a runtime-discovered source and scans it on subsequent calls', async () => {
-    const published = makeRawLog({ kind: 'document', address: DOC_ADDRESS, eventName: 'DocumentPublished', args: { docHash: DOC_HASH, author: ALICE, slotIds: [] }, blockNumber: 10n, logIndex: 0 });
+    const published = makeRawLog({ kind: 'document', address: DOC_ADDRESS, eventName: 'DocumentPublished', args: { docHash: DOC_HASH, author: ALICE, slotIds: [], selfieRequired: false }, blockNumber: 10n, logIndex: 0 });
     const identityOnly: SoulVaultDeployment[] = [{ address: IDENTITY_ADDRESS, kind: 'identity', fromBlock: 0n }];
     const { watcher, getLogs } = makeWatcher([published], undefined, identityOnly);
 

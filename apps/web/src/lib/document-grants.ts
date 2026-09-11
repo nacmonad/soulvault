@@ -67,6 +67,7 @@ export type PendingRehydrationRequest = {
   docHash: RehydrationRequestedEvent["docHash"];
   recipient: Address;
   rehydrationPublicKey: string;
+  selfieProof: string;
   blockNumber: bigint;
   txHash: string;
   logIndex: number;
@@ -90,6 +91,7 @@ export function latestRehydrationRequests(
       docHash: event.docHash,
       recipient: event.recipient,
       rehydrationPublicKey: event.rehydrationPublicKey,
+      selfieProof: event.selfieProof,
       blockNumber: event.blockNumber,
       txHash: event.txHash,
       logIndex: event.logIndex,

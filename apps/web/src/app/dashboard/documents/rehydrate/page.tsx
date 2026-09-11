@@ -14,7 +14,6 @@ import {
 } from "@soulvault/protocol";
 
 import { Button } from "@/components/ui/button";
-import { WorldSelfieGate } from "@/components/documents/world-selfie-gate";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
 import { useDocumentEvents } from "@/hooks/useDocumentEvents";
 import { useDocumentRegistryAddress } from "@/hooks/useDocumentRegistryAddress";
@@ -28,6 +27,7 @@ import {
   publicHydrationError,
   rehydrateSelfieSignal,
 } from "@/lib/document-rehydrate";
+import { WorldSelfieGate } from "@/components/documents/world-selfie-gate";
 import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 import { explorerTxUrl, shortTx } from "@/lib/format";
 
@@ -65,26 +65,6 @@ function loadRehydrationKeyFor(wallet: string): Promise<RehydrationKey> {
   return promise;
 }
 
-function nullifierStoreKey(appId: string, action: string) {
-  return `soulvault.world.nullifiers.${appId}.${action}`;
-}
-
-function loadConsumedNullifiers(appId: string, action: string): Set<string> {
-  try {
-    const raw = sessionStorage.getItem(nullifierStoreKey(appId, action));
-    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
-    return new Set(Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : []);
-  } catch {
-    return new Set();
-  }
-}
-
-function saveConsumedNullifier(appId: string, action: string, nullifier: string) {
-  const next = loadConsumedNullifiers(appId, action);
-  next.add(nullifier);
-  sessionStorage.setItem(nullifierStoreKey(appId, action), JSON.stringify([...next]));
-}
-
 export default function DocumentsRehydratePage() {
   const { address, connector, sendTransaction, signTypedData } = useSoulVaultWallet();
   const { documents, activeGrants, status, events } = useDocumentEvents({
@@ -96,17 +76,18 @@ export default function DocumentsRehydratePage() {
   const [attestation, setAttestation] = useState<SignedRehydrationKeyAttestation | null>(null);
   const [key, setKey] = useState<RehydrationKey | null>(null);
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
-  const [selfieOk, setSelfieOk] = useState(false);
+  const [selfieProof, setSelfieProof] = useState<string | null>(null);
   const [requestTx, setRequestTx] = useState<string | null>(null);
   const [requestBusy, setRequestBusy] = useState(false);
   const [keyError, setKeyError] = useState<string | null>(null);
   const [sessionRun, setSessionRun] = useState<"match" | "mismatch" | "no-session" | null>(null);
   const config = getBrowserSoulVaultClientConfig();
   const { address: registry } = useDocumentRegistryAddress(bundle);
-  const world = getBrowserWorldRehydrateGate();
-  const requestBlocked = world.mode === "error" || (world.mode === "required" && !selfieOk);
-
   const onChain = bundle ? documents.documents.get(asDocHash(bundle.artifact.documentId)) : undefined;
+  const selfieRequired = Boolean(onChain?.selfieRequired);
+  const world = getBrowserWorldRehydrateGate();
+  const selfieSignal =
+    address && bundle ? rehydrateSelfieSignal(address, bundle.artifact.documentId) : "";
 
   // Load (or create) the local rehydration key as soon as a wallet connects —
   // no signature needed for the onchain request path, and grants delivered
@@ -282,23 +263,19 @@ export default function DocumentsRehydratePage() {
    */
   async function requestOnchain() {
     if (!address || !config || !registry || !bundle) return;
-    if (requestBlocked) {
-      setError(
-        world.mode === "error"
-          ? world.message
-          : "World Selfie Check is required before request rehydration.",
-      );
-      return;
-    }
     setError(null);
     setRequestBusy(true);
     try {
       const next = await loadRehydrationKeyFor(address);
       setKey(next);
+      if (selfieRequired && !selfieProof) {
+        throw new Error("World Selfie Check is required before request rehydration.");
+      }
       const hash = await requestRehydration({
         from: address,
         documentId: bundle.artifact.documentId,
         rehydrationPublicKey: next.publicKey,
+        selfieProof: selfieProof ?? "",
         send: sendTransaction,
       });
       setRequestTx(hash);
@@ -409,7 +386,6 @@ export default function DocumentsRehydratePage() {
           the device.
         </p>
       ) : null}
-      <WorldGateBanner world={world} selfieOk={selfieOk} />
       {status === "error" ? <p className="mt-3 text-sm text-destructive">Event config missing or scan failed.</p> : null}
       {keyError ? <p className="mt-3 text-sm text-destructive">Rehydration key error: {keyError}</p> : null}
       {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
@@ -432,7 +408,10 @@ export default function DocumentsRehydratePage() {
           encrypted slots — no other file is needed. The separate
           .redacted.txt download is a plain-text copy and cannot rehydrate.
         </p>
-        <Button onClick={() => void requestOnchain()} disabled={!address || !bundle || requestBusy || requestBlocked}>
+        <Button
+          onClick={() => void requestOnchain()}
+          disabled={!address || !bundle || requestBusy || (selfieRequired && !selfieProof)}
+        >
           {requestBusy
             ? connector === "ledger"
               ? "Confirm on Ledger…"
@@ -491,21 +470,19 @@ export default function DocumentsRehydratePage() {
         </details>
       </div>
 
-      {world.mode === "required" ? (
+      {bundle && address && selfieRequired && world.mode === "required" ? (
         <WorldSelfieGate
           world={world}
-          signal={address && bundle ? rehydrateSelfieSignal(address, bundle.artifact.documentId) : ""}
-          selfieOk={selfieOk}
-          onVerified={(nullifier) => {
-            saveConsumedNullifier(world.appId, world.action, nullifier);
-            setSelfieOk(true);
-            setError(null);
-          }}
-          onError={(message) => {
-            setSelfieOk(false);
-            setError(message);
-          }}
+          signal={selfieSignal}
+          selfieOk={Boolean(selfieProof)}
+          onVerified={(_nullifier, proofJson) => setSelfieProof(proofJson)}
+          onError={(message) => setError(message)}
         />
+      ) : bundle && selfieRequired && world.mode !== "required" ? (
+        <p className="mt-3 text-sm text-destructive">
+          This document requires a Selfie Check, but the IDKit widget is unconfigured
+          (set NEXT_PUBLIC_WORLD_APP_ID / RP_ID / RP_URL).
+        </p>
       ) : null}
 
       {bundle ? (
@@ -680,37 +657,5 @@ export default function DocumentsRehydratePage() {
         </>
       ) : null}
     </div>
-  );
-}
-
-function WorldGateBanner({
-  world,
-  selfieOk,
-}: {
-  world: ReturnType<typeof getBrowserWorldRehydrateGate>;
-  selfieOk: boolean;
-}) {
-  if (world.mode === "error") {
-    return <p className="mt-3 text-sm text-destructive">{world.message}</p>;
-  }
-  if (world.mode === "required") {
-    return (
-      <p className="mt-3 text-xs text-muted-foreground">
-        World Selfie Check: <span className="chip">{selfieOk ? "verified" : "required before request"}</span>
-      </p>
-    );
-  }
-  if (world.unconfigured) {
-    return (
-      <p className="mt-3 text-sm text-destructive">
-        World Selfie Check app id / verifier is unset. Gate is off — set{" "}
-        <span className="font-mono">NEXT_PUBLIC_WORLD_APP_ID</span> to require it.
-      </p>
-    );
-  }
-  return (
-    <p className="mt-3 text-xs text-muted-foreground">
-      World Selfie Check: <span className="chip">off</span>
-    </p>
   );
 }

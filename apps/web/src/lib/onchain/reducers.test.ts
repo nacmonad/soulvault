@@ -211,7 +211,7 @@ describe('reduceSwarmState', () => {
 const publish = (docHash: Hex, blockNumber: bigint, author = ALICE) =>
   makeRawLog({
     kind: 'document', address: DOC_ADDRESS, eventName: 'DocumentPublished',
-    args: { docHash, author, slotIds: ['sv_a_1', 'sv_b_1'] },
+    args: { docHash, author, slotIds: ['sv_a_1', 'sv_b_1'], selfieRequired: false },
     blockNumber, logIndex: 0,
   });
 const grant = (slotId: string, blockNumber: bigint, overrides: Record<string, unknown> = {}) =>
@@ -227,6 +227,7 @@ describe('reduceDocumentState', () => {
     const doc = documents.get(DOC_HASH)!;
     expect(doc.author).toBe(ALICE);
     expect(doc.slotIds).toEqual(['sv_a_1', 'sv_b_1']);
+    expect(doc.selfieRequired).toBe(false);
     expect(doc.publishedAt.blockNumber).toBe(1n);
   });
 

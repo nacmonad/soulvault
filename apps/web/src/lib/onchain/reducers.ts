@@ -255,6 +255,7 @@ export type DocumentMeta = {
   docHash: Hex;
   author: Address;
   slotIds: string[];
+  selfieRequired: boolean;
   publishedAt: { blockNumber: bigint; txHash: Hex };
 };
 
@@ -271,6 +272,7 @@ export function reduceDocumentState(events: readonly SoulVaultEvent[]): Document
       docHash: published.docHash,
       author: published.author,
       slotIds: published.slotIds,
+      selfieRequired: published.selfieRequired,
       publishedAt: at(event),
     });
   }

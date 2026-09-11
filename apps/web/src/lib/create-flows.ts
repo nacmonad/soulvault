@@ -20,7 +20,7 @@ import { createSoulVaultPublicClient, getBrowserSoulVaultClientConfig } from "@/
 import { sendWalletTransaction, deployWalletContract, waitForWalletReceipt } from "@/lib/wallet-tx";
 import {
   asDocHash,
-  WRITE_ABI,
+  publishDocument,
   resolveDocumentRegistryAddress,
   type DocumentRegistrySource,
 } from "@/lib/document-registry";
@@ -343,7 +343,8 @@ export type DocumentPublishResult = {
 
 /**
  * Anchor a redacted document on the DocumentRegistry:
- * publishDocument(docHash, slotIds) → DocumentPublished. One wallet signature.
+ * publishDocument(docHash, slotIds, selfieRequired) → DocumentPublished.
+ * One wallet signature. The Selfie Check flag does not gate this tx.
  * Routes through the shared transaction channel (same signer + preflight as the
  * deploy wizards, not a bespoke inline path), then waits for the receipt — a
  * publish is only "done" when the event is actually on-chain.
@@ -352,6 +353,7 @@ export async function runDocumentPublish(input: {
   from: Address;
   documentId: string;
   slotIds: string[];
+  selfieRequired?: boolean;
   onStep: (stepId: string, update: Partial<WizardStep>) => void;
 }): Promise<DocumentPublishResult> {
   input.onStep("resolve", { status: "signing" });
@@ -364,15 +366,14 @@ export async function runDocumentPublish(input: {
   }
   input.onStep("resolve", { status: "done", detail: `${registry} · via ${source}` });
 
-  const docHash = asDocHash(input.documentId);
-  const data = encodeFunctionData({
-    abi: WRITE_ABI,
-    functionName: "publishDocument",
-    args: [docHash, input.slotIds],
-  });
-
   input.onStep("publish", { status: "signing" });
-  const txHash = await sendWalletTransaction({ from: input.from, to: registry, data });
+  const txHash = await publishDocument({
+    from: input.from,
+    documentId: input.documentId,
+    slotIds: input.slotIds,
+    selfieRequired: input.selfieRequired,
+    send: sendWalletTransaction,
+  });
   input.onStep("publish", { status: "mining", txHash });
   const receipt = await waitForWalletReceipt(txHash);
   if (receipt.status !== "success") {
@@ -380,5 +381,11 @@ export async function runDocumentPublish(input: {
   }
   input.onStep("publish", { status: "done", txHash, detail: `block ${receipt.blockNumber}` });
 
-  return { registry, registrySource: source, docHash, txHash, blockNumber: receipt.blockNumber };
+  return {
+    registry,
+    registrySource: source,
+    docHash: asDocHash(input.documentId),
+    txHash,
+    blockNumber: receipt.blockNumber,
+  };
 }

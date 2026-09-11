@@ -39,12 +39,21 @@ contract SoulVaultDocumentRegistry {
     error NotPublished();
     error EmptyPublicKey();
     error ArrayLengthMismatch();
+    error EmptySelfieProof();
 
     /// @notice docHash => author of record. The slot list lives in the
     /// publication event log (the resolver's canonical source).
     mapping(bytes32 => address) private _publicationAuthor;
+    /// @notice Per-document World Selfie Check policy. Default false so
+    /// pre-flag publications and the Ledger demo stay ungated.
+    mapping(bytes32 => bool) private _selfieRequired;
 
-    event DocumentPublished(bytes32 indexed docHash, address indexed author, string[] slotIds);
+    event DocumentPublished(
+        bytes32 indexed docHash,
+        address indexed author,
+        string[] slotIds,
+        bool selfieRequired
+    );
     event SlotKeyGranted(
         bytes32 indexed docHash,
         string slotId,
@@ -58,13 +67,30 @@ contract SoulVaultDocumentRegistry {
     /// rehydration public key rides in the event; `recipient` (msg.sender) is
     /// authenticated by the tx signature, so the event is the wallet-attested
     /// key binding — grants can be wrapped directly from it.
-    event RehydrationRequested(bytes32 indexed docHash, address indexed recipient, string rehydrationPublicKey);
+    event RehydrationRequested(
+        bytes32 indexed docHash,
+        address indexed recipient,
+        string rehydrationPublicKey,
+        string selfieProof
+    );
 
     /// @notice Anchor a redacted document's integrity: docHash + slot list.
     /// The author is msg.sender; the document itself never touches the chain.
     /// The first publisher of a docHash is its author of record permanently —
     /// republishing cannot transfer grant authority to a different address.
+    /// Two-arg form keeps `selfieRequired=false` (Ledger demo / old clients).
     function publishDocument(bytes32 docHash, string[] calldata slotIds) external {
+        _publishDocument(docHash, slotIds, false);
+    }
+
+    /// @notice Same as the two-arg form, with an optional World Selfie Check
+    /// policy flag. The flag does not gate this transaction — Alice never
+    /// selfies to publish. It binds later `requestRehydration` / grant-from-request.
+    function publishDocument(bytes32 docHash, string[] calldata slotIds, bool requireSelfie) external {
+        _publishDocument(docHash, slotIds, requireSelfie);
+    }
+
+    function _publishDocument(bytes32 docHash, string[] calldata slotIds, bool requireSelfie) internal {
         if (docHash == bytes32(0)) revert EmptyDocHash();
         for (uint256 i = 0; i < slotIds.length; i++) {
             if (bytes(slotIds[i]).length == 0) revert EmptySlotId();
@@ -76,8 +102,9 @@ contract SoulVaultDocumentRegistry {
         } else {
             _publicationAuthor[docHash] = msg.sender;
         }
+        _selfieRequired[docHash] = requireSelfie;
 
-        emit DocumentPublished(docHash, msg.sender, slotIds);
+        emit DocumentPublished(docHash, msg.sender, slotIds, requireSelfie);
     }
 
     /// @notice Deliver a wrapped slot key to a recipient. Only the publishing
@@ -145,15 +172,43 @@ contract SoulVaultDocumentRegistry {
         return _publicationAuthor[docHash];
     }
 
+    /// @notice World Selfie Check policy for a published document.
+    function selfieRequired(bytes32 docHash) external view returns (bool) {
+        return _selfieRequired[docHash];
+    }
+
     /// @notice Request hydration of a published document. The caller's tx
     /// signature binds `msg.sender` to `rehydrationPublicKey` — the author
     /// wraps slot keys to that key and delivers them via SlotKeyGranted.
     /// Re-requesting with a fresh key is the key-loss recovery story: the old
     /// request stays in the log but grants wrapped to it simply cannot be
     /// unwrapped by the new key (fail closed).
+    /// Two-arg form carries an empty selfieProof (reverts if the document
+    /// was published with selfieRequired=true).
     function requestRehydration(bytes32 docHash, string calldata rehydrationPublicKey) external {
+        string memory emptyProof;
+        _requestRehydration(docHash, rehydrationPublicKey, emptyProof);
+    }
+
+    /// @notice Same as the two-arg form, with the IDKit result JSON when the
+    /// document requires a Selfie Check. The chain stores the proof string; it
+    /// does not verify the ZK. Alice's client (RP worker) is the verifier.
+    function requestRehydration(
+        bytes32 docHash,
+        string calldata rehydrationPublicKey,
+        string calldata selfieProof
+    ) external {
+        _requestRehydration(docHash, rehydrationPublicKey, selfieProof);
+    }
+
+    function _requestRehydration(
+        bytes32 docHash,
+        string memory rehydrationPublicKey,
+        string memory selfieProof
+    ) internal {
         if (_publicationAuthor[docHash] == address(0)) revert NotPublished();
         if (bytes(rehydrationPublicKey).length == 0) revert EmptyPublicKey();
-        emit RehydrationRequested(docHash, msg.sender, rehydrationPublicKey);
+        if (_selfieRequired[docHash] && bytes(selfieProof).length == 0) revert EmptySelfieProof();
+        emit RehydrationRequested(docHash, msg.sender, rehydrationPublicKey, selfieProof);
     }
 }

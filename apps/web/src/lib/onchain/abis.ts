@@ -16,8 +16,13 @@ import { parseAbi, type Abi } from 'viem';
 import type { SoulVaultContractKind } from './types';
 
 export const DOCUMENT_EVENT_ABI = parseAbi([
-  'event DocumentPublished(bytes32 indexed docHash, address indexed author, string[] slotIds)',
+  // Current registry (selfieRequired on publish, selfieProof on request).
+  'event DocumentPublished(bytes32 indexed docHash, address indexed author, string[] slotIds, bool selfieRequired)',
   'event SlotKeyGranted(bytes32 indexed docHash, string slotId, address indexed recipient, string wrappedKey, string algorithm, string ephemeralPublicKey, string nonce)',
+  'event RehydrationRequested(bytes32 indexed docHash, address indexed recipient, string rehydrationPublicKey, string selfieProof)',
+  // Pre-flag Sepolia registries: same names, different topic0. Decode as
+  // selfieRequired=false / empty proof.
+  'event DocumentPublished(bytes32 indexed docHash, address indexed author, string[] slotIds)',
   'event RehydrationRequested(bytes32 indexed docHash, address indexed recipient, string rehydrationPublicKey)',
 ]);
 

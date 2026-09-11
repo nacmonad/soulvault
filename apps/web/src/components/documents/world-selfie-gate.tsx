@@ -31,7 +31,7 @@ export function WorldSelfieGate(props: {
   world: Extract<WorldRehydrateGate, { mode: "required" }>;
   signal: string;
   selfieOk: boolean;
-  onVerified: (nullifier: string) => void;
+  onVerified: (nullifier: string, proofJson: string) => void;
   onError: (message: string) => void;
 }) {
   const { world, signal, selfieOk, onVerified, onError } = props;
@@ -93,7 +93,7 @@ export function WorldSelfieGate(props: {
     if (!body.approved || !body.nullifier) {
       throw new Error(body.reason ? `Selfie Check failed (${body.reason}).` : "Selfie Check failed.");
     }
-    onVerified(body.nullifier);
+    onVerified(body.nullifier, JSON.stringify(result));
   }
 
   function presentFixture() {
@@ -106,7 +106,7 @@ export function WorldSelfieGate(props: {
       if (!result.ok) {
         throw new RehydrateGateError("SELFIE_REJECTED", `Selfie Check failed (${result.reason}).`);
       }
-      onVerified(result.nullifier);
+      onVerified(result.nullifier, proofText.trim());
     } catch (cause) {
       onError(cause instanceof Error ? cause.message : "Selfie Check failed.");
     }

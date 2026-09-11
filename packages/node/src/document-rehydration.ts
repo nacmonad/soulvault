@@ -39,9 +39,11 @@ import { resolveKeysDir } from './paths.js';
 export const DOCUMENT_REGISTRY_REHYDRATION_ABI = [
   'function grantSlotKey(bytes32 docHash, string slotId, address recipient, string wrappedKey, string algorithm, string ephemeralPublicKey, string nonce)',
   'function requestRehydration(bytes32 docHash, string rehydrationPublicKey)',
+  'function requestRehydration(bytes32 docHash, string rehydrationPublicKey, string selfieProof)',
   'function publicationAuthor(bytes32 docHash) view returns (address)',
-  'event DocumentPublished(bytes32 indexed docHash, address indexed author, string[] slotIds)',
-  'event RehydrationRequested(bytes32 indexed docHash, address indexed recipient, string rehydrationPublicKey)',
+  'function selfieRequired(bytes32 docHash) view returns (bool)',
+  'event DocumentPublished(bytes32 indexed docHash, address indexed author, string[] slotIds, bool selfieRequired)',
+  'event RehydrationRequested(bytes32 indexed docHash, address indexed recipient, string rehydrationPublicKey, string selfieProof)',
   'event SlotKeyGranted(bytes32 indexed docHash, string slotId, address indexed recipient, string wrappedKey, string algorithm, string ephemeralPublicKey, string nonce)',
 ] as const;
 
@@ -49,6 +51,7 @@ export type RehydrationRequestRecord = {
   docHash: string;
   recipient: string;
   rehydrationPublicKey: string;
+  selfieProof: string;
   txHash: string;
   blockNumber: number;
 };
@@ -125,6 +128,7 @@ async function resolveRegistryOr(input: {
 export async function requestRehydrationOnRegistry(input: {
   docHash: string;
   rehydrationPublicKey?: string;
+  selfieProof?: string;
   keyId?: string;
   replaceKey?: boolean;
   registry?: string;
@@ -135,10 +139,13 @@ export async function requestRehydrationOnRegistry(input: {
   const registry = await resolveRegistryOr(input);
   const key = await loadLocalRehydrationKey(input.keyId ?? 'default', input.replaceKey ?? false);
   const docHash = normalizeDocHash(input.docHash);
+  const selfieProof = input.selfieProof ?? '';
 
   const signer = await createEnsSigner();
   const contract = new Contract(registry, DOCUMENT_REGISTRY_REHYDRATION_ABI, signer);
-  const tx = await contract.requestRehydration(docHash, key.publicKey);
+  const tx = selfieProof
+    ? await contract['requestRehydration(bytes32,string,string)'](docHash, key.publicKey, selfieProof)
+    : await contract['requestRehydration(bytes32,string)'](docHash, key.publicKey);
   const receipt = await tx.wait();
   return {
     registry,
@@ -204,11 +211,13 @@ export async function fetchRehydrationRequests(input: {
       docHash: string;
       recipient: string;
       rehydrationPublicKey: string;
+      selfieProof?: string;
     };
     return {
       docHash: args.docHash,
       recipient: args.recipient,
       rehydrationPublicKey: args.rehydrationPublicKey,
+      selfieProof: args.selfieProof ?? '',
       txHash: event.transactionHash,
       blockNumber: event.blockNumber,
     };

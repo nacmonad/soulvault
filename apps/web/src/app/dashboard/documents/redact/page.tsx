@@ -68,6 +68,7 @@ export default function DocumentsRedactPage() {
   const [menuPos, setMenuPos] = useState<MenuPos>({ x: 16, y: 16 });
   const [result, setResult] = useState<RedactedDocumentResult | null>(null);
   const [registryHint, setRegistryHint] = useState<DocumentRegistryHint | undefined>(undefined);
+  const [selfieRequired, setSelfieRequired] = useState(false);
   const [useGliner, setUseGliner] = useState(false);
   const [webGpu, setWebGpu] = useState(false);
   const [model, setModel] = useState({
@@ -363,6 +364,7 @@ export default function DocumentsRedactPage() {
         from: address,
         documentId: result.artifact.documentId,
         slotIds: result.artifact.slots.map((slot) => slot.slotId),
+        selfieRequired,
         onStep: (stepId, update) =>
           setPublishSteps((prev) => prev.map((step) => (step.id === stepId ? { ...step, ...update } : step))),
       });
@@ -736,6 +738,14 @@ export default function DocumentsRedactPage() {
         <Button variant="outline" onClick={downloadBundle} disabled={!result}>
           Download public bundle
         </Button>
+        <label className="inline-flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={selfieRequired}
+            onChange={(event) => setSelfieRequired(event.target.checked)}
+          />
+          Require Selfie Check for grants-from-request
+        </label>
         <Button variant="outline" onClick={() => void publish()} disabled={!result || !address || publishBusy}>
           {publishBusy ? "Publishing…" : "Publish on-chain"}
         </Button>

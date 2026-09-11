@@ -22,6 +22,9 @@ import {
 import { currentSessionDocumentId, downloadText, listSessionRuns, loadSessionDocument, loadSessionRunByBundle, storedSessionDocumentIds } from "@/lib/document-session";
 import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 import { shortAddress } from "@/lib/format";
+import { getBrowserWorldWidgetConfig, rehydrateSelfieSignal, verifySelfieProof } from "@/lib/world-rp";
+
+type SelfieChip = "missing" | "pending" | "verified" | "rejected";
 
 export default function DocumentsGrantsPage() {
   const { address, connector } = useSoulVaultWallet();
@@ -58,6 +61,8 @@ export default function DocumentsGrantsPage() {
     if (pendingGrant) wizardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [pendingGrant]);
 
+  const widget = getBrowserWorldWidgetConfig();
+  const [selfieChips, setSelfieChips] = useState<Record<string, SelfieChip>>({});
   const selectedDoc = docHash ? documents.documents.get(docHash) : undefined;
   const currentSession = selectedDoc ? loadSessionDocument(selectedDoc.docHash) : null;
   const archivedRuns = selectedDoc ? listSessionRuns(selectedDoc.docHash) : [];
@@ -98,6 +103,50 @@ export default function DocumentsGrantsPage() {
     setSelected(new Set(match.slotIds));
   }, [authored, docHash]);
 
+  const requests = selectedDoc
+    ? latestRehydrationRequests(docEvents, selectedDoc.docHash)
+    : [];
+  const selfieRequired = Boolean(selectedDoc?.selfieRequired);
+  const rpUrl = widget?.rpUrl ?? "";
+  const requestSig = requests.map((r) => `${r.txHash}:${r.logIndex}:${r.selfieProof}`).join("|");
+
+  useEffect(() => {
+    if (!selfieRequired) return;
+    let cancelled = false;
+    for (const request of requests) {
+      const key = `${request.txHash}:${request.logIndex}`;
+      if (!request.selfieProof) {
+        setSelfieChips((prev) => ({ ...prev, [key]: "missing" }));
+        continue;
+      }
+      if (!rpUrl) {
+        setSelfieChips((prev) => ({ ...prev, [key]: "missing" }));
+        continue;
+      }
+      setSelfieChips((prev) => (prev[key] === "verified" ? prev : { ...prev, [key]: "pending" }));
+      let proof: unknown;
+      try {
+        proof = JSON.parse(request.selfieProof);
+      } catch {
+        setSelfieChips((prev) => ({ ...prev, [key]: "rejected" }));
+        continue;
+      }
+      void verifySelfieProof({
+        rpUrl,
+        proof,
+        expectedSignal: rehydrateSelfieSignal(request.recipient, request.docHash),
+      }).then((result) => {
+        if (cancelled) return;
+        setSelfieChips((prev) => ({ ...prev, [key]: result.approved ? "verified" : "rejected" }));
+      });
+    }
+    return () => {
+      cancelled = true;
+    };
+    // requestSig covers the request list without a new-array identity loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selfieRequired, requestSig, rpUrl]);
+
   if (!address) {
     return (
       <div>
@@ -113,10 +162,6 @@ export default function DocumentsGrantsPage() {
         const parsed = parseDocumentEvent(event);
         return parsed?.eventName === "SlotKeyGranted" && parsed.docHash === selectedDoc.docHash ? [parsed] : [];
       })
-    : [];
-
-  const requests = selectedDoc
-    ? latestRehydrationRequests(docEvents, selectedDoc.docHash)
     : [];
   const pendingAcrossDocs = useMemo(
     () => pendingRehydrationRequests(docEvents, authored.map((doc) => doc.docHash)),
@@ -172,6 +217,10 @@ export default function DocumentsGrantsPage() {
 
   async function grantToRequest(request: PendingRehydrationRequest) {
     if (!selectedDoc || !address) return;
+    if (selectedDoc.selfieRequired && selfieChips[`${request.txHash}:${request.logIndex}`] !== "verified") {
+      setError("World Selfie Check has not verified this request yet.");
+      return;
+    }
     if (!config || !registry) {
       setError(
         registry === null && config
@@ -232,6 +281,10 @@ export default function DocumentsGrantsPage() {
     }
     if (!isAuthor) {
       setError("Only the publishing author can grant slots.");
+      return;
+    }
+    if (selectedDoc.selfieRequired) {
+      setError("This document requires a Selfie Check on the rehydration request. Pre-request grants are closed.");
       return;
     }
     const keys = session?.slotKeys;
@@ -462,6 +515,11 @@ export default function DocumentsGrantsPage() {
                       key fp {rehydrationKeyFingerprint(request.rehydrationPublicKey).slice(0, 12)}…
                     </span>
                     <span className="text-xs text-muted-foreground">block {request.blockNumber}</span>
+                    {selfieRequired ? (
+                      <span className="chip">
+                        selfie {selfieChips[`${request.txHash}:${request.logIndex}`] ?? "missing"}
+                      </span>
+                    ) : null}
                     {grantedCount > 0 ? (
                       <span className="chip">{grantedCount} granted</span>
                     ) : null}
@@ -482,7 +540,13 @@ export default function DocumentsGrantsPage() {
                     >
                       <Button
                         size="sm"
-                        disabled={busy || !isAuthor || selected.size === 0 || !session}
+                        disabled={
+                          busy ||
+                          !isAuthor ||
+                          selected.size === 0 ||
+                          !session ||
+                          (selfieRequired && selfieChips[`${request.txHash}:${request.logIndex}`] !== "verified")
+                        }
                         onClick={() => void grantToRequest(request)}
                       >
                         {busy ? "Granting…" : `Grant ${selected.size} slot${selected.size === 1 ? "" : "s"}`}
@@ -528,7 +592,14 @@ export default function DocumentsGrantsPage() {
             <Button
               className="mt-4"
               onClick={() => void grantPreRequest()}
-              disabled={busy || !isAuthor || selected.size === 0 || !preRequestRecipient.trim() || !preRequestKey.trim()}
+              disabled={
+                busy ||
+                !isAuthor ||
+                selected.size === 0 ||
+                !preRequestRecipient.trim() ||
+                !preRequestKey.trim() ||
+                selfieRequired
+              }
             >
               {busy
                 ? connector === "ledger"

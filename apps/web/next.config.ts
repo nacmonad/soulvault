@@ -27,7 +27,7 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_BASE_PATH: basePath,
   },
   // Workspace packages export TypeScript source directly; Next compiles them.
-  transpilePackages: ["@soulvault/protocol", "@soulvault/node", "@soulvault/presidio-adapter"],
+  transpilePackages: ["@soulvault/protocol", "@soulvault/node", "@soulvault/presidio-adapter", "@worldcoin/idkit"],
   // Workspace packages use NodeNext-style `.js` specifiers over `.ts` files
   // (see packages/protocol/src/index.ts). Webpack needs extensionAlias to map
   // those; Turbopack has no equivalent, so dev must stay on webpack

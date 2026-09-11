@@ -81,6 +81,7 @@ function decodeDocumentEvent(
         docHash: args.docHash as Hex,
         author: args.author as Address,
         slotIds: (args.slotIds as string[]) ?? [],
+        selfieRequired: Boolean(args.selfieRequired),
       };
     case 'SlotKeyGranted': {
       const algorithm = args.algorithm as string;
@@ -108,6 +109,7 @@ function decodeDocumentEvent(
         docHash: args.docHash as Hex,
         recipient: args.recipient as Address,
         rehydrationPublicKey: args.rehydrationPublicKey as string,
+        selfieProof: typeof args.selfieProof === 'string' ? args.selfieProof : '',
       };
     default:
       return null;

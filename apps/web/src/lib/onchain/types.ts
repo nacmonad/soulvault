@@ -40,6 +40,8 @@ export type DocumentPublishedEvent = EventMeta & {
   docHash: Hex;
   author: Address;
   slotIds: string[];
+  /** World Selfie Check policy. Missing/false on pre-flag events. */
+  selfieRequired: boolean;
 };
 
 export type SlotKeyGrantedEvent = EventMeta & {
@@ -62,6 +64,8 @@ export type RehydrationRequestedEvent = EventMeta & {
   recipient: Address;
   /** Uncompressed secp256k1 public key (hex), the grant-wrap target. */
   rehydrationPublicKey: string;
+  /** IDKit result JSON. Empty when the document was published without the flag. */
+  selfieProof: string;
 };
 
 export type SoulVaultDocumentEvent =

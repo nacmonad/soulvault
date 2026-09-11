@@ -121,6 +121,13 @@ export function roundRobinTransport(config: {
     throw new Error('unreachable');
   };
 
+  // Read-cache wrapper (TTL + in-flight dedupe) — the browser equivalent of
+  // what Next.js does server-side. Mount-time event scanning re-reads the
+  // same block ranges/blocks through many hooks and effects; without this
+  // every redundant read is another public-RPC request (and another 429).
+  // Writes and pre-send reads are never cached.
+  const requestCached = withReadCache(request);
+
   // viem's Transport shape: a factory invoked per client with client config,
   // returning { config, request }. The rotation state (next, coolingUntil)
   // lives in this closure, so every client built from this transport shares
@@ -132,11 +139,77 @@ export function roundRobinTransport(config: {
         name: 'SoulVault Round Robin',
         type: 'round-robin',
       },
-      request: request as never,
+      request: requestCached as never,
     })) as unknown as Transport<'round-robin', Record<string, never>>;
 }
 
 const RATE_LIMIT_COOLDOWN_MS = 15_000;
+
+/**
+ * TTL + in-flight dedupe for idempotent read methods. Keyed by method+params
+ * (provider-agnostic — any healthy endpoint can serve a cache hit). Only
+ * safe-for-caching methods are cached; writes, estimates, and nonces never
+ * are. Entries are swept lazily on access.
+ */
+const READ_CACHE_TTL_MS: Record<string, number> = {
+  eth_call: 5_000,
+  eth_getLogs: 5_000,
+  eth_getBlockByNumber: 30_000,
+  eth_getBlockByHash: 30_000,
+  eth_getTransactionReceipt: 5_000,
+  eth_getTransaction: 30_000,
+  eth_blockNumber: 3_000,
+  eth_chainId: 60_000,
+  eth_getBalance: 5_000,
+};
+
+/** Module-level so every client built in the page shares one cache. */
+const readCache = new Map<string, { value: unknown; expiresAt: number }>();
+const inflightReads = new Map<string, Promise<unknown>>();
+
+/** Methods that must NEVER be served from cache (writes + pre-send reads). */
+const WRITE_METHODS = new Set([
+  'eth_sendRawTransaction',
+  'eth_sendTransaction',
+  'eth_estimateGas',
+  'eth_getTransactionCount',
+  'eth_signTypedData_v4',
+  'personal_sign',
+]);
+
+function withReadCache(request: (args: { method: string; params?: unknown[] }) => Promise<unknown>) {
+  return async ({ method, params }: { method: string; params?: unknown[] }) => {
+    if (WRITE_METHODS.has(method)) return request({ method, params });
+    const ttl = READ_CACHE_TTL_MS[method];
+    if (!ttl) return request({ method, params });
+    let key: string;
+    try {
+      key = `${method}:${JSON.stringify(params ?? [])}`;
+    } catch {
+      return request({ method, params });
+    }
+    const now = Date.now();
+    const cached = readCache.get(key);
+    if (cached && cached.expiresAt > now) return cached.value;
+    const inflight = inflightReads.get(key);
+    if (inflight) return inflight;
+    const promise = request({ method, params })
+      .then((value) => {
+        readCache.set(key, { value, expiresAt: Date.now() + ttl });
+        inflightReads.delete(key);
+        return value;
+      })
+      .catch((error) => {
+        inflightReads.delete(key); // errors are not cached — retry next time
+        throw error;
+      });
+    inflightReads.set(key, promise);
+    return promise;
+  };
+}
+
+/** Per-method TTLs — WRITE_METHODS short-circuits before this table is consulted. */
+const READ_CACHE_TTL = READ_CACHE_TTL_MS;
 
 /** Same semantics as viem's fallback shouldThrow — deterministic errors don't rotate providers. */
 function fallbackShouldThrow(error: unknown): boolean {

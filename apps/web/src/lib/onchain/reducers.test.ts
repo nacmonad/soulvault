@@ -373,3 +373,15 @@ describe('parseAgentUri', () => {
     expect(parseAgentUri(null)).toBeNull();
   });
 });
+
+describe('parseAgentUri ensName', () => {
+  it('surfaces soulvault.ensName for identity-card titling', () => {
+    const payload = {
+      type: 'SoulVaultAgent',
+      name: 'charlie',
+      soulvault: { swarmContract: SWARM_CONTRACT, memberAddress: WALLET, ensName: 'charlie.ops.soulvault-ensv2.eth' },
+    };
+    const parsed = parseAgentUri('data:application/json;base64,' + btoa(JSON.stringify(payload)));
+    expect(parsed?.soulvault?.ensName).toBe('charlie.ops.soulvault-ensv2.eth');
+  });
+});

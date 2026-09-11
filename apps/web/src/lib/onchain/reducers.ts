@@ -74,6 +74,8 @@ export type AgentUriPayload = {
     harness?: string;
     backupHarnessCommand?: string;
     registryAddress?: string;
+    /** ENSv2 bridge name (<agent>.<swarm>.<org>.eth) — the agent's canonical title. */
+    ensName?: string;
   };
 };
 

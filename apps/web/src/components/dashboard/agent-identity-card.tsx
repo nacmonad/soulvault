@@ -35,6 +35,7 @@ export function AgentIdentityCard({
   const harness = payload?.soulvault?.harness ?? payload?.harness ?? null;
   const memberAddress = payload?.soulvault?.memberAddress;
   const attributedSwarm = payload?.soulvault?.swarmContract;
+  const ensName = typeof payload?.soulvault?.ensName === 'string' && payload.soulvault.ensName ? payload.soulvault.ensName : null;
   const attributionMismatch =
     compareWallet !== undefined &&
     compareWallet !== null &&
@@ -53,6 +54,11 @@ export function AgentIdentityCard({
           <CopyableAddress address={wallet} />
           {harness ? <span className="chip text-xs">{harness}</span> : null}
         </div>
+        {/* Canonical title: the agent's own ENS name when the registration
+         * carries it, else the public wallet address is already visible above. */}
+        {ensName ? (
+          <p className="mt-0.5 break-all font-mono text-xs text-foreground">{ensName}</p>
+        ) : null}
         {attributedSwarm ? (
           // The URI's own claim — what external ERC-8004 readers resolve.
           <p className="mt-1 text-xs text-muted-foreground">

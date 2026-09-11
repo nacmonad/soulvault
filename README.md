@@ -412,18 +412,17 @@ for the Ledger developer tooling challenge.
 
 ### World track progress
 
-- Selected the World ID **Selfie Check (Beta)** credential (ID 11) as the
-  requester-side human-presence gate for document rehydration: before an author
-  approves a rehydrate request, their node verifies the requester's Selfie Check
-  proof (liveness + face match) and resolves the requester's World identity prior
-  to transmitting the encrypted bundle via smart contract event.
-- Added `@worldcoin/agentkit` and `@worldcoin/idkit-core` to `@soulvault/node`
-  as the integration surface; the `agentkit-x402` skill is installed for
-  agent-side integration reference.
-- Planned PoC coverage: grant approval gated on a verified Selfie Check proof,
-  rejection on missing/expired proofs, and AgentBook resolution of the
-  grant-recipient wallet. Sandbox testing follows the World ID Sandbox App
-  flow once the Selfie Check feature flag is enabled for the app.
+- Selfie Check (credential 11) gates **grant-from-request**, not redact,
+  publish, or unwrap. Alice may set `selfieRequired` on
+  `DocumentPublished`; Charlie’s proof rides `RehydrationRequested`; Alice
+  verifies before `grantSlotKeys`. Spec:
+  [`docs/dashboard-ui/023-world-proof-of-selfie.md`](docs/dashboard-ui/023-world-proof-of-selfie.md).
+- Browser example first: IDKit widget on the Rehydrate tab. RP sign + Portal
+  verify live in a tiny worker (`packages/node/src/world-identity.ts`) because
+  the static Pages export cannot hold `RP_SIGNING_KEY`.
+- `@worldcoin/idkit-core` + `@worldcoin/agentkit` are in `@soulvault/node`.
+  AgentKit is not this gate. Mock verifier covers CI; staging action + widget
+  is the dashboard loop. Sandbox App is a later qualifier pass.
 
 ### World developer challenge notes
 

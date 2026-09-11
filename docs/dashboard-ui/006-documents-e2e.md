@@ -86,8 +86,8 @@ buttons were pressed. Store artifacts as CI artifacts, not in git.
   Network Access). Use the fixture's APDU/events bridge URLs for the
   in-page transport; the controller talks to `apiUrl` from the worker
   process.
-- The World gate is off in this suite (deferred to the World feature branch,
-  see 005); the Ledger clear-sign gate is the one under test.
+- The World gate is off in this suite (ticket 023; publish with
+  `selfieRequired=false`). The Ledger clear-sign gate is the one under test.
 - Use the synthetic Alice fixture text from the headless acceptance
   scenario. No real PII.
 - Speculos proves browser integration and the device-action state machine.

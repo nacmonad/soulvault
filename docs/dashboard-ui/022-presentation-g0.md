@@ -10,13 +10,14 @@ Redact on your machine. Authorized wallets rehydrate only the fields they were g
 
 1. **Redact** — paste a clinic note, local Presidio/GLiNER scan, classify slots, publish hash.
 2. **Grants** — requester asks; author signs which slots. Ledger HITL if connected.
-3. **Rehydrate** — paste the public bundle; only granted slots come back. World Selfie optional on READ.
+3. **Rehydrate** — paste the public bundle; only granted slots come back. Optional World Selfie Check is on the **request**, then Alice grants — not on unwrap.
 
 Org ENS is how the registry is discovered. Do not lead with org/swarm/treasury unless asked.
 
 ## Honest limits
 
-- World action still owner-side; IDKit widget may not be live.
+- World: `selfieRequired` is a publish flag; proof is on the request. IDKit
+  widget is the browser example (ticket 023) — not live until that branch.
 - ENSv2 is a parallel branch — not this screen.
 - A READ grant is permanent. No revoke.
 
@@ -28,7 +29,7 @@ Org ENS is how the registry is discovered. Do not lead with org/swarm/treasury u
 | Microsoft Presidio | Regex + NER + custom recognizers | Self-hosted | Masked text + entity types | None |
 | OpenAI Privacy Filter (1.5B, Apr 2026) | Contextual PII, 8–33 types | Local weights or API | Masked spans | None — detect/mask only |
 | GLiNER2-PII | Schema-flexible NER | Local | Spans | None |
-| **SoulVault** | Presidio (+ optional GLiNER) **on the author’s machine** | Author laptop | Encrypted **slots** + on-chain hash | **Wallet grant** per slot; optional World Selfie on READ |
+| **SoulVault** | Presidio (+ optional GLiNER) **on the author’s machine** | Author laptop | Encrypted **slots** + on-chain hash | **Wallet grant** per slot; optional World Selfie on grant-from-request |
 
 OpenAI Privacy Filter is a detector. SoulVault is detect → encrypt slots → grant from a wallet → rehydrate only what was granted. The benchmark that matters for the prize is not F1 vs Privacy Filter; it is that the plaintext never leaves the author machine and the consumer cannot see ungated fields.
 

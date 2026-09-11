@@ -13,8 +13,9 @@ Judges and operators need a wallet-native dashboard that:
 
 1. Navigates org / swarm / agent / events even when those write-paths are not
    ready this event.
-2. Runs the ETHOnline document loop: redact → grant → rehydrate, with World
-   Selfie Check and Ledger clear-sign as gates on the consumer path.
+2. Runs the ETHOnline document loop: redact → publish (optional
+   `selfieRequired`) → request → grant → rehydrate. World Selfie Check gates
+   grant-from-request; Ledger clear-signs the grant.
 
 #5 explicitly deferred “a general dashboard or polished document-management UI.”
 This epic is that work.
@@ -101,8 +102,9 @@ deployed.
    plaintext.
 10. As an unauthorized wallet (Mallory), I want ungranted markers to stay
     redacted and hydration to fail closed.
-11. As a recipient, I want World Selfie Check and Ledger clear-sign as explicit
-    gates on rehydrate (and Ledger as a signer on grant), not as protocol changes.
+11. As a document author, I want an optional `selfieRequired` flag at publish
+    so grant-from-request waits on World Selfie Check. Redact/publish txs are
+    never blocked by a selfie. Ledger remains the signer on grant.
 12. As a maintainer, I want every dashboard route to keep `output: "export"`
     green — no API routes, no server session.
 
@@ -129,8 +131,10 @@ deployed.
   accept/reject is required (the current demo auto-redacts every finding).
 - A delivered READ grant is a permanent capability (spec §3). The UI must not
   offer revoke, expiry, or “un-read” copy.
-- World Selfie Check and Ledger clear-sign are grant/rehydrate *gates*. They are
-  not embedded in `packages/protocol`.
+- World Selfie Check is a **grant-from-request** gate, optional per document
+  via `selfieRequired` on `DocumentPublished`. It is not a gate on redact,
+  publish, or unwrap, and it is not embedded in `packages/protocol`. Ledger
+  clear-sign remains the signer on grant.
 - Brand: `apps/web/brand/identity.md`. Squared corners, indigo for interactive,
   red only for irreversible actions (none of which exist on READ grants).
 - Current org/swarm live in browser storage keyed by wallet address, not in a
@@ -162,8 +166,9 @@ deployed.
 - Grants: invalid attestation fails closed; valid grant emits `SlotKeyGranted`
   with the protocol wrap; UI never displays raw slot keys.
 - Rehydrate: Charlie hydrates exactly granted slots; Mallory gets no plaintext;
-  `docHash` mismatch fails before unwrap; World/Ledger gates block hydration
-  when configured and fail closed when skipped.
+  `docHash` mismatch fails before unwrap; when `selfieRequired` is set, Charlie
+  presents Selfie Check **on the request**, and Alice’s Grant-to-request fails
+  closed until verify succeeds. Unwrap of a delivered grant is not gated.
 - `pnpm --filter soulvault-web typecheck` and `build:export` stay green.
 - Fixtures stay synthetic. No real PII.
 - Ticket 006 is the epic exit gate: a Playwright + Speculos suite drives
@@ -189,6 +194,7 @@ deployed.
 - CLI stories 00–02 are the org/swarm/agent *read* model the placeholders
   should mirror, not rewrite.
 - Visual mockups are not a deliverable; the existing Next/shadcn stack is.
-- World Selfie Check gating is deferred to the World feature branch
-  (`feature/world-selfie-check-poc`); ticket 005 ships with the gate off
-  until it lands. Ticket 006 is the epic exit gate.
+- World Selfie Check is specified in ticket 023
+  (`feature/world-proof-of-selfie`). Ticket 005 no longer owns the gate
+  (unwrap stays ungated). Ticket 006 keeps World off so Ledger Speculos
+  stays the e2e path until 023 lands.

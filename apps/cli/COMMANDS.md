@@ -383,9 +383,11 @@ Responsibilities:
 
 ## World commands
 
-World ID / Selfie Check (credential 11) helpers behind the rehydrate-request
-authorization gate. Config comes from `.env` (`WORLD_APP_ID`, `WORLD_RP_ID`,
-`WORLD_RP_SIGNING_KEY`, `WORLD_ENVIRONMENT`); `world status` reports what is set.
+World ID / Selfie Check (credential 11) helpers behind the **grant-from-request**
+gate (`selfieRequired` on publish; proof on `RehydrationRequested`). Config comes
+from `.env` (`WORLD_APP_ID`, `WORLD_RP_ID`, `WORLD_RP_SIGNING_KEY`,
+`WORLD_ENVIRONMENT`); `world status` reports what is set. The dashboard browser
+widget is the example; these commands are the author-side verify / RP-sign CLI.
 
 ## `soulvault world status`
 Print World identity configuration state as JSON (configured flag, app id, rp id,

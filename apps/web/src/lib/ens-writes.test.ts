@@ -4,6 +4,7 @@ import {
   coinTypeForChain,
   encodeStringArrayCbor,
   encodeSwarmsListDataUri,
+  ensV2OrgRoot,
   normalizeEnsV2LabelState,
 } from "./ens-writes";
 
@@ -75,5 +76,25 @@ describe("normalizeEnsV2LabelState", () => {
     expect(normalizeEnsV2LabelState(null)).toBeNull();
     expect(normalizeEnsV2LabelState(undefined)).toBeNull();
     expect(normalizeEnsV2LabelState({})).toBeNull();
+  });
+});
+
+// Regression: readEnsV2OrgContext passed the name straight to
+// parseEnsV2OrgLabel, which throws on multi-label names — so every resolver
+// read for a swarm SUBDOMAIN (ops.<org>.eth) failed and the swarm was
+// silently excluded from event discovery while the treasury (read via the
+// org name) stayed visible. Subdomains resolve through the org root.
+describe("ensV2OrgRoot", () => {
+  it("reduces a swarm subdomain to its org root", () => {
+    expect(ensV2OrgRoot("ops.soulvault-ensv2.eth")).toBe("soulvault-ensv2.eth");
+    expect(ensV2OrgRoot("primary.myorg.eth")).toBe("myorg.eth");
+  });
+
+  it("leaves an org root unchanged", () => {
+    expect(ensV2OrgRoot("soulvault-ensv2.eth")).toBe("soulvault-ensv2.eth");
+  });
+
+  it("normalizes case before reducing", () => {
+    expect(ensV2OrgRoot("OPS.SoulVault-Ensv2.eth")).toBe("soulvault-ensv2.eth");
   });
 });

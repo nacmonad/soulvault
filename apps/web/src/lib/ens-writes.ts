@@ -263,11 +263,28 @@ const ENSV2_STATE_ABI = [
 ] as const;
 
 /**
+ * Org root of an ENSv2-managed name: the last two labels (`ops.soulvault-ensv2.eth`
+ * → `soulvault-ensv2.eth`). The org's PermissionedResolver serves the whole
+ * subtree (v2 wildcard resolution), so subdomain reads must target the org
+ * root — and parseEnsV2OrgLabel only accepts single-label org names, so the
+ * subdomain form must be reduced before any org-context work.
+ */
+export function ensV2OrgRoot(name: string): string {
+  const parts = normalize(name.trim()).split(".");
+  return parts.slice(-2).join(".");
+}
+
+/**
  * Resolve the ENSv2 org registry + owner for a name. Discovery order:
  *   1. The `soulvault.ensv2Registry` pointer text record (post-mirror names).
  *   2. Deterministic CREATE2 recompute from the wallet + label — works for
  *      pre-mirror registrations (pointer write skipped when no resolver
  *      existed), keeps everything onchain with zero local artifacts.
+ * Accepts swarm subdomains too (`ops.<org>.eth`): the registry is the ORG's,
+ * so the name is first normalized to its org root — passing a subdomain used
+ * to throw out of parseEnsV2OrgLabel and every subdomain resolver read fell
+ * back to the v1 public resolver (empty records → the swarm silently dropped
+ * from event discovery).
  * Returns null when the name isn't v2-managed.
  */
 export async function readEnsV2OrgContext(
@@ -275,16 +292,18 @@ export async function readEnsV2OrgContext(
   from?: Address,
 ): Promise<{ registry: Address; resolver: Address | null; owner: Address } | null> {
   const client = publicClient();
-  const { label } = parseEnsV2OrgLabel(orgEnsName);
+  const orgRoot = ensV2OrgRoot(orgEnsName);
+  const { label } = parseEnsV2OrgLabel(orgRoot);
   const shared = getEnsV2SharedAddresses();
   const candidates: Address[] = [];
   let pointerRecord: { registry: Address; owner: Address } | null = null;
 
   // 1) Pointer record — but viem's getEnsText can't resolve pre-mirror v2
-  // names; read text via any resolver the client can find, best-effort.
+  // names; read text via any resolver the client can find, best-effort. The
+  // pointer lives on the ORG name even when asked about a subdomain.
   try {
     const { getEnsText } = await import("viem/ens");
-    const value = await client.getEnsText({ name: normalize(orgEnsName), key: ENSV2_REGISTRY_TEXT_KEY });
+    const value = await client.getEnsText({ name: orgRoot, key: ENSV2_REGISTRY_TEXT_KEY });
     pointerRecord = value ? decodeEnsV2RegistryRecord(value) : null;
     if (pointerRecord) candidates.push(pointerRecord.registry);
   } catch {

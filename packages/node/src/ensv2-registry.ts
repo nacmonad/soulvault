@@ -154,7 +154,11 @@ export async function deployEnsV2OrgRegistry(input: {
 
   const implArtifact = await loadArtifact('UserRegistry.sol', 'UserRegistry');
   const implFactory = new ContractFactory(implArtifact.abi, toBytecode(implArtifact), signer);
-  const implementation = await implFactory.deploy(await labelStore.getAddress(), ZeroAddress);
+  // NOTE: UserRegistry's second constructor arg is the PermissionedRegistry rootAccount
+  // (namer slot doubles as the recipient of ROLE_CAN_NAME on root in the implementation's
+  // constructor). Passing address(0) reverts with EACInvalidAccount — the forge spike
+  // (fe055e8) passes address(this) here; we pass the signer for the same effect.
+  const implementation = await implFactory.deploy(await labelStore.getAddress(), signer.address);
   await implementation.waitForDeployment();
 
   const factory = new Contract(factoryAddress, ENSV2_VERIFIABLE_FACTORY_ABI, signer);

@@ -175,3 +175,89 @@ export async function setEnsV2TextScoped(input: {
   const { setEnsText } = await import('./ens.js');
   return setEnsText(input.fullName, input.key, input.value);
 }
+
+// --- Root-resource grants (registry-level, not name-scoped) ------------------
+//
+// EAC registration is a ROOT_RESOURCE check: `_register` on a fresh label
+// requires ROLE_REGISTRAR on resource 0 regardless of what roles the caller
+// holds on any parent name (EAC resources are flat (labelhash, eacVersionId)
+// pairs — nothing inherits down the tree). Name-scoped `ens grant` cannot
+// express that, so root grants are their own command family. Grantor must
+// hold the roles being granted AT THE ROOT (the org owner does: EAC_ALL_ROLES
+// at initialize()).
+
+const ROOT_RESOURCE = 0n;
+
+export type EnsV2RootRoleInput = {
+  /** Deployed org registry address (e.g. from the org profile's ensv2Registry). */
+  registryAddress: string;
+  roleSpec: string;
+  account: string;
+};
+
+/** Grant roles on the registry's ROOT resource (e.g. `registrar` for agent self-registration). */
+export async function grantEnsV2RootRoles(input: EnsV2RootRoleInput) {
+  const roleBitmap = parseEnsV2RoleBitmap(input.roleSpec);
+  const signer = await createEnsSigner();
+  const registry = new Contract(input.registryAddress, ENSV2_USER_REGISTRY_ABI, signer);
+  const tx = await registry.grantRootRoles(roleBitmap, input.account);
+  const receipt = await tx.wait();
+  // Verify the grant landed at the root before claiming success.
+  const provider = await getEnsV2Provider();
+  const reader = new Contract(input.registryAddress, ENSV2_USER_REGISTRY_ABI, provider);
+  const granted = (await reader.roles(ROOT_RESOURCE, input.account)) & roleBitmap;
+  if (granted !== roleBitmap) {
+    throw new Error(
+      `grantRootRoles tx mined (${receipt?.hash}) but ${input.account} does not verify for ` +
+        `the roles on the ROOT resource — check the caller holds them at the root.`,
+    );
+  }
+  return {
+    registryAddress: input.registryAddress,
+    account: input.account,
+    roleBitmap: roleBitmap.toString(),
+    roles: formatEnsV2RoleBitmap(roleBitmap),
+    resource: ROOT_RESOURCE.toString(),
+    txHash: receipt?.hash as string | undefined,
+  };
+}
+
+/** Revoke roles on the registry's ROOT resource (agent offboarding at registry level). */
+export async function revokeEnsV2RootRoles(input: EnsV2RootRoleInput) {
+  const roleBitmap = parseEnsV2RoleBitmap(input.roleSpec);
+  const signer = await createEnsSigner();
+  const registry = new Contract(input.registryAddress, ENSV2_USER_REGISTRY_ABI, signer);
+  const tx = await registry.revokeRootRoles(roleBitmap, input.account);
+  const receipt = await tx.wait();
+  const provider = await getEnsV2Provider();
+  const reader = new Contract(input.registryAddress, ENSV2_USER_REGISTRY_ABI, provider);
+  const remaining = (await reader.roles(ROOT_RESOURCE, input.account)) & roleBitmap;
+  if (remaining !== 0n) {
+    throw new Error(
+      `revokeRootRoles tx mined (${receipt?.hash}) but ${input.account} STILL holds the roles ` +
+        `on the ROOT resource — revocation did not take effect.`,
+    );
+  }
+  return {
+    registryAddress: input.registryAddress,
+    account: input.account,
+    roleBitmap: roleBitmap.toString(),
+    roles: formatEnsV2RoleBitmap(roleBitmap),
+    resource: ROOT_RESOURCE.toString(),
+    txHash: receipt?.hash as string | undefined,
+  };
+}
+
+/** Read the role bitmap an account holds on the registry's ROOT resource. */
+export async function readEnsV2RootRoles(input: { registryAddress: string; account: string }) {
+  const provider = await getEnsV2Provider();
+  const registry = new Contract(input.registryAddress, ENSV2_USER_REGISTRY_ABI, provider);
+  const bitmap = await registry.roles(ROOT_RESOURCE, input.account);
+  return {
+    registryAddress: input.registryAddress,
+    account: input.account,
+    roleBitmap: bitmap.toString(),
+    roles: formatEnsV2RoleBitmap(bitmap),
+    resource: ROOT_RESOURCE.toString(),
+  };
+}

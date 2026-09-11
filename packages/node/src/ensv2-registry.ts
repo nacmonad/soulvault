@@ -66,6 +66,8 @@ export const ENSV2_USER_REGISTRY_ABI = [
   'function renew(uint256 anyId, uint64 newExpiry)',
   'function grantRoles(uint256 resource, uint256 roleBitmap, address account)',
   'function revokeRoles(uint256 resource, uint256 roleBitmap, address account)',
+  'function grantRootRoles(uint256 roleBitmap, address account)',
+  'function revokeRootRoles(uint256 roleBitmap, address account)',
   'function getSubregistry(string label) view returns (address)',
   'function getResolver(string label) view returns (address)',
   'function getParent() view returns (address parent, string label)',

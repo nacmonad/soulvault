@@ -58,7 +58,9 @@ export function createFoundryProvider(input: {
             data: tx.data,
             value: tx.value,
             gas: tx.gas,
-            gasPrice: tx.gasPrice,
+            ...(tx.maxFeePerGas !== undefined && tx.maxPriorityFeePerGas !== undefined
+              ? { maxFeePerGas: tx.maxFeePerGas, maxPriorityFeePerGas: tx.maxPriorityFeePerGas }
+              : { gasPrice: tx.gasPrice }),
             nonce: tx.nonce,
           });
         }
@@ -71,7 +73,9 @@ export function createFoundryProvider(input: {
             data: tx.data,
             value: tx.value,
             gas: tx.gas,
-            gasPrice: tx.gasPrice,
+            ...(tx.maxFeePerGas !== undefined && tx.maxPriorityFeePerGas !== undefined
+              ? { maxFeePerGas: tx.maxFeePerGas, maxPriorityFeePerGas: tx.maxPriorityFeePerGas }
+              : { gasPrice: tx.gasPrice }),
             nonce: tx.nonce,
           });
         }
@@ -104,6 +108,8 @@ function asTx(raw: unknown): {
   value?: bigint;
   gas?: bigint;
   gasPrice?: bigint;
+  maxFeePerGas?: bigint;
+  maxPriorityFeePerGas?: bigint;
   nonce?: number;
 } {
   const tx = (raw ?? {}) as Record<string, string | undefined>;
@@ -113,6 +119,8 @@ function asTx(raw: unknown): {
     ...(tx.value !== undefined && tx.value !== "" ? { value: BigInt(tx.value) } : {}),
     ...(tx.gas ? { gas: BigInt(tx.gas) } : {}),
     ...(tx.gasPrice ? { gasPrice: BigInt(tx.gasPrice) } : {}),
+    ...(tx.maxFeePerGas ? { maxFeePerGas: BigInt(tx.maxFeePerGas) } : {}),
+    ...(tx.maxPriorityFeePerGas ? { maxPriorityFeePerGas: BigInt(tx.maxPriorityFeePerGas) } : {}),
     ...(tx.nonce ? { nonce: Number(BigInt(tx.nonce)) } : {}),
   };
 }

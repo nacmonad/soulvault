@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Hex } from "viem";
 
 import { sendWalletTransaction, asHex, ledgerSignature, yParityFromV } from "./wallet-tx";
+import { getEip1559Enabled } from "./tx-settings";
 
 const FROM = "0x1111111111111111111111111111111111111111" as const;
 
@@ -235,6 +236,101 @@ describe("browser channel gas pre-estimation", () => {
     expect(methods).not.toContain("eth_chainId");
     expect(methods).not.toContain("wallet_switchEthereumChain");
     expect(methods).not.toContain("wallet_addEthereumChain");
+  });
+});
+
+const { createSoulVaultPublicClient } = await import("@/lib/onchain/client");
+
+function setEip1559Stored(value: string | null): void {
+  const win = globalAsWindow().window;
+  if (!win) return;
+  (win as unknown as { localStorage: { getItem: () => string | null } }).localStorage = {
+    getItem: () => value,
+  };
+}
+
+describe("EIP-1559 fee preparation (browser channel)", () => {
+  afterEach(() => {
+    delete globalAsWindow().window;
+  });
+
+  it("builds a type-2 tx with maxFeePerGas/maxPriorityFeePerGas when the RPC estimates fees", async () => {
+    vi.mocked(createSoulVaultPublicClient).mockImplementationOnce(() => ({
+      estimateGas: vi.fn(async () => 12345n),
+      getGasPrice: vi.fn(async () => 1_000_000_000n),
+      getTransactionCount: vi.fn(async () => 7),
+      sendRawTransaction: vi.fn(async () => "0xabc"),
+      estimateFeesPerGas: vi.fn(async () => ({
+        maxFeePerGas: 5_000_000_000n,
+        maxPriorityFeePerGas: 1_500_000_000n,
+      })),
+    }) as never);
+
+    let signed: SendParams | undefined;
+    injectWallet({
+      signTransaction: async (params) => {
+        signed = params;
+        return `0x${"ab".repeat(80)}`;
+      },
+    });
+
+    await sendWalletTransaction({ from: FROM, to: null, data: "0x6080" });
+    expect(signed?.type).toBe("0x2");
+    expect(signed?.maxFeePerGas).toBe("0x12a05f200");
+    expect(signed?.maxPriorityFeePerGas).toBe("0x59682f00");
+    expect(signed?.gasPrice).toBeUndefined();
+  });
+
+  it("falls back to legacy pricing when the setting is off", async () => {
+    vi.mocked(createSoulVaultPublicClient).mockImplementationOnce(() => ({
+      estimateGas: vi.fn(async () => 12345n),
+      getGasPrice: vi.fn(async () => 1_000_000_000n),
+      getTransactionCount: vi.fn(async () => 7),
+      sendRawTransaction: vi.fn(async () => "0xabc"),
+      estimateFeesPerGas: vi.fn(async () => ({
+        maxFeePerGas: 5_000_000_000n,
+        maxPriorityFeePerGas: 1_500_000_000n,
+      })),
+    }) as never);
+
+    let signed: SendParams | undefined;
+    injectWallet({
+      signTransaction: async (params) => {
+        signed = params;
+        return `0x${"ab".repeat(80)}`;
+      },
+    });
+    setEip1559Stored("0");
+    expect(getEip1559Enabled()).toBe(false);
+
+    await sendWalletTransaction({ from: FROM, to: null, data: "0x6080" });
+    expect(signed?.gasPrice).toBe("0x3b9aca00");
+    expect(signed?.maxFeePerGas).toBeUndefined();
+    expect(signed?.type).toBeUndefined();
+  });
+
+  it("falls back to legacy pricing when the fee estimate throws", async () => {
+    vi.mocked(createSoulVaultPublicClient).mockImplementationOnce(() => ({
+      estimateGas: vi.fn(async () => 12345n),
+      getGasPrice: vi.fn(async () => 1_000_000_000n),
+      getTransactionCount: vi.fn(async () => 7),
+      sendRawTransaction: vi.fn(async () => "0xabc"),
+      estimateFeesPerGas: vi.fn(async () => {
+        throw new Error("eth_feeHistory unsupported");
+      }),
+    }) as never);
+
+    let signed: SendParams | undefined;
+    injectWallet({
+      signTransaction: async (params) => {
+        signed = params;
+        return `0x${"ab".repeat(80)}`;
+      },
+    });
+
+    await sendWalletTransaction({ from: FROM, to: null, data: "0x6080" });
+    expect(signed?.gasPrice).toBe("0x3b9aca00");
+    expect(signed?.maxFeePerGas).toBeUndefined();
   });
 });
 

@@ -12,6 +12,7 @@ import {
   getBrowserSoulVaultClientConfig,
 } from "@/lib/onchain/client";
 import { parseRpcUrlList } from "@/lib/rpc-settings";
+import { getEip1559Enabled } from "@/lib/tx-settings";
 
 type Injected = {
   request(args: { method: string; params?: unknown[] }): Promise<unknown>;
@@ -67,6 +68,15 @@ type AppRpcClient = {
   getGasPrice: () => Promise<bigint>;
   getTransactionCount: (args: { address: Address }) => Promise<number>;
   sendRawTransaction: (args: { serializedTransaction: Hex }) => Promise<Hex>;
+  /**
+   * Optional EIP-1559 fee estimate (viem clients have it; bare mocks may not).
+   * When the 1559 setting is on and this answers, the tx is built as type-2
+   * with maxFeePerGas/maxPriorityFeePerGas; anything missing or throwing falls
+   * back to the legacy gasPrice path.
+   */
+  estimateFeesPerGas?: () => Promise<
+    { maxFeePerGas?: bigint; maxPriorityFeePerGas?: bigint } | undefined
+  >;
   waitForTransactionReceipt?: (args: {
     hash: Hex;
     pollingInterval?: number;
@@ -98,14 +108,23 @@ type PreparedTx = {
   value: Hex;
   nonce: Hex;
   gas: Hex;
-  gasPrice: Hex;
+  gasPrice?: Hex;
+  /** EIP-1559 (type-2) fields — mutually exclusive with gasPrice. */
+  type?: Hex;
+  maxFeePerGas?: Hex;
+  maxPriorityFeePerGas?: Hex;
   chainId?: Hex;
 };
 
 /**
- * Build a fully specified legacy tx against the dashboard RPC. Rabby still
+ * Build a fully specified tx against the dashboard RPC. Rabby still
  * calls eth_gasPrice on WalletConnect (free plan has no Sepolia) when any of
- * nonce/gas/gasPrice is missing, even if the dapp passed a partial tx.
+ * nonce/gas/fees is missing, even if the dapp passed a partial tx.
+ *
+ * Fees: EIP-1559 (type-2) by default — the RPC's fee estimate gives a real
+ * priority tip, so the tx does not depend on the base fee staying under a
+ * stale gas-price snapshot. Falls back to a legacy tx when the setting is
+ * off, the client has no fee estimator, or the estimate comes back unusable.
  */
 async function prepareAppTx(input: TxSubmitInput): Promise<{ client: AppRpcClient; tx: PreparedTx; gas: bigint }> {
   const client = appRpcClient(input);
@@ -121,17 +140,27 @@ async function prepareAppTx(input: TxSubmitInput): Promise<{ client: AppRpcClien
   let nonce: number;
   let gas: bigint;
   let gasPrice: bigint;
+  let fees: { maxFeePerGas?: bigint; maxPriorityFeePerGas?: bigint } | undefined;
   try {
-    [nonce, gas, gasPrice] = await Promise.all([
+    [nonce, gas, gasPrice, fees] = await Promise.all([
       client.getTransactionCount({ address: input.from }),
       client.estimateGas(estimateArgs),
       client.getGasPrice(),
+      // A failed fee estimate must not fail tx preparation — it only selects
+      // between the 1559 and legacy pricing paths below.
+      getEip1559Enabled() && client.estimateFeesPerGas
+        ? client.estimateFeesPerGas().catch(() => undefined)
+        : Promise.resolve(undefined),
     ]);
   } catch (error) {
     throw new Error(
       `Could not prepare the transaction against the dashboard RPC (${error instanceof Error ? error.message : String(error)}). Check the RPC in /dashboard/settings.`,
     );
   }
+  const eip1559Fees =
+    fees?.maxFeePerGas !== undefined && fees?.maxPriorityFeePerGas !== undefined
+      ? { maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas }
+      : undefined;
   const tx: PreparedTx = {
     from: input.from,
     ...(input.to !== null ? { to: input.to } : {}),
@@ -139,7 +168,13 @@ async function prepareAppTx(input: TxSubmitInput): Promise<{ client: AppRpcClien
     value: toQuantity(input.value ?? 0n),
     nonce: toQuantity(nonce),
     gas: toQuantity(gas),
-    gasPrice: toQuantity(gasPrice),
+    ...(eip1559Fees
+      ? {
+          type: "0x2" as const,
+          maxFeePerGas: toQuantity(eip1559Fees.maxFeePerGas),
+          maxPriorityFeePerGas: toQuantity(eip1559Fees.maxPriorityFeePerGas),
+        }
+      : { gasPrice: toQuantity(gasPrice) }),
     ...(input.chainId !== undefined ? { chainId: toQuantity(input.chainId) } : {}),
   };
   return { client, tx, gas };

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { keccak256, parseTransaction, serializeTransaction, toHex, type Hex, type PublicClient } from "viem";
 
 import { createLedgerTxChannel, RECEIPT_TIMEOUT_MS, receiptWaitError, type DeviceTransactionSignature } from "./ledger-tx";
@@ -36,7 +36,30 @@ function fakeClient() {
   };
 }
 
+/** Same client with an EIP-1559 fee estimator — viem public clients have one. */
+function fakeClientWithFees() {
+  return {
+    ...fakeClient(),
+    estimateFeesPerGas: vi.fn(async () => ({
+      maxFeePerGas: 5_000_000_000n,
+      maxPriorityFeePerGas: 1_500_000_000n,
+    })),
+  };
+}
+
 const asPublicClient = (fake: ReturnType<typeof fakeClient>) => fake as unknown as PublicClient;
+
+/**
+ * tx-settings reads window.localStorage — in this node-env test suite the
+ * window is faked the same way wallet-tx.test.ts does it. No window at all
+ * means "1559 enabled" (the production default), so only the off path needs
+ * the stub.
+ */
+function setEip1559Stored(value: string | null): void {
+  (globalThis as { window?: unknown }).window = {
+    localStorage: { getItem: () => value },
+  };
+}
 
 // Fixed 32-byte hex helpers — the values don't need to be a real ECDSA sig;
 // the channel is not expected to verify them, only serialize them verbatim.
@@ -329,5 +352,127 @@ describe("createLedgerTxChannel", () => {
     await expect(channel.waitForReceipt(hash)).rejects.toThrow(
       /still land[\s\S]*sepolia\.etherscan\.io\/tx\//,
     );
+  });
+});
+
+describe("createLedgerTxChannel — EIP-1559 signing", () => {
+  afterEach(() => {
+    delete (globalThis as { window?: unknown }).window;
+  });
+
+  it("signs a type-2 tx with maxFeePerGas/maxPriorityFeePerGas when the setting is on and the RPC estimates fees", async () => {
+    const client = fakeClientWithFees();
+    const signTransaction = vi.fn(async (unsigned: Hex): Promise<DeviceTransactionSignature> => {
+      // Typed txs: the device returns v as the yParity directly.
+      void unsigned;
+      return { r: R, s: S, v: 1 };
+    });
+    const channel = createLedgerTxChannel({
+      signTransaction,
+      signTypedData: async () => "0x",
+      config,
+      client: asPublicClient(client),
+    });
+
+    const hash = await channel.submit({ from: FROM, to: TO, data: "0xdeadbeef" });
+
+    expect(hash).toBe("0xabc");
+    const parsed = parseTransaction(signTransaction.mock.calls[0]![0]);
+    expect(parsed.type).toBe("eip1559");
+    expect(parsed.maxFeePerGas).toBe(5_000_000_000n);
+    expect(parsed.maxPriorityFeePerGas).toBe(1_500_000_000n);
+    expect(parsed.gasPrice).toBeUndefined();
+    // Broadcast payload carries the fee fields and the device parity.
+    const sent = client.request.mock.calls[0][0] as unknown as { params: [Hex] };
+    const broadcasted = parseTransaction(sent.params[0]);
+    expect(broadcasted.type).toBe("eip1559");
+    expect(broadcasted.yParity).toBe(1);
+    expect(broadcasted.maxFeePerGas).toBe(5_000_000_000n);
+  });
+
+  it("falls back to a legacy tx when the device rejects the typed payload with 6a80", async () => {
+    const client = fakeClientWithFees();
+    let signCalls = 0;
+    const signTransaction = vi.fn(async (_unsigned: Hex): Promise<DeviceTransactionSignature> => {
+      signCalls += 1;
+      if (signCalls === 1) throw new Error("TransportStatusError: status code 6a80 (Invalid data)");
+      return { r: R, s: S, v: 27 };
+    });
+    const channel = createLedgerTxChannel({
+      signTransaction,
+      signTypedData: async () => "0x",
+      config,
+      client: asPublicClient(client),
+    });
+
+    const hash = await channel.submit({ from: FROM, to: TO, data: "0xdeadbeef" });
+
+    expect(hash).toBe("0xabc");
+    // The device saw two payloads: the rejected 1559 one, then the legacy one.
+    expect(signTransaction).toHaveBeenCalledTimes(2);
+    const secondPayload = parseTransaction(signTransaction.mock.calls[1]![0]);
+    expect(secondPayload.type).toBe("legacy");
+    expect(secondPayload.gasPrice).toBe(1_000_000_000n);
+    // Broadcast is the signed legacy tx with a reconstructed EIP-155 v.
+    const sent = client.request.mock.calls[0][0] as unknown as { params: [Hex] };
+    const broadcasted = parseTransaction(sent.params[0]);
+    expect(broadcasted.type).toBe("legacy");
+    expect(broadcasted.yParity).toBe(0);
+    expect(broadcasted.v).toBe(BigInt(35 + 2 * SEPOLIA_CHAIN_ID + 0));
+  });
+
+  it("does not fall back to legacy on a user rejection — the operator said no", async () => {
+    const client = fakeClientWithFees();
+    const signTransaction = vi
+      .fn<() => Promise<DeviceTransactionSignature>>()
+      .mockRejectedValue(new Error("RefusedByUserDAError: action cancelled on device"));
+    const channel = createLedgerTxChannel({
+      signTransaction,
+      signTypedData: async () => "0x",
+      config,
+      client: asPublicClient(client),
+    });
+
+    await expect(channel.submit({ from: FROM, to: TO, data: "0xdeadbeef" })).rejects.toThrow(
+      /cancelled on device/,
+    );
+    expect(signTransaction).toHaveBeenCalledTimes(1);
+    expect(client.request).not.toHaveBeenCalled();
+  });
+
+  it("signs legacy when the 1559 setting is off, even though the RPC estimates fees", async () => {
+    setEip1559Stored("0");
+    const client = fakeClientWithFees();
+    const signTransaction = vi.fn(async (): Promise<DeviceTransactionSignature> => ({ r: R, s: S, v: 113 }));
+    const channel = createLedgerTxChannel({
+      signTransaction,
+      signTypedData: async () => "0x",
+      config,
+      client: asPublicClient(client),
+    });
+
+    await channel.submit({ from: FROM, to: TO, data: "0xdeadbeef" });
+
+    expect(client.estimateFeesPerGas).not.toHaveBeenCalled();
+    const sent = client.request.mock.calls[0][0] as unknown as { params: [Hex] };
+    expect(parseTransaction(sent.params[0]).type).toBe("legacy");
+  });
+
+  it("signs legacy when the fee estimate throws — a failed estimate never fails the pre-flight", async () => {
+    const client = fakeClientWithFees();
+    client.estimateFeesPerGas.mockRejectedValue(new Error("eth_feeHistory unsupported"));
+    const signTransaction = vi.fn(async (): Promise<DeviceTransactionSignature> => ({ r: R, s: S, v: 113 }));
+    const channel = createLedgerTxChannel({
+      signTransaction,
+      signTypedData: async () => "0x",
+      config,
+      client: asPublicClient(client),
+    });
+
+    const hash = await channel.submit({ from: FROM, to: TO, data: "0xdeadbeef" });
+
+    expect(hash).toBe("0xabc");
+    const sent = client.request.mock.calls[0][0] as unknown as { params: [Hex] };
+    expect(parseTransaction(sent.params[0]).type).toBe("legacy");
   });
 });

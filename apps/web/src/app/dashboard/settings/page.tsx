@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
 import { createSoulVaultPublicClient, getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 import { clearRpcUrlOverride, getRpcUrlOverride, setRpcUrlOverride } from "@/lib/rpc-settings";
+import { getEip1559Enabled, setEip1559Enabled } from "@/lib/tx-settings";
 
 type Probe = { status: "idle" | "probing" | "ok" | "error"; detail?: string };
 
@@ -16,10 +17,12 @@ export default function SettingsPage() {
   const [envRpc, setEnvRpc] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [probe, setProbe] = useState<Probe>({ status: "idle" });
+  const [eip1559, setEip1559] = useState(true);
 
   useEffect(() => {
     setOverride(getRpcUrlOverride());
     setEnvRpc(process.env.NEXT_PUBLIC_SOULVAULT_RPC_URL);
+    setEip1559(getEip1559Enabled());
   }, []);
 
   if (!address) return null;
@@ -122,6 +125,34 @@ export default function SettingsPage() {
             Override active — takes effect on the next chain read (reload the page to re-scan).
           </p>
         ) : null}
+      </div>
+
+      <div className="mt-10 max-w-xl">
+        <h2 className="text-lg font-semibold tracking-tight">Transaction fees</h2>
+        <label className="mt-3 flex items-start gap-2 text-sm" htmlFor="eip1559">
+          <input
+            id="eip1559"
+            type="checkbox"
+            className="mt-0.5"
+            checked={eip1559}
+            onChange={(e) => {
+              setEip1559Enabled(e.target.checked);
+              setEip1559(e.target.checked);
+            }}
+          />
+          <span>
+            EIP-1559 fee estimates <span className="text-muted-foreground">(recommended, on by default)</span>
+          </span>
+        </label>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Prices transactions with a max fee + priority tip from the RPC&apos;s fee
+          estimate, so they confirm even when the network&apos;s base fee rises.
+          Unchecked sends legacy transactions priced from a single gas-price
+          snapshot — those can sit in the mempool for minutes when the base fee
+          moves. Applies to both the browser wallet and Ledger signing; if the
+          Ledger device rejects a typed transaction, it falls back to legacy
+          automatically.
+        </p>
       </div>
     </div>
   );

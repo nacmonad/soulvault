@@ -113,8 +113,12 @@ Contracts repo: `ensdomains/contracts-v2` (Foundry remappings per the official t
 ### Phase 5 — Migration + docs + demo
 12. Migration path for existing v1 names (per docs: locked/unlocked/unwrapped taxonomy;
     v1 mirror resolver keeps reads alive during transition).
+    **DONE:** `docs/ensv2-migration.md` (commit 63802d6+) — taxonomy mapped to
+    MigrationHelper/Unlocked/Locked controllers, mirror-resolver read lane, per-layer
+    re-registration flow, compatibility via Phase 1 dispatch. Live rehearsal pending
+    funded wallet.
 13. README: **ENS track progress** + **ENS developer challenge notes** tables (same format
-    as Ledger/World sections — sponsor feedback requirement).
+    as Ledger/World sections — sponsor feedback requirement). **DONE (63802d6).**
 14. Demo script: register org registry → register swarm with expiry → grant agent scoped
     role → agent self-updates record → wildcard resolution from otto dashboard → expiry/
     renewal via treasury.

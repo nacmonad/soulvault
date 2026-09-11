@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { isAddressEqual, type Address, type Hex } from "viem";
+import { isAddress, isAddressEqual, type Address, type Hex } from "viem";
 import { createSlotKeyGrants, createSlotKeyGrantsForRecipient, parsePublicDocumentBundle, rehydrationKeyFingerprint } from "@soulvault/protocol";
 
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,11 @@ export default function DocumentsGrantsPage() {
   const [docHash, setDocHash] = useState<Hex | "">("");
   const [attestationText, setAttestationText] = useState("");
   const [recipient, setRecipient] = useState("");
+  // Pre-request grant lane: recipient has not posted a RehydrationRequested tx.
+  // The address alone cannot carry the wrap (ECDH needs a public key), so the
+  // consumer copies their rehydration public key from their Rehydrate tab.
+  const [preRequestRecipient, setPreRequestRecipient] = useState("");
+  const [preRequestKey, setPreRequestKey] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -191,6 +196,65 @@ export default function DocumentsGrantsPage() {
         slotIds: [...selected],
         recipient: request.recipient,
         recipientPublicKey: request.rehydrationPublicKey,
+      });
+      setPendingGrant({
+        docHash: selectedDoc.docHash,
+        from: address,
+        recipient: grants[0].recipient as Address,
+        recipientKeyFingerprint: grants[0].recipientKeyFingerprint,
+        grants: grants.map((grant) => ({
+          slotId: grant.slotId,
+          wrap: grant.wrap,
+          recipient: grant.recipient as Address,
+        })),
+      });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Grant failed");
+    }
+  }
+
+  /**
+   * Pre-request grant: wrap to a recipient who has not posted a
+   * RehydrationRequested tx. Same wrap as grantToRequest — the only difference
+   * is trust: the wallet↔key binding is unauthenticated here (no msg.sender,
+   * no attestation signature), so both sides compare the key fingerprint
+   * out-of-band. Show it in the wizard so the author can do exactly that.
+   */
+  async function grantPreRequest() {
+    if (!selectedDoc || !address) return;
+    if (!config || !registry) {
+      setError(
+        registry === null && config
+          ? "Document registry has not resolved yet (ENS discovery is still running or failed) — wait a moment and try again."
+          : "Wallet or chain config is not ready yet — try again.",
+      );
+      return;
+    }
+    if (!isAuthor) {
+      setError("Only the publishing author can grant slots.");
+      return;
+    }
+    const keys = session?.slotKeys;
+    if (!keys) {
+      setError("No slot keys on this browser. Re-run Redact here, then publish and grant. Keys never leave this browser profile.");
+      return;
+    }
+    const trimmedRecipient = preRequestRecipient.trim();
+    if (!isAddress(trimmedRecipient)) {
+      setError("Recipient address is not a valid 0x address.");
+      return;
+    }
+    if (!preRequestKey.trim()) {
+      setError("Paste the recipient's rehydration public key (they copy it from their Rehydrate tab).");
+      return;
+    }
+    setError(null);
+    try {
+      const grants = createSlotKeyGrantsForRecipient({
+        slotKeys: keys,
+        slotIds: [...selected],
+        recipient: trimmedRecipient,
+        recipientPublicKey: preRequestKey.trim(),
       });
       setPendingGrant({
         docHash: selectedDoc.docHash,
@@ -430,6 +494,51 @@ export default function DocumentsGrantsPage() {
             </ul>
           )}
 
+          <details className="mt-6 border border-border bg-card p-4">
+            <summary className="cursor-pointer text-sm font-medium">
+              Grant without a request (recipient has not asked on-chain)
+            </summary>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Grant selected slots to any wallet before it posts a rehydration
+              request. The wrap needs the recipient&apos;s rehydration public key —
+              an address alone cannot carry it — so they copy it from their
+              Rehydrate tab and send it to you by any channel. Unlike the
+              onchain-request path nothing authenticates the wallet↔key binding
+              here: compare the key fingerprint with the recipient out-of-band
+              before you confirm.
+            </p>
+            <label className="mt-4 block text-xs text-muted-foreground">
+              Recipient wallet address
+              <input
+                value={preRequestRecipient}
+                onChange={(event) => setPreRequestRecipient(event.target.value)}
+                placeholder="0x…"
+                className="mt-1 block h-8 w-full border border-border bg-background px-2 font-mono text-xs outline-none focus:border-ring"
+              />
+            </label>
+            <label className="mt-4 block text-xs text-muted-foreground">
+              Recipient rehydration public key
+              <textarea
+                value={preRequestKey}
+                onChange={(event) => setPreRequestKey(event.target.value)}
+                placeholder="0x… (copied from the recipient's Rehydrate tab)"
+                className="mt-1 min-h-20 w-full border border-border bg-background p-3 font-mono text-xs outline-none focus:border-ring"
+              />
+            </label>
+            <Button
+              className="mt-4"
+              onClick={() => void grantPreRequest()}
+              disabled={busy || !isAuthor || selected.size === 0 || !preRequestRecipient.trim() || !preRequestKey.trim()}
+            >
+              {busy
+                ? connector === "ledger"
+                  ? "Confirm on Ledger…"
+                  : "Granting…"
+                : connector === "ledger"
+                  ? `Grant ${selected.size} slot${selected.size === 1 ? "" : "s"} on Ledger`
+                  : `Grant ${selected.size} slot${selected.size === 1 ? "" : "s"}`}
+            </Button>
+          </details>
           <details className="mt-6 border border-border bg-card p-4">
             <summary className="cursor-pointer text-sm font-medium">
               Manual attestation (paste recipient JSON)

@@ -18,17 +18,22 @@ export function AgentIdentityCard({
   wallet,
   uri,
   compareWallet,
+  swarmName,
 }: {
   agentId: bigint;
   wallet: Address;
   uri: string | null;
   /** When set, a memberAddress disagreement renders as a warning. */
   compareWallet?: Address | null;
+  /** Resolved ENS name of the swarm the URI's swarmContract points at, when
+   * the consumer knows it (org discovery). Unknown contracts stay blank. */
+  swarmName?: string | null;
 }) {
   const payload = parseAgentUri(uri);
   const name = typeof payload?.name === 'string' && payload.name ? payload.name : null;
   const harness = payload?.soulvault?.harness ?? payload?.harness ?? null;
   const memberAddress = payload?.soulvault?.memberAddress;
+  const attributedSwarm = payload?.soulvault?.swarmContract;
   const attributionMismatch =
     compareWallet !== undefined &&
     compareWallet !== null &&
@@ -46,6 +51,15 @@ export function AgentIdentityCard({
           <span className="font-mono text-xs text-muted-foreground">{shortAddress(wallet)}</span>
           {harness ? <span className="chip text-xs">{harness}</span> : null}
         </div>
+        {attributedSwarm ? (
+          // The URI's own claim — what external ERC-8004 readers resolve.
+          <p className="mt-1 text-xs text-muted-foreground">
+            swarm: {swarmName ?? shortAddress(attributedSwarm as Address)}{' '}
+            <span className="font-mono">{shortAddress(attributedSwarm as Address)}</span>
+          </p>
+        ) : (
+          <p className="mt-1 text-xs text-muted-foreground">no swarm attribution in registration</p>
+        )}
         {payload?.description ? (
           <p className="mt-1 text-xs text-muted-foreground">{payload.description}</p>
         ) : null}

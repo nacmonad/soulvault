@@ -22,6 +22,14 @@ export default function AgentsPage() {
   const [scope, setScope] = useState<"org" | "wallet" | "swarm" | "all">("org");
 
   const swarmWallets = useMemo(() => [...swarm.members.keys()], [swarm.members]);
+  /** contract address → ENS label, for rendering URI attribution. */
+  const swarmNamesByContract = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const entry of discovery.swarms ?? []) {
+      if (entry.address) map.set(entry.address.toLowerCase(), entry.ensName);
+    }
+    return map;
+  }, [discovery.swarms]);
   const orgSwarmContracts = useMemo(
     () =>
       (discovery.swarms ?? [])
@@ -97,7 +105,12 @@ export default function AgentsPage() {
         <ul className="mt-6 space-y-px border border-border bg-border">
           {rows.map((profile) => (
             <li key={profile.agentId.toString()} className="bg-card p-5">
-              <AgentIdentityCard agentId={profile.agentId} wallet={profile.wallet} uri={profile.uri} />
+              <AgentIdentityCard
+                agentId={profile.agentId}
+                wallet={profile.wallet}
+                uri={profile.uri}
+                swarmName={profile.swarmContract ? (swarmNamesByContract.get(profile.swarmContract.toLowerCase()) ?? null) : null}
+              />
               {Object.keys(profile.metadata).length > 0 ? (
                 <dl className="mt-3 grid gap-1 text-xs">
                   {Object.entries(profile.metadata).map(([key, value]) => (

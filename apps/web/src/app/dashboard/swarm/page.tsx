@@ -274,7 +274,7 @@ export default function SwarmPage() {
           ) : (
             <ul className="mt-2 border border-border">
               {members.map((member) => (
-                <MemberRow key={member.wallet} member={member} agents={agentsByWallet.get(member.wallet.toLowerCase()) ?? []} />
+                <MemberRow key={member.wallet} member={member} agents={agentsByWallet.get(member.wallet.toLowerCase()) ?? []} swarmLabel={current?.label ?? null} />
               ))}
             </ul>
           )}
@@ -417,6 +417,7 @@ type MemberRowAgent = {
   agentId: bigint;
   wallet: Address;
   uri: string | null;
+  swarmContract: Address | null;
 };
 
 /**
@@ -424,7 +425,7 @@ type MemberRowAgent = {
  * ERC-8004 registration carries (via the shared AgentIdentityCard). Identity
  * data is additive — a wallet with no registration shows the plain row.
  */
-function MemberRow({ member, agents }: { member: MemberRowMember; agents: MemberRowAgent[] }) {
+function MemberRow({ member, agents, swarmLabel }: { member: MemberRowMember; agents: MemberRowAgent[]; swarmLabel: string | null }) {
   const identity = agents[0] ?? null;
   return (
     <li className="border-b border-border px-4 py-2 text-sm last:border-b-0">
@@ -434,7 +435,13 @@ function MemberRow({ member, agents }: { member: MemberRowMember; agents: Member
       </div>
       {identity ? (
         <div className="mt-1">
-          <AgentIdentityCard agentId={identity.agentId} wallet={identity.wallet} uri={identity.uri} compareWallet={member.wallet} />
+          <AgentIdentityCard
+            agentId={identity.agentId}
+            wallet={identity.wallet}
+            uri={identity.uri}
+            compareWallet={member.wallet}
+            swarmName={identity.swarmContract && swarmLabel ? swarmLabel : null}
+          />
         </div>
       ) : null}
     </li>

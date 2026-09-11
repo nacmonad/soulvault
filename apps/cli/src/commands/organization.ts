@@ -5,6 +5,7 @@ import {
   getOrganizationProfile,
   listOrganizationProfiles,
   setOrganizationEnsName,
+  updateOrganizationProfile,
   useOrganization,
 } from '@soulvault/node/organization';
 import {
@@ -157,9 +158,33 @@ export function registerOrganizationCommands(program: Command) {
         'The deployer receives ALL root roles; the proxy address is deterministic (caller-chosen salt) and verifiable onchain.',
     )
     .option('--salt <hex>', 'CREATE2 salt for the proxy (default: 0x5011 "S0ul")')
+    .option('--organization <nameOrSlug>', 'Org profile to record the registry on (default: active organization)')
     .action(async (options) => {
       const salt = options.salt ? BigInt(options.salt) : undefined;
       const result = await deployEnsV2OrgRegistry({ salt });
+
+      // Persist the registry on the active org profile so renewals, grants, and
+      // swarm registrations resolve it without --registry flags.
+      const orgTarget =
+        options.organization ?? (await (async () => {
+          const active = await getActiveOrganization();
+          if (!active) return undefined;
+          return active.slug;
+        })());
+      if (orgTarget) {
+        const profile = await updateOrganizationProfile(orgTarget, {
+          ensv2Registry: {
+            address: result.registryAddress,
+            owner: result.owner,
+            deploymentTxHash: result.txHash,
+            deployedAt: new Date().toISOString(),
+          },
+        });
+        console.error(`Recorded ensv2Registry on organization "${profile.slug}".`);
+      } else {
+        console.error('No active organization — registry address NOT recorded. Pass --organization or run `organization use` first to persist it.');
+      }
+
       console.error(
         `\nSoulVaultRegistry deployed: ${result.registryAddress}\n` +
           `  owner: ${result.owner} (ALL root roles)\n` +

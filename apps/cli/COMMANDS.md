@@ -403,5 +403,14 @@ Author-side evaluation of a rehydrate request against a Selfie Check proof: shap
 signal binding, credential 11, expiry, nullifier replay. Non-zero exit on rejection.
 
 - `--proof <json>` [REQUIRED] — proof payload as JSON
-- `--signal <value>` [REQUIRED] — expected signal (requester wallet address)
+- `--signal <value>` [REQUIRED] — expected signal (`lower(wallet):docHash`)
 - `--nullifiers <csv>` — consumed nullifiers for the action
+
+## `soulvault world rp-server`
+HTTP worker for the dashboard IDKit widget (`GET /rp-signature`, `POST /verify`).
+The Pages export cannot host API routes; point `NEXT_PUBLIC_WORLD_RP_URL` here.
+503 when `WORLD_RP_SIGNING_KEY` is unset. Never logs the key.
+
+- `--port <port>` — default `8787`
+- `--host <host>` — default `127.0.0.1`
+- `--mock` — mock verifier (no Portal call)

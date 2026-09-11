@@ -23,14 +23,13 @@ Consumer path at `/dashboard/documents/rehydrate`. This is the judging surface.
    Default: all hidden, so the judge sees redaction first.
 6. Mallory (wallet with no grants) sees only markers; unwrap errors stay
    typed (`UNAUTHORIZED_RECIPIENT`) with no plaintext leak in the message.
-7. **Gates** (fail closed if the gate is configured and not satisfied):
-   - World Selfie Check before the first successful unwrap. **Deferred**:
-     World gating depends on the World feature branch
-     (`feature/world-selfie-check-poc`); until it lands, this gate ships off
-     and ticket 006 runs with the gate disabled (dev mode).
-   - Ledger clear-sign of the rehydration-key attestation when the consumer
-     is on a Ledger session (already required for attestation). High-stakes
-     copy can require Ledger even if an injected wallet is present.
+7. **On-chain request:** `requestRehydration(docHash, pubkey)`. When
+   `NEXT_PUBLIC_WORLD_APP_ID` is set, Charlie presents a Selfie Check
+   (IDKit widget → RP worker, or staging JSON fixture) **before** that tx.
+   Unwrap of an already-granted slot is not gated. Live proofs still need
+   the Portal action + `WORLD_RP_SIGNING_KEY` on `soulvault world rp-server`.
+8. Ledger clear-sign of the rehydration-key attestation when the consumer
+   is on a Ledger session.
 
 Export Charlie’s attestation JSON so Alice can paste it on Grants.
 

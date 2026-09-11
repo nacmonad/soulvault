@@ -32,20 +32,47 @@ export function bundleDocHash(documentId: string): Hex {
 
 export type WorldRehydrateGate =
   | { mode: "off"; unconfigured?: boolean }
-  | { mode: "required"; appId: string; action: string }
+  | {
+      mode: "required";
+      appId: string;
+      action: string;
+      rpId: string;
+      rpUrl: string;
+      environment: "staging" | "production";
+    }
   | { mode: "error"; message: string };
+
+export function rehydrateSelfieSignal(wallet: string, docHash: string): string {
+  const addr = wallet.trim().toLowerCase();
+  const hash = docHash.trim().toLowerCase();
+  const withPrefix = hash.startsWith("0x") ? hash : `0x${hash}`;
+  return `${addr}:${withPrefix}`;
+}
 
 export function resolveWorldRehydrateGate(
   env: {
     appId?: string;
+    rpId?: string;
+    rpUrl?: string;
+    environment?: string;
     gate?: string;
     nodeEnv?: string;
   } = {},
 ): WorldRehydrateGate {
   const appId = env.appId?.trim() ?? "";
   const gate = (env.gate ?? "").trim().toLowerCase();
+  const environment = env.environment?.trim().toLowerCase() === "production" ? "production" : "staging";
   if (gate === "off") return { mode: "off" };
-  if (appId) return { mode: "required", appId, action: WORLD_REHYDRATE_ACTION };
+  if (appId) {
+    return {
+      mode: "required",
+      appId,
+      action: WORLD_REHYDRATE_ACTION,
+      rpId: env.rpId?.trim() ?? "",
+      rpUrl: env.rpUrl?.trim().replace(/\/+$/, "") ?? "",
+      environment,
+    };
+  }
   if (gate === "on" || gate === "required") {
     return {
       mode: "error",
@@ -58,6 +85,9 @@ export function resolveWorldRehydrateGate(
 export function getBrowserWorldRehydrateGate(): WorldRehydrateGate {
   return resolveWorldRehydrateGate({
     appId: process.env.NEXT_PUBLIC_WORLD_APP_ID,
+    rpId: process.env.NEXT_PUBLIC_WORLD_RP_ID,
+    rpUrl: process.env.NEXT_PUBLIC_WORLD_RP_URL,
+    environment: process.env.NEXT_PUBLIC_WORLD_ENVIRONMENT,
     gate: process.env.NEXT_PUBLIC_WORLD_GATE,
     nodeEnv: process.env.NODE_ENV,
   });
@@ -110,17 +140,36 @@ export type SelfieCheckProof = {
 
 export function parseSelfieProof(raw: unknown): SelfieCheckProof | null {
   if (!raw || typeof raw !== "object") return null;
-  const value = raw as { nullifier?: unknown; credentialId?: unknown; signal?: unknown };
-  if (typeof value.nullifier !== "string" || value.nullifier.length === 0) return null;
-  if (typeof value.signal !== "string" || value.signal.length === 0) return null;
+  const value = raw as {
+    nullifier?: unknown;
+    credentialId?: unknown;
+    signal?: unknown;
+    responses?: unknown;
+  };
+  const responses = Array.isArray(value.responses) ? value.responses : [];
+  const selfie = responses.find((row) => {
+    if (!row || typeof row !== "object") return false;
+    const id = (row as { identifier?: unknown }).identifier;
+    return typeof id === "string" && (id === "selfie" || id === "face");
+  }) as { nullifier?: unknown } | undefined;
+  const nullifier =
+    typeof value.nullifier === "string"
+      ? value.nullifier
+      : typeof selfie?.nullifier === "string"
+        ? selfie.nullifier
+        : "";
+  if (!nullifier) return null;
+  const signal = typeof value.signal === "string" ? value.signal : "";
   const credentialId =
     typeof value.credentialId === "number"
       ? value.credentialId
       : typeof value.credentialId === "string"
         ? Number(value.credentialId)
-        : NaN;
+        : selfie
+          ? 11
+          : NaN;
   if (!Number.isInteger(credentialId)) return null;
-  return { nullifier: value.nullifier, credentialId, signal: value.signal };
+  return { nullifier, credentialId, signal };
 }
 
 export function evaluateSelfieProof(input: {
@@ -131,7 +180,8 @@ export function evaluateSelfieProof(input: {
   const proof = parseSelfieProof(input.proof);
   if (!proof) return { ok: false, reason: "malformed-proof" };
   if (proof.credentialId !== 11) return { ok: false, reason: "wrong-credential" };
-  if (proof.signal.toLowerCase() !== input.expectedSignal.toLowerCase()) {
+  const bound = proof.signal.length > 0 ? proof.signal : input.expectedSignal;
+  if (bound.toLowerCase() !== input.expectedSignal.toLowerCase()) {
     return { ok: false, reason: "signal-mismatch" };
   }
   if (input.consumedNullifiers.has(proof.nullifier)) return { ok: false, reason: "nullifier-replay" };

@@ -16,7 +16,8 @@
     "test:testnet": "SOULVAULT_TESTNET_INTEGRATION=1 vitest run --config vitest.integration.config.ts src/__integration__/fund-request-flow.testnet.test.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "test:acceptance": "vitest run --config vitest.integration.config.ts src/__integration__/document-acceptance-scenario.integration.test.ts"
+    "test:acceptance": "vitest run --config vitest.integration.config.ts src/__integration__/document-acceptance-scenario.integration.test.ts",
+    "test:world": "vitest run --config vitest.world.config.ts"
   },
   "dependencies": {
     "@0gfoundation/0g-ts-sdk": "^1.2.1",

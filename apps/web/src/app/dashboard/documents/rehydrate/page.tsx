@@ -14,6 +14,7 @@ import {
 } from "@soulvault/protocol";
 
 import { Button } from "@/components/ui/button";
+import { WorldSelfieGate } from "@/components/documents/world-selfie-gate";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
 import { useDocumentEvents } from "@/hooks/useDocumentEvents";
 import { useDocumentRegistryAddress } from "@/hooks/useDocumentRegistryAddress";
@@ -23,11 +24,9 @@ import {
   assertBundleAnchoredOnChain,
   compareAuthorSessionRun,
   diagnoseSlotGrant,
-  evaluateSelfieProof,
   getBrowserWorldRehydrateGate,
-  parsePastedSelfieProof,
   publicHydrationError,
-  RehydrateGateError,
+  rehydrateSelfieSignal,
 } from "@/lib/document-rehydrate";
 import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 import { explorerTxUrl, shortTx } from "@/lib/format";
@@ -98,7 +97,6 @@ export default function DocumentsRehydratePage() {
   const [key, setKey] = useState<RehydrationKey | null>(null);
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
   const [selfieOk, setSelfieOk] = useState(false);
-  const [proofText, setProofText] = useState("");
   const [requestTx, setRequestTx] = useState<string | null>(null);
   const [requestBusy, setRequestBusy] = useState(false);
   const [keyError, setKeyError] = useState<string | null>(null);
@@ -106,7 +104,7 @@ export default function DocumentsRehydratePage() {
   const config = getBrowserSoulVaultClientConfig();
   const { address: registry } = useDocumentRegistryAddress(bundle);
   const world = getBrowserWorldRehydrateGate();
-  const worldBlocking = world.mode === "error" || (world.mode === "required" && !selfieOk);
+  const requestBlocked = world.mode === "error" || (world.mode === "required" && !selfieOk);
 
   const onChain = bundle ? documents.documents.get(asDocHash(bundle.artifact.documentId)) : undefined;
 
@@ -284,6 +282,14 @@ export default function DocumentsRehydratePage() {
    */
   async function requestOnchain() {
     if (!address || !config || !registry || !bundle) return;
+    if (requestBlocked) {
+      setError(
+        world.mode === "error"
+          ? world.message
+          : "World Selfie Check is required before request rehydration.",
+      );
+      return;
+    }
     setError(null);
     setRequestBusy(true);
     try {
@@ -303,29 +309,8 @@ export default function DocumentsRehydratePage() {
     }
   }
 
-  function presentSelfie() {
-    if (world.mode !== "required" || !address) return;
-    setError(null);
-    try {
-      const result = evaluateSelfieProof({
-        proof: parsePastedSelfieProof(proofText),
-        expectedSignal: address,
-        consumedNullifiers: loadConsumedNullifiers(world.appId, world.action),
-      });
-      if (!result.ok) {
-        throw new RehydrateGateError("SELFIE_REJECTED", `Selfie Check failed (${result.reason}).`);
-      }
-      saveConsumedNullifier(world.appId, world.action, result.nullifier);
-      setSelfieOk(true);
-    } catch (cause) {
-      setSelfieOk(false);
-      setError(publicHydrationError(cause));
-    }
-  }
-
   function viewFor(revealedIds: Set<string>) {
     if (!bundle || !address || !key) return bundle?.artifact.content ?? "";
-    if (worldBlocking) return bundle.artifact.content;
     const subset = usableGrants.filter((grant) => revealedIds.has(grant.slotId));
     if (subset.length === 0) return bundle.artifact.content;
     return rehydrateGrantedDocument({
@@ -344,14 +329,6 @@ export default function DocumentsRehydratePage() {
 
   function toggle(slotId: string) {
     if (!grants.some((grant) => grant.slotId === slotId)) return;
-    if (worldBlocking) {
-      setError(
-        world.mode === "error"
-          ? world.message
-          : "World Selfie Check is required before the first unwrap.",
-      );
-      return;
-    }
     const failing = failedGrants.find((grant) => grant.slotId === slotId);
     if (failing) {
       const stage = slotDiagnostics?.get(slotId);
@@ -376,14 +353,6 @@ export default function DocumentsRehydratePage() {
 
   function revealAll() {
     if (grants.length === 0) return;
-    if (worldBlocking) {
-      setError(
-        world.mode === "error"
-          ? world.message
-          : "World Selfie Check is required before the first unwrap.",
-      );
-      return;
-    }
     setError(null);
     const next = new Set(revealed);
     for (const grant of usableGrants) next.add(grant.slotId);
@@ -411,7 +380,7 @@ export default function DocumentsRehydratePage() {
     unwrapError: null,
   };
   if (bundle) {
-    if (grantedCount === 0 || worldBlocking || !key) {
+    if (grantedCount === 0 || !key) {
       view = { body: bundle.artifact.content, mode: "redacted", unwrapError: null };
     } else {
       try {
@@ -463,7 +432,7 @@ export default function DocumentsRehydratePage() {
           encrypted slots — no other file is needed. The separate
           .redacted.txt download is a plain-text copy and cannot rehydrate.
         </p>
-        <Button onClick={() => void requestOnchain()} disabled={!address || !bundle || requestBusy}>
+        <Button onClick={() => void requestOnchain()} disabled={!address || !bundle || requestBusy || requestBlocked}>
           {requestBusy
             ? connector === "ledger"
               ? "Confirm on Ledger…"
@@ -523,25 +492,20 @@ export default function DocumentsRehydratePage() {
       </div>
 
       {world.mode === "required" ? (
-        <div className="mt-4 border border-border bg-card p-4">
-          <p className="text-sm font-medium">World Selfie Check</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Present a credential 11 proof bound to this wallet before the first unwrap.
-            Scope: {world.appId} / {world.action}.
-          </p>
-          <textarea
-            value={proofText}
-            onChange={(event) => setProofText(event.target.value)}
-            placeholder='{"nullifier":"…","credentialId":11,"signal":"0x…"}'
-            className="mt-3 min-h-24 w-full border border-border bg-background p-3 font-mono text-xs outline-none focus:border-ring"
-            aria-label="Selfie Check proof JSON"
-          />
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Button size="sm" onClick={presentSelfie} disabled={selfieOk}>
-              {selfieOk ? "Selfie Check presented" : "Present Selfie Check"}
-            </Button>
-          </div>
-        </div>
+        <WorldSelfieGate
+          world={world}
+          signal={address && bundle ? rehydrateSelfieSignal(address, bundle.artifact.documentId) : ""}
+          selfieOk={selfieOk}
+          onVerified={(nullifier) => {
+            saveConsumedNullifier(world.appId, world.action, nullifier);
+            setSelfieOk(true);
+            setError(null);
+          }}
+          onError={(message) => {
+            setSelfieOk(false);
+            setError(message);
+          }}
+        />
       ) : null}
 
       {bundle ? (
@@ -606,7 +570,7 @@ export default function DocumentsRehydratePage() {
                   key={slot.slotId}
                   size="xs"
                   variant={revealed.has(slot.slotId) ? "default" : diag && !diag.ok ? "destructive" : "outline"}
-                  disabled={!granted || !key || worldBlocking}
+                  disabled={!granted || !key}
                   onClick={() => toggle(slot.slotId)}
                 >
                   {slot.slotId} {suffix}
@@ -679,7 +643,7 @@ export default function DocumentsRehydratePage() {
                     ? "Rehydrate failed — showing redacted text"
                     : "Redacted text"}
               </p>
-              {grants.length > 0 && !worldBlocking && key ? (
+              {grants.length > 0 && key ? (
                 <div className="flex gap-2">
                   <Button size="xs" variant="outline" onClick={revealAll} disabled={usableGrants.length === 0 || grantedCount === usableGrants.length}>
                     Reveal all granted slots
@@ -732,7 +696,7 @@ function WorldGateBanner({
   if (world.mode === "required") {
     return (
       <p className="mt-3 text-xs text-muted-foreground">
-        World Selfie Check: <span className="chip">{selfieOk ? "presented" : "required"}</span>
+        World Selfie Check: <span className="chip">{selfieOk ? "verified" : "required before request"}</span>
       </p>
     );
   }

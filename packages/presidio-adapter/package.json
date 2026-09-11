@@ -8,12 +8,19 @@
     "./analyzer": "./src/analyzer.ts",
     "./worker": "./src/analyzer.worker.ts"
   },
-  "scripts": { "test": "vitest run", "typecheck": "tsc --noEmit && tsc --noEmit -p test" },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p test"
+  },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
     "@soulvault/protocol": "workspace:*",
     "onnxruntime-web": "1.27.0",
     "presidio-web": "0.1.0"
   },
-  "devDependencies": { "typescript": "^6.0.2", "vitest": "^4.1.2" }
+  "devDependencies": {
+    "openredaction": "^1.1.5",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.2"
+  }
 }

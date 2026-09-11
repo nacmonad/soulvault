@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { analyzePatterns } from "../src/analyzer.ts";
+import { analyzePatterns } from "../src/analyzer.js";
 
 const fixture = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "fixtures/demo-referral.txt"),

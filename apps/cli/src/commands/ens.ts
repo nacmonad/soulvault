@@ -3,6 +3,9 @@ import {
   grantEnsV2RoleByName,
   revokeEnsV2RoleByName,
   readEnsV2RolesByName,
+  grantEnsV2RootRoles,
+  revokeEnsV2RootRoles,
+  readEnsV2RootRoles,
 } from '@soulvault/node/ensv2-grants';
 
 export function registerEnsCommands(program: Command) {
@@ -75,6 +78,74 @@ export function registerEnsCommands(program: Command) {
         console.error(`Name "${options.name}" is not registered on ENSv2.`);
         return;
       }
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  // --- Root-resource grant family (registry-level, not name-scoped) ---------
+  //
+  // Registering a NEW label checks ROLE_REGISTRAR on the registry's ROOT
+  // resource (resource 0) — roles on any parent name do not inherit down for
+  // registration. `ens grant` is name-keyed and cannot express that, so
+  // root grants take the registry address directly.
+
+  ens
+    .command('grant-root')
+    .description(
+      'Grant EAC roles on a registry\'s ROOT resource (resource 0). Needed for agent self-registration:' +
+        ' registering a fresh label requires ROLE_REGISTRAR at the registry root, which name-scoped grants cannot express. ' +
+        'EAC semantics: the caller must hold the roles at the root (the org owner does — EAC_ALL_ROLES at initialize()). ' +
+        'Example: soulvault ens grant-root --registry 0xAbC... --role registrar --to 0xAgent...',
+    )
+    .requiredOption('--registry <address>', 'Org ENSv2 registry address (org profile ensv2Registry.address)')
+    .requiredOption('--role <roles>', 'Comma-separated roles: registrar, register-reserved, set-parent, unregister, renew, set-subregistry, set-resolver')
+    .requiredOption('--to <address>', 'Recipient wallet (agent)')
+    .action(async (options) => {
+      const result = await grantEnsV2RootRoles({
+        registryAddress: options.registry,
+        roleSpec: options.role,
+        account: options.to,
+      });
+      console.error(
+        `\nGranted ${result.roles.join(', ')} on ROOT of ${result.registryAddress} → ${result.account}\n` +
+          `  tx: ${result.txHash}\n` +
+          `\nThe agent can now register fresh labels on this registry (e.g. its own subdomain).`,
+      );
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  ens
+    .command('revoke-root')
+    .description(
+      'Revoke EAC roles on a registry\'s ROOT resource (agent offboarding at registry level).',
+    )
+    .requiredOption('--registry <address>', 'Org ENSv2 registry address')
+    .requiredOption('--role <roles>', 'Comma-separated roles to revoke')
+    .requiredOption('--from <address>', 'Wallet losing the roles')
+    .action(async (options) => {
+      const result = await revokeEnsV2RootRoles({
+        registryAddress: options.registry,
+        roleSpec: options.role,
+        account: options.from,
+      });
+      console.error(
+        `\nRevoked ${result.roles.join(', ')} on ROOT of ${result.registryAddress} from ${result.account}\n` +
+          `  tx: ${result.txHash}`,
+      );
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  ens
+    .command('roles-root')
+    .description(
+      'Read the EAC roles an account holds on a registry\'s ROOT resource (bitmap + decoded role names).',
+    )
+    .requiredOption('--registry <address>', 'Org ENSv2 registry address')
+    .requiredOption('--account <address>', 'Wallet to inspect')
+    .action(async (options) => {
+      const result = await readEnsV2RootRoles({
+        registryAddress: options.registry,
+        account: options.account,
+      });
       console.log(JSON.stringify(result, null, 2));
     });
 }

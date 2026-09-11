@@ -205,3 +205,40 @@ he can attest. An external consumer currently has no path.
 - Dashboard ticket 012 (otto/dashboard-ui) section D tracks the same work from the
   browser side; v1 implementation should land there first and dispatch to v2 via the
   same flag as the rest of `ens.ts`.
+
+## Appendix — EAC semantics notes (learned on Sepolia beta, 2026-09-11)
+
+These tripped us up during the live agent-delegation test; writing them down so the
+next implementer doesn't re-derive them the hard way.
+
+1. **Registration is a ROOT_RESOURCE check, always.** `_register` on a fresh label
+   (PermissionedRegistry) requires `ROLE_REGISTRAR` on `ROOT_RESOURCE` (resource `0`)
+   regardless of what roles the caller holds on any parent name. EAC resources are
+   flat `(labelhash, eacVersionId)` pairs — roles on `ops` do NOT extend to
+   registering children of `ops`. Registering on the non-expired/RESERVED path
+   instead requires `ROLE_REGISTER_RESERVED` on root. To let an agent self-register
+   its own subdomain, grant the registrar bit at the registry root
+   (`grantRootRoles(0x1, agent)`), which the CLI currently cannot express —
+   `ens grant` is anyId (name)-keyed only. CLI gap: add a root-grant path.
+
+2. **Registry and resolver are separate EAC trust domains.** Holding
+   `ROLE_SET_RESOLVER` on the *registry* lets you point a name at a resolver
+   address; it says nothing about writing records *through* that resolver.
+   `PermissionedResolver.setText` checks resolver-side roles
+   (`ROLE_SET_TEXT` on `resource(node, part)`, falling back to the node-wide and
+   root resources). An agent with all registry roles still holds `0x0` on the
+   resolver — grant `authorizeTextRoles`/`authorizeNameRoles` there separately.
+
+3. **The CLI's ENSv2 walk can't see island registries.** `walkEnsV2Registry`
+   starts at the public Sepolia root; an org registry not attached beneath `.eth`
+   (no parent subregistry pointer) is invisible to `ens roles` and friends
+   ("not registered" for a name that is demonstrably registered). Names under an
+   org island must be addressed via the org profile's `ensv2Registry.address`
+   directly — `resolveOrgRegistryForSwarm` does this correctly.
+
+4. **`--with-agent-namespace` wiring is manual today.** The wizard does not
+   self-point the swarm's subregistry at the org registry (`getSubregistry(swarm)`
+   reads zero after `swarm register-ens`), so `<agent>.<swarm>.<org>.eth` won't
+   resolve until `setSubregistry(label, orgRegistry)` is called — the caller needs
+   `ROLE_SET_SUBREGISTRY` on the swarm name (delegatable via `ens grant --role
+   set-subregistry`, which is how the agent fixed it live).

@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { createOrLoadAgentProfile, getAgentProfile } from '@soulvault/node/agent';
 import { createAgentIdentityOnchain, renderAgentUri, showAgentIdentity, updateAgentIdentityOnchain } from '@soulvault/node/identity';
+import { registerAgentEnsName, resolveAgentReverseRecord } from '@soulvault/node/ensv2-agent-bridge';
 import { getActiveSwarm, getSwarmProfile } from '@soulvault/node/swarm';
 import { loadEnv } from '@soulvault/node/config';
 
@@ -121,14 +122,60 @@ export function registerAgentCommands(program: Command) {
     });
 
   agent
+    .command('register-ens')
+    .description(
+      'ENSv2 Phase 4 (ERC-8004 bridge): register the agent as <label>.<swarm>.<org>.eth in the org\'s ' +
+        'SoulVaultRegistry and mirror the ERC-8004 identity (registry, agentId) into the name\'s resolver ' +
+        'records. The agent wallet receives SET_RESOLVER | RENEW on its own name — self-serve record updates.',
+    )
+    .requiredOption('--label <label>', 'Agent label, e.g. rustybot for rustybot.<swarm>.<org>.eth')
+    .option('--swarm <nameOrEns>', 'Swarm (default: active swarm)')
+    .option('--owner <address>', 'Name owner (default: active signer)')
+    .option('--expiry-days <n>', 'Name expiry in days', '30')
+    .action(async (options) => {
+      const result = await registerAgentEnsName({
+        swarm: options.swarm,
+        agentLabel: options.label,
+        owner: options.owner,
+        expirySeconds: Number(options.expiryDays) * 86400,
+      });
+      console.error(
+        `\nAgent name registered: ${result.fullName}\n` +
+          `  registry: ${result.registryAddress}\n` +
+          `  owner: ${result.owner}\n` +
+          `  roles on name: ${result.roleBitmap} (SET_RESOLVER=1<<24 | RENEW=1<<16)\n` +
+          (result.erc8004.registry
+            ? `  erc8004.registry: ${result.erc8004.registry}\n` +
+              (result.erc8004.agentId ? `  erc8004.agentId: ${result.erc8004.agentId}\n` : '')
+            : '') +
+          `  tx: ${result.txHash}\n` +
+          `\nReverse lookup: soulvault agent show resolves erc8004.* from this name.`,
+      );
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  agent
     .command('show')
     .option('--agent-id <id>')
     .option('--registry <address>')
+    .option('--ens', 'Also resolve the ENSv2 ↔ ERC-8004 bridge records (reverse lookup)')
     .action(async (options) => {
       const result = await showAgentIdentity({
         agentId: options.agentId,
         registry: options.registry,
       });
-      console.log(JSON.stringify(result, null, 2));
+      if (options.ens) {
+        const bridge = await resolveAgentReverseRecord({});
+        if (bridge) {
+          console.error(
+            `\nENSv2 bridge (${bridge.fullName}):\n` +
+              `  erc8004.registry: ${bridge.erc8004.registry ?? '(unset)'}\n` +
+              `  erc8004.agentId: ${bridge.erc8004.agentId ?? '(unset)'}`,
+          );
+        } else {
+          console.error('\nENSv2 bridge: no agent ENS name registered (run `agent register-ens`).');
+        }
+      }
+      console.log(JSON.stringify({ ...result, ensBridge: options.ens ? await resolveAgentReverseRecord({}).catch(() => null) : undefined }, null, 2));
     });
 }

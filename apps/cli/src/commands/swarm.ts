@@ -55,12 +55,16 @@ export function registerSwarmCommands(program: Command) {
     .requiredOption('--label <label>', 'Swarm label, e.g. ops for ops.<org>.eth')
     .option('--expiry-days <n>', 'Epoch length in days (name expires at now + n days)', '30')
     .option('--owner <address>', 'Name owner (default: active signer)')
+    .option('--with-agent-namespace', 'Self-point the swarm subregistry at the org registry so agent labels (<agent>.<swarm>.<org>.eth) resolve beneath it (Phase 4 ERC-8004 bridge)')
     .action(async (options) => {
       const result = await registerEnsV2Subname({
         registryAddress: options.registry,
         label: options.label,
         owner: options.owner,
         expirySeconds: Number(options.expiryDays) * 86400,
+        // Phase 4 agent namespace: the swarm name points at the org registry so
+        // <agent>.<swarm>.<org>.eth resolves through the same registry.
+        subregistryAddress: options.withAgentNamespace ? options.registry : undefined,
       });
       console.error(
         `\nRegistered ${result.label} in ${result.registryAddress}\n` +

@@ -82,9 +82,23 @@ export const REGISTRY_ABI = [
     inputs: [{ name: "node", type: "bytes32" }],
     outputs: [{ type: "address" }],
   },
+  {
+    type: "function",
+    name: "resolver",
+    stateMutability: "view",
+    inputs: [{ name: "node", type: "bytes32" }],
+    outputs: [{ type: "address" }],
+  },
 ] as const;
 
 export const RESOLVER_ABI = [
+  {
+    type: "function",
+    name: "addr",
+    stateMutability: "view",
+    inputs: [{ name: "node", type: "bytes32" }],
+    outputs: [{ type: "address" }],
+  },
   {
     type: "function",
     name: "setAddr",
@@ -818,8 +832,18 @@ export async function upsertDocumentRegistryEnsRecord(input: {
 }
 
 /**
- * Bind a swarm subdomain: setSubnodeRecord + setAddr + the two text records,
- * byte-parity with the CLI's bindSwarmEnsSubdomain (packages/node/src/swarm-deploy.ts).
+ * Bind a swarm subdomain. Two protocol lanes:
+ *   - ENSv1 orgs (legacy, unchanged): setSubnodeRecord on the v1 registry +
+ *     setAddr + the two text records, byte-parity with the CLI's
+ *     bindSwarmEnsSubdomain (packages/node/src/swarm-deploy.ts).
+ *   - ENSv2 orgs: the v1 registry has no owner for the org node, so
+ *     setSubnodeRecord would revert with NotOwner. Instead the swarm label is
+ *     registered as a subname in the org's own ENSv2 registry (parity with
+ *     `swarm register-ens`: register(label, owner, 0x0, 0x0,
+ *     SET_RESOLVER|RENEW, now+30d)), then the same record shape is written to
+ *     the org's PermissionedResolver — readers resolve the records through the
+ *     v2 hierarchy (wildcard from the parent resolver), so CLI/dashboard v1
+ *     record readers keep working unchanged.
  */
 export async function bindSwarmEnsSubdomain(input: {
   from: Address;
@@ -829,7 +853,104 @@ export async function bindSwarmEnsSubdomain(input: {
   chainId: number;
 }): Promise<{ subnodeTxHash: Hex; addrTxHash: Hex; chainIdTxHash: Hex; contractTxHash: Hex }> {
   await requireOrgOwnership({ orgEnsName: input.organizationEnsName, from: input.from });
-  const orgResolver = await resolveOrgResolver(input.organizationEnsName);
+
+  const v2 = await readEnsV2OrgContext(input.organizationEnsName, input.from).catch(() => null);
+  if (v2) {
+    if (!v2.resolver) {
+      throw new Error(
+        `${input.organizationEnsName} is ENSv2-managed but has no resolver attached — re-run the org wizard to attach one.`,
+      );
+    }
+    const swarmLabel = input.swarmEnsName.replace(`.${input.organizationEnsName}`, "");
+    const swarmNode = namehash(normalize(input.swarmEnsName));
+
+    // Register the subname in the org's own registry — skip when already
+    // registered and unexpired (partial-re-run recovery, mirroring the CLI's
+    // registerEnsV2Subname semantics).
+    let subnodeTxHash: Hex;
+    const rawState = (await publicClient()
+      .readContract({
+        address: v2.registry,
+        abi: ENSV2_STATE_ABI,
+        functionName: "getState",
+        args: [BigInt(labelhash(swarmLabel))],
+      })
+      .catch(() => null)) as unknown;
+    const existingState = normalizeEnsV2LabelState(rawState);
+    if (existingState && existingState.status === 2 && existingState.expiry > BigInt(Math.floor(Date.now() / 1000))) {
+      subnodeTxHash = "0x"; // sentinel — nothing signed for this step
+    } else {
+      subnodeTxHash = await sendWalletTransaction({
+        // ENS coordination is pinned to Sepolia — registry/resolver live there.
+        chainId: SEPOLIA_CHAIN_ID,
+        from: input.from,
+        to: v2.registry,
+        data: encodeFunctionData({
+          abi: ENSV2_USER_REGISTRY_ABI,
+          functionName: "register",
+          args: [
+            swarmLabel,
+            input.from,
+            zeroAddress,
+            zeroAddress,
+            ENSV2_ROLES.ROLE_SET_RESOLVER | ENSV2_ROLES.ROLE_RENEW,
+            expiryFromNow(DEFAULT_EPOCH_SECONDS),
+          ],
+        }),
+      });
+      const registerReceipt = await waitForWalletReceipt(subnodeTxHash);
+      if (registerReceipt.status !== "success") throw new Error(`register reverted (tx ${subnodeTxHash}).`);
+    }
+
+    // Same record shape as the v1 branch — written to the org's
+    // PermissionedResolver, where the v2 hierarchy's wildcard resolution finds
+    // them. Each record is only written when its on-chain value differs
+    // (partial-re-run idempotency, ticket 016); skipped txs carry the "0x"
+    // sentinel like the subnode step above.
+    const client = publicClient();
+    const setAddrTxHash = await setAddrIfChanged({
+      client,
+      from: input.from,
+      resolver: v2.resolver,
+      node: swarmNode,
+      value: input.contractAddress,
+    });
+    if (setAddrTxHash !== "0x") {
+      const setAddrReceipt = await waitForWalletReceipt(setAddrTxHash);
+      if (setAddrReceipt.status !== "success") throw new Error(`setAddr reverted (tx ${setAddrTxHash}).`);
+    }
+
+    const chainIdTxHash = await setTextIfChanged({
+      client,
+      from: input.from,
+      resolver: v2.resolver,
+      node: swarmNode,
+      key: "soulvault.chainId",
+      value: String(input.chainId),
+    });
+    if (chainIdTxHash !== "0x") {
+      const chainIdReceipt = await waitForWalletReceipt(chainIdTxHash);
+      if (chainIdReceipt.status !== "success") throw new Error(`setText(soulvault.chainId) reverted (tx ${chainIdTxHash}).`);
+    }
+
+    const contractTxHash = await setTextIfChanged({
+      client,
+      from: input.from,
+      resolver: v2.resolver,
+      node: swarmNode,
+      key: "soulvault.swarmContract",
+      value: input.contractAddress,
+    });
+    if (contractTxHash !== "0x") {
+      const contractReceipt = await waitForWalletReceipt(contractTxHash);
+      if (contractReceipt.status !== "success") throw new Error(`setText(soulvault.swarmContract) reverted (tx ${contractTxHash}).`);
+    }
+
+    return { subnodeTxHash, addrTxHash: setAddrTxHash, chainIdTxHash, contractTxHash };
+  }
+
+  // --- Legacy v1 lane (record writes diff-gated, ticket 016) ---
+  const orgResolver = await resolveOrgResolver(input.organizationEnsName, input.from);
   if (!orgResolver) {
     throw new Error(
       `${input.organizationEnsName} is ENSv2-managed but has no resolver attached — re-run the org wizard to attach one.`,
@@ -839,63 +960,142 @@ export async function bindSwarmEnsSubdomain(input: {
   const swarmLabel = input.swarmEnsName.replace(`.${input.organizationEnsName}`, "");
   const swarmNode = namehash(normalize(input.swarmEnsName));
 
-  const subnodeTxHash = await sendWalletTransaction({
+  // Skip setSubnodeRecord when the subnode already exists and points at the
+  // org resolver — re-running it is harmless but is another wallet prompt
+  // (and an unnecessary signature) on every partial re-run.
+  const client = publicClient();
+  const currentSubnodeResolver = (await client
+    .readContract({
+      address: ENS_REGISTRY,
+      abi: REGISTRY_ABI,
+      functionName: "resolver",
+      args: [swarmNode],
+    })
+    .catch(() => null)) as Address | null;
+  let subnodeTxHash: Hex;
+  if (currentSubnodeResolver && currentSubnodeResolver.toLowerCase() === orgResolver.toLowerCase()) {
+    subnodeTxHash = "0x";
+  } else {
+    subnodeTxHash = await sendWalletTransaction({
+      // ENS coordination is pinned to Sepolia — registry/resolver live there.
+      chainId: SEPOLIA_CHAIN_ID,
+      from: input.from,
+      to: ENS_REGISTRY,
+      data: encodeFunctionData({
+        abi: REGISTRY_ABI,
+        functionName: "setSubnodeRecord",
+        args: [orgNode, labelhash(swarmLabel), input.from, orgResolver, 0n],
+      }),
+    });
+    const subnodeReceipt = await waitForWalletReceipt(subnodeTxHash);
+    if (subnodeReceipt.status !== "success") throw new Error(`setSubnodeRecord reverted (tx ${subnodeTxHash}).`);
+  }
+
+  const setAddrTxHash = await setAddrIfChanged({
+    client,
+    from: input.from,
+    resolver: orgResolver,
+    node: swarmNode,
+    value: input.contractAddress,
+  });
+  if (setAddrTxHash !== "0x") {
+    const setAddrReceipt = await waitForWalletReceipt(setAddrTxHash);
+    if (setAddrReceipt.status !== "success") throw new Error(`setAddr reverted (tx ${setAddrTxHash}).`);
+  }
+
+  const chainIdTxHash = await setTextIfChanged({
+    client,
+    from: input.from,
+    resolver: orgResolver,
+    node: swarmNode,
+    key: "soulvault.chainId",
+    value: String(input.chainId),
+  });
+  if (chainIdTxHash !== "0x") {
+    const chainIdReceipt = await waitForWalletReceipt(chainIdTxHash);
+    if (chainIdReceipt.status !== "success") throw new Error(`setText(soulvault.chainId) reverted (tx ${chainIdTxHash}).`);
+  }
+
+  const contractTxHash = await setTextIfChanged({
+    client,
+    from: input.from,
+    resolver: orgResolver,
+    node: swarmNode,
+    key: "soulvault.swarmContract",
+    value: input.contractAddress,
+  });
+  if (contractTxHash !== "0x") {
+    const contractReceipt = await waitForWalletReceipt(contractTxHash);
+    if (contractReceipt.status !== "success") throw new Error(`setText(soulvault.swarmContract) reverted (tx ${contractTxHash}).`);
+  }
+
+  return { subnodeTxHash, addrTxHash: setAddrTxHash, chainIdTxHash, contractTxHash };
+}
+
+/**
+ * Send setText only when the on-chain value differs; returns the "0x" sentinel
+ * when the record already matches (partial-re-run idempotency, ticket 016).
+ */
+async function setTextIfChanged(input: {
+  client: PublicClient;
+  from: Address;
+  resolver: Address;
+  node: Hex;
+  key: string;
+  value: string;
+}): Promise<Hex> {
+  const current = (await input.client
+    .readContract({
+      address: input.resolver,
+      abi: RESOLVER_ABI,
+      functionName: "text",
+      args: [input.node, input.key],
+    })
+    .catch(() => null)) as string | null;
+  if (current === input.value) return "0x";
+  const txHash = await sendWalletTransaction({
     // ENS coordination is pinned to Sepolia — registry/resolver live there.
     chainId: SEPOLIA_CHAIN_ID,
     from: input.from,
-    to: ENS_REGISTRY,
+    to: input.resolver,
     data: encodeFunctionData({
-      abi: REGISTRY_ABI,
-      functionName: "setSubnodeRecord",
-      args: [orgNode, labelhash(swarmLabel), input.from, orgResolver, 0n],
+      abi: RESOLVER_ABI,
+      functionName: "setText",
+      args: [input.node, input.key, input.value],
     }),
   });
-  const subnodeReceipt = await waitForWalletReceipt(subnodeTxHash);
-  if (subnodeReceipt.status !== "success") throw new Error(`setSubnodeRecord reverted (tx ${subnodeTxHash}).`);
+  return txHash;
+}
 
-  const setAddrTxHash = await sendWalletTransaction({
+/** Address-form twin of setTextIfChanged — skipped writes return the "0x" sentinel. */
+async function setAddrIfChanged(input: {
+  client: PublicClient;
+  from: Address;
+  resolver: Address;
+  node: Hex;
+  value: Address;
+}): Promise<Hex> {
+  const current = (await input.client
+    .readContract({
+      address: input.resolver,
+      abi: RESOLVER_ABI,
+      functionName: "addr",
+      args: [input.node],
+    })
+    .catch(() => null)) as Address | null;
+  if (current && current.toLowerCase() === input.value.toLowerCase()) return "0x";
+  const txHash = await sendWalletTransaction({
     // ENS coordination is pinned to Sepolia — registry/resolver live there.
     chainId: SEPOLIA_CHAIN_ID,
     from: input.from,
-    to: orgResolver,
+    to: input.resolver,
     data: encodeFunctionData({
       abi: RESOLVER_ABI,
       functionName: "setAddr",
-      args: [swarmNode, input.contractAddress],
+      args: [input.node, input.value],
     }),
   });
-  const setAddrReceipt = await waitForWalletReceipt(setAddrTxHash);
-  if (setAddrReceipt.status !== "success") throw new Error(`setAddr reverted (tx ${setAddrTxHash}).`);
-
-  const chainIdTxHash = await sendWalletTransaction({
-    // ENS coordination is pinned to Sepolia — registry/resolver live there.
-    chainId: SEPOLIA_CHAIN_ID,
-    from: input.from,
-    to: orgResolver,
-    data: encodeFunctionData({
-      abi: RESOLVER_ABI,
-      functionName: "setText",
-      args: [swarmNode, "soulvault.chainId", String(input.chainId)],
-    }),
-  });
-  const chainIdReceipt = await waitForWalletReceipt(chainIdTxHash);
-  if (chainIdReceipt.status !== "success") throw new Error(`setText(soulvault.chainId) reverted (tx ${chainIdTxHash}).`);
-
-  const contractTxHash = await sendWalletTransaction({
-    // ENS coordination is pinned to Sepolia — registry/resolver live there.
-    chainId: SEPOLIA_CHAIN_ID,
-    from: input.from,
-    to: orgResolver,
-    data: encodeFunctionData({
-      abi: RESOLVER_ABI,
-      functionName: "setText",
-      args: [swarmNode, "soulvault.swarmContract", input.contractAddress],
-    }),
-  });
-  const contractReceipt = await waitForWalletReceipt(contractTxHash);
-  if (contractReceipt.status !== "success") throw new Error(`setText(soulvault.swarmContract) reverted (tx ${contractTxHash}).`);
-
-  return { subnodeTxHash, addrTxHash: setAddrTxHash, chainIdTxHash, contractTxHash };
+  return txHash;
 }
 
 /** Idempotent append of the swarm label to the org's CBOR `soulvault.swarms` record. */

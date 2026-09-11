@@ -19,6 +19,7 @@ import type { Address, Hex } from 'viem';
 import {
   createSoulVaultPublicClient,
   getBrowserSoulVaultClientConfig,
+  parseSoulVaultPollSeconds,
   type SoulVaultClientConfig,
 } from '@/lib/onchain/client';
 import { resolveDocumentEventSource } from '@/lib/document-registry';
@@ -120,6 +121,8 @@ export function SoulVaultEventsProvider({
   config?: SoulVaultClientConfig;
 }) {
   const resolvedConfig = useRef<SoulVaultClientConfig | null>(config ?? getBrowserSoulVaultClientConfig());
+  // Live-poll cadence: explicit hook arg wins; else NEXT_PUBLIC_SOULVAULT_POLL_SECONDS; else 25s.
+  const defaultPollSeconds = parseSoulVaultPollSeconds(process.env.NEXT_PUBLIC_SOULVAULT_POLL_SECONDS);
   const watcherRef = useRef<SoulVaultEventWatcher | null>(null);
   const stopRef = useRef<(() => void) | null>(null);
   /** Monotonic scan id — only the newest-started scan may write state.
@@ -234,7 +237,7 @@ export function SoulVaultEventsProvider({
       await runScan();
       const latest = await watcher.latestBlock().catch(() => null);
       stopRef.current = watcher.watchLive({
-        pollSeconds: pollSeconds ?? 5,
+        pollSeconds: pollSeconds ?? defaultPollSeconds,
         fromBlock: latest === null ? undefined : latest + BigInt(1),
         onEvents: (batch) => {
           setState((s) => ({ ...s, events: mergeEventBatches(s.events, batch) }));
@@ -243,7 +246,7 @@ export function SoulVaultEventsProvider({
         onError: (error) => setState((s) => ({ ...s, error })),
       });
     },
-    [getWatcher, runScan],
+    [getWatcher, runScan, defaultPollSeconds],
   );
 
   const stopLive = useCallback(() => {

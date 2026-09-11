@@ -42,7 +42,7 @@ const OWNER_ABI = [
 export default function SwarmPage() {
   const { address } = useSoulVaultWallet();
   const { selection, setSwarm } = useDashboardSelection();
-  const { events, status, error, refresh, sources } = useSwarmEvents({ live: true, pollSeconds: 5 });
+  const { events, status, error, refresh, sources } = useSwarmEvents({ live: true });
   const discovery = useOrgDiscovery(selection.orgId);
 
   const [busy, setBusy] = useState<string | null>(null);
@@ -103,7 +103,7 @@ export default function SwarmPage() {
    * would hide identities for members whose wallet is provably in the swarm.
    * A stale attribution is surfaced as a row warning instead (MemberRow).
    */
-  const { agentProfiles } = useAgentEvents({ live: true, pollSeconds: 15 });
+  const { agentProfiles } = useAgentEvents({ live: true });
   const agentsByWallet = useMemo(() => {
     const map = new Map<string, typeof agentProfiles>();
     for (const profile of agentProfiles) {

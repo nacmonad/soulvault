@@ -20,6 +20,21 @@ export type SoulVaultClientConfig = {
 
 export const SOULVAULT_DEFAULT_CHAIN_ID = 11155111;
 
+/**
+ * Default live-polling interval for contract-event scans (seconds). The old
+ * default was 5s — a 429 magnet against public RPCs (each tick is a getLogs
+ * per watched source). 25s is still snappy for a coordination layer whose
+ * events arrive at tx speed on Sepolia's 12s blocks, and `.env.local`
+ * (`NEXT_PUBLIC_SOULVAULT_POLL_SECONDS`) can tune it per operator.
+ */
+export const SOULVAULT_DEFAULT_POLL_SECONDS = 25;
+
+export function parseSoulVaultPollSeconds(raw: string | undefined): number {
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 2) return SOULVAULT_DEFAULT_POLL_SECONDS;
+  return Math.floor(parsed);
+}
+
 export function parseSoulVaultClientConfig(input: {
   rpcUrl?: string;
   chainId?: string;

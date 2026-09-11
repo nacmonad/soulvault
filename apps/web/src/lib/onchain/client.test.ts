@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createSoulVaultPublicClient, parseSoulVaultClientConfig } from './client';
+import { createSoulVaultPublicClient, parseSoulVaultClientConfig, parseSoulVaultPollSeconds } from './client';
 
 const rpcUrl = 'https://ethereum-sepolia-rpc.publicnode.com';
 
@@ -107,5 +107,18 @@ describe('roundRobinTransport rotation', () => {
     } finally {
       globalThis.fetch = realFetch;
     }
+  });
+});
+
+describe('parseSoulVaultPollSeconds', () => {
+  it('defaults to 25s on unset/garbage/too-low values', () => {
+    expect(parseSoulVaultPollSeconds(undefined)).toBe(25);
+    expect(parseSoulVaultPollSeconds('not-a-number')).toBe(25);
+    expect(parseSoulVaultPollSeconds('1')).toBe(25); // floor: 2s minimum
+  });
+
+  it('parses valid overrides', () => {
+    expect(parseSoulVaultPollSeconds('60')).toBe(60);
+    expect(parseSoulVaultPollSeconds('30.9')).toBe(30);
   });
 });

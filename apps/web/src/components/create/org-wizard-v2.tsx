@@ -17,6 +17,7 @@ import {
   DEFAULT_EPOCH_SECONDS,
   parseEnsV2OrgLabel,
   registerOrganizationEnsV2,
+  type EnsV2OrgRegisterResult,
 } from "@/lib/ens-register-v2";
 import type { WizardStep } from "@/lib/create-flows";
 
@@ -28,7 +29,10 @@ const INITIAL_STEPS: WizardStep[] = [
   { id: "metadata", label: "Write class and name records", status: "pending" },
 ];
 
-export function OrgWizardV2() {
+export function OrgWizardV2(input: {
+  /** Called after a successful registration so parents can refresh local state. */
+  onRegistered?: (result: EnsV2OrgRegisterResult) => void;
+}) {
   const { address } = useSoulVaultWallet();
   const { rememberOrg } = useDashboardSelection();
   const [displayName, setDisplayName] = useState("");
@@ -88,6 +92,7 @@ export function OrgWizardV2() {
           }),
       });
       rememberOrg(result.ensName);
+      input.onRegistered?.(result);
       setOutcome({
         ensName: result.ensName,
         registryAddress: result.registryAddress,

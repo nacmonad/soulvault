@@ -1,17 +1,21 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { type Address } from "viem";
+import { namehash, zeroAddress, type Address } from "viem";
+import { normalize } from "viem/ens";
 import { sepolia } from "viem/chains";
 
 import { Button } from "@/components/ui/button";
 import { OrgWizard } from "@/components/create/org-wizard";
 import { OrgWizardV2 } from "@/components/create/org-wizard-v2";
+import { EditEnsPanel } from "@/components/dashboard/edit-ens-panel";
 import { useDashboardSelection } from "@/components/dashboard/selection-provider";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
-import { createSepoliaEnsClient, getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
+import { createSepoliaEnsClient, createSoulVaultPublicClient, getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 import { shortAddress } from "@/lib/format";
 import { getEnsModeOverride, setEnsModeOverride, resolveEnsMode, type EnsMode } from "@/lib/ens-mode";
+import { resolveEnsEditTarget, type EnsEditTarget } from "@/lib/ens-edit";
+import { resolveEnsV2OrgRecord } from "@/lib/ens-register-v2";
 
 type EnsRecord = {
   name: string;
@@ -22,16 +26,38 @@ type EnsRecord = {
   error?: string;
 };
 
-const TEXT_KEYS = ["url", "description", "org", "avatar"] as const;
+const TEXT_KEYS = ["name", "org", "url", "description", "avatar"] as const;
 
 export default function OrgPage() {
   const { address } = useSoulVaultWallet();
-  const { selection, setOrg, rememberOrg } = useDashboardSelection();
+  const { selection, setOrg, rememberOrg, forgetOrg } = useDashboardSelection();
   const [draft, setDraft] = useState("");
   const [reverseName, setReverseName] = useState<string | null>(null);
   const [record, setRecord] = useState<EnsRecord | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [ensMode, setEnsModeState] = useState<{ mode: EnsMode; source: string } | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<EnsEditTarget | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [refreshNonce, setRefreshNonce] = useState(0);
+
+  async function toggleEdit() {
+    const next = !editOpen;
+    setEditOpen(next);
+    if (next && selection.orgId && !editTarget) {
+      setEditError(null);
+      try {
+        const target = await resolveEnsEditTarget({ orgName: selection.orgId, viewer: address });
+        if (!target) {
+          setEditError("No resolvable resolver found for this name — register an ENSv2 org or set a v1 resolver first.");
+          return;
+        }
+        setEditTarget(target);
+      } catch (cause) {
+        setEditError(cause instanceof Error ? cause.message : "Could not resolve the edit target");
+      }
+    }
+  }
 
   const names = useMemo(() => {
     const set = new Set(selection.rememberedOrgs);
@@ -62,9 +88,43 @@ export default function OrgPage() {
       return;
     }
     const client = createSepoliaEnsClient(config);
+    const rpcClient = createSoulVaultPublicClient(config);
     setStatus("loading");
     void (async () => {
       try {
+        // v2 orgs first: the PermissionedResolver is attached in the ENSv2
+        // registry, which viem's v1-walking ENS client can never discover for a
+        // fresh v2 name — reads must go straight to the resolver contract.
+        const v2 = await resolveEnsV2OrgRecord({ orgName: name, viewer: address }).catch(() => null);
+        if (v2) {
+          const orgNode = namehash(normalize(name));
+          const resolverAbi = [
+            { type: "function", name: "addr", stateMutability: "view", inputs: [{ name: "node", type: "bytes32" }], outputs: [{ name: "", type: "address" }] },
+            { type: "function", name: "text", stateMutability: "view", inputs: [{ name: "node", type: "bytes32" }, { name: "key", type: "string" }], outputs: [{ name: "", type: "string" }] },
+          ] as const;
+          const addr = (await rpcClient
+            .readContract({ address: v2.resolver, abi: resolverAbi, functionName: "addr", args: [orgNode] })
+            .catch(() => null)) as Address | null;
+          const textEntries: Array<[string, string | null]> = await Promise.all(
+            TEXT_KEYS.map(async (key): Promise<[string, string | null]> => [
+              key,
+              (await rpcClient
+                .readContract({ address: v2.resolver, abi: resolverAbi, functionName: "text", args: [orgNode, key] })
+                .catch(() => null)) as string | null,
+            ]),
+          );
+          const texts: Record<string, string> = {};
+          for (const [key, value] of textEntries) if (value) texts[key] = value;
+          setRecord({
+            name,
+            owner: v2.owner,
+            resolver: v2.resolver,
+            addr: addr && addr !== zeroAddress ? addr : null,
+            texts,
+          });
+          setStatus("idle");
+          return;
+        }
         const [addr, resolver] = await Promise.all([
           client.getEnsAddress({ name }).catch(() => null),
           client.getEnsResolver({ name }).catch(() => null),
@@ -94,7 +154,7 @@ export default function OrgPage() {
         setStatus("error");
       }
     })();
-  }, [selection.orgId]);
+  }, [selection.orgId, address, refreshNonce]);
 
   // Which wizard do we show? Explicit localStorage override wins; otherwise
   // auto-detect from the org's `soulvault.ensv2Registry` pointer record
@@ -106,8 +166,8 @@ export default function OrgPage() {
       setEnsModeState(null);
       return;
     }
-    void resolveEnsMode(name).then(setEnsModeState);
-  }, [selection.orgId, record]);
+    void resolveEnsMode(name, address).then(setEnsModeState);
+  }, [selection.orgId, address, record]);
 
   const override = getEnsModeOverride();
 
@@ -128,12 +188,22 @@ export default function OrgPage() {
       </p>
       {record ? (
         <dl className="mt-8 grid gap-px border border-border bg-border sm:grid-cols-2">
-          <Field label="ENS name" value={record.name} mono />
+          <Field label="ENS name" value={record.name} mono avatar={record.texts.avatar} />
           <Field label="Addr" value={record.addr ? shortAddress(record.addr as Address) : "—"} mono />
           <Field label="Resolver" value={record.resolver ? shortAddress(record.resolver as Address) : "—"} mono />
           <Field label="Owner / reverse" value={record.owner ? shortAddress(record.owner as Address) : "—"} mono />
           {TEXT_KEYS.map((key) => (
-            <Field key={key} label={key} value={record.texts[key] ?? "—"} />
+            <Field
+              key={key}
+              label={key}
+              value={
+                key === "avatar"
+                  ? record.texts.avatar
+                    ? "set"
+                    : "—"
+                  : (record.texts[key] ?? "—")
+              }
+            />
           ))}
         </dl>
       ) : null}
@@ -141,11 +211,32 @@ export default function OrgPage() {
       {record?.error ? <p className="mt-3 text-sm text-destructive">{record.error}</p> : null}
 
       <div className="mt-8">
-        <Button disabled variant="outline" size="sm">
-          Edit ENS metadata
-          <span className="chip ml-2">soon</span>
+        <Button variant="outline" size="sm" onClick={() => void toggleEdit()}>
+          {editOpen ? "Close editor" : "Edit ENS metadata"}
         </Button>
       </div>
+
+      {editOpen && selection.orgId ? (
+        editTarget ? (
+          <EditEnsPanel
+            from={address!}
+            target={editTarget}
+            orgName={selection.orgId}
+            current={record?.texts ?? {}}
+            onSaved={(updated) => {
+              setEditOpen(false);
+              setEditTarget(null);
+              setRecord((prev) =>
+                prev ? { ...prev, texts: { ...prev.texts, ...updated } } : prev,
+              );
+            }}
+          />
+        ) : (
+          <p className="mt-3 text-sm text-muted-foreground">
+            {editError ?? "Resolving edit target…"}
+          </p>
+        )
+      ) : null}
 
       {names.length === 0 ? (
         <p className="mt-8 text-sm text-muted-foreground">No organization for this wallet.</p>
@@ -161,6 +252,19 @@ export default function OrgPage() {
                 {name}
               </button>
               {selection.orgId === name ? <span className="chip text-primary">current</span> : null}
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={name === reverseName}
+                title={
+                  name === reverseName
+                    ? "Resolved from this wallet's on-chain reverse record — it reappears until the record is cleared"
+                    : "Remove from this list (local only; does not touch ENS or the swarm contract)"
+                }
+                onClick={() => forgetOrg(name)}
+              >
+                Forget
+              </Button>
             </li>
           ))}
         </ul>
@@ -243,17 +347,44 @@ export default function OrgPage() {
         </div>
       ) : null}
 
-      {ensMode?.mode === "v2" ? <OrgWizardV2 /> : <OrgWizard />}
+      {ensMode?.mode === "v2" ? (
+        <OrgWizardV2
+          onRegistered={() => {
+            // The wizard just landed the pointer + metadata records —
+            // re-run the ENS resolve so the panel shows them immediately
+            // instead of waiting for a navigation or reload.
+            setRefreshNonce((n) => n + 1);
+          }}
+        />
+      ) : (
+        <OrgWizard />
+      )}
 
     </div>
   );
 }
 
-function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function Field({
+  label,
+  value,
+  mono,
+  avatar,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  avatar?: string;
+}) {
   return (
     <div className="bg-card p-5">
       <dt className="eyebrow text-muted-foreground">{label}</dt>
-      <dd className={`mt-2 text-sm ${mono ? "font-mono" : ""}`}>{value}</dd>
+      <dd className={`mt-2 flex items-center gap-3 text-sm ${mono ? "font-mono" : ""}`}>
+        {avatar ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={avatar} alt="" className="h-10 w-10 shrink-0 border border-border object-cover" />
+        ) : null}
+        <span className="break-all">{value}</span>
+      </dd>
     </div>
   );
 }

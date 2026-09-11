@@ -133,29 +133,17 @@ export async function registerAgentEnsName(input: {
     },
   });
 
-  // Backfill the ERC-8004 URI with the bridge name: the identity card (and any
-  // external ERC-8004 reader) titles the agent by its ENS name when present.
-  // Rebuild the URI from the current payload shape + ensName and update on-chain.
+  // Backfill the ERC-8004 URI with the bridge name: renderAgentUri now embeds
+  // profile.identity.ensName (written just above), so a fresh render + update
+  // makes the on-chain identity self-describing. Best-effort — a failed
+  // update doesn't invalidate the bridge (the name is registered and locally
+  // recorded either way).
   if (erc8004.registry && erc8004.agentId) {
     try {
-      const { updateAgentIdentityOnchain, buildAgentRegistration } = await import('./identity.js');
-      const payload = buildAgentRegistration({
-        name: agent.name,
-        description: undefined,
-        harness: agent.harness,
-        backupCommand: agent.backupCommand,
-        swarmContract: agent.identity?.lastAgentURI
-          ? (() => { try { return JSON.parse(Buffer.from(agent.identity.lastAgentURI.replace('data:application/json;base64,',''),'base64').toString('utf8')).soulvault?.swarmContract; } catch { return undefined; } })()
-          : undefined,
-        registryAddress: erc8004.registry,
-      });
-      payload.soulvault.memberAddress = agent.address;
-      payload.soulvault.ensName = fullName;
-      const encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64');
-      const uri = `data:application/json;base64,${encoded}`;
-      const signer2 = await createEnsSigner();
-      const adapter = new Contract(erc8004.registry, (await import('./identity.js')).ERC8004_ADAPTER_ABI, signer2);
-      const updateTx = await adapter.updateAgentURI(BigInt(erc8004.agentId), uri);
+      const { renderAgentUri, ERC8004_ADAPTER_ABI } = await import('./identity.js');
+      const rendered = await renderAgentUri({});
+      const adapter = new Contract(erc8004.registry, ERC8004_ADAPTER_ABI, signer);
+      const updateTx = await adapter.updateAgentURI(BigInt(erc8004.agentId), rendered.agentURI);
       await updateTx.wait();
     } catch {
       // URI backfill is best-effort — the name itself is already registered

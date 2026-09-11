@@ -121,7 +121,8 @@ Contracts repo: `ensdomains/contracts-v2` (Foundry remappings per the official t
     as Ledger/World sections — sponsor feedback requirement). **DONE (63802d6).**
 14. Demo script: register org registry → register swarm with expiry → grant agent scoped
     role → agent self-updates record → wildcard resolution from otto dashboard → expiry/
-    renewal via treasury.
+    renewal via treasury. **DONE:** `docs/ensv2-demo-script.md` (runbook, acts 0–5 mapped
+    to spec items; live execution + video pending funded wallet).
 
 ## 5. Qualification checklist
 

@@ -122,7 +122,7 @@ Contracts repo: `ensdomains/contracts-v2` (Foundry remappings per the official t
 ## 5. Qualification checklist
 
 - [x] Built on ENSv2 Sepolia (custom subname registry + EAC + Permissioned Resolvers)
-- [ ] ENSv2 central to product: registry IS the config layer (this spec, phases 1–4)
+- [x] ENSv2 central to product: registry IS the config layer (this spec, phases 1–4)
 - [ ] Functional demo, no hardcoded values (Phase 5 demo script)
 - [ ] Video + live demo (Phase 5)
 - [ ] Open source (repo is public)

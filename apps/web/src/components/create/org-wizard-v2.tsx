@@ -60,7 +60,7 @@ export function OrgWizardV2() {
     }
   })();
 
-  const cliCommand = `pnpm soulvault organization deploy-registry --organization ${preview || "<name>.eth"} && pnpm soulvault swarm register-ens --registry <registry> --label <swarm> --expiry-days 30`;
+  const cliCommand = `pnpm soulvault organization register-ens --organization ${preview ? preview : "<slug>"} --ens-v2`;
 
   async function onCreate() {
     if (!address) return;

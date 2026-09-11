@@ -11,6 +11,7 @@ import {
   createSoulVaultPublicClient,
   getBrowserSoulVaultClientConfig,
 } from "@/lib/onchain/client";
+import { parseRpcUrlList } from "@/lib/rpc-settings";
 
 type Injected = {
   request(args: { method: string; params?: unknown[] }): Promise<unknown>;
@@ -64,6 +65,8 @@ type AppRpcClient = {
     value?: bigint;
   }) => Promise<bigint>;
   getGasPrice: () => Promise<bigint>;
+  getTransactionCount: (args: { address: Address }) => Promise<number>;
+  sendRawTransaction: (args: { serializedTransaction: Hex }) => Promise<Hex>;
   waitForTransactionReceipt?: (args: {
     hash: Hex;
     pollingInterval?: number;
@@ -84,44 +87,88 @@ function appRpcClient(input: { chainId?: number }): AppRpcClient | null {
   return createSoulVaultPublicClient(config) as AppRpcClient;
 }
 
+function toQuantity(value: bigint | number): Hex {
+  return `0x${value.toString(16)}` as Hex;
+}
+
+type PreparedTx = {
+  from: Address;
+  to?: Address;
+  data: Hex;
+  value: Hex;
+  nonce: Hex;
+  gas: Hex;
+  gasPrice: Hex;
+  chainId?: Hex;
+};
+
 /**
- * Fill `gas` and `gasPrice` from the dashboard RPC so the injected wallet does
- * not query its own endpoint. Rabby routes Sepolia through WalletConnect's
- * free RPC, which rejects `eth_gasPrice` ("chain is not available on free plan").
+ * Build a fully specified legacy tx against the dashboard RPC. Rabby still
+ * calls eth_gasPrice on WalletConnect (free plan has no Sepolia) when any of
+ * nonce/gas/gasPrice is missing, even if the dapp passed a partial tx.
  */
-async function appGasFields(input: TxSubmitInput): Promise<{ gas?: bigint; gasPrice?: bigint }> {
+async function prepareAppTx(input: TxSubmitInput): Promise<{ client: AppRpcClient; tx: PreparedTx; gas: bigint }> {
   const client = appRpcClient(input);
-  if (!client) return {};
-  const fields: { gas?: bigint; gasPrice?: bigint } = {};
+  if (!client) {
+    throw new Error("SoulVault dashboard config missing — set NEXT_PUBLIC_SOULVAULT_* env vars.");
+  }
+  const estimateArgs = {
+    account: input.from,
+    ...(input.to !== null ? { to: input.to } : {}),
+    data: input.data,
+    ...(input.value !== undefined ? { value: input.value } : {}),
+  };
+  let nonce: number;
+  let gas: bigint;
+  let gasPrice: bigint;
   try {
-    fields.gas = await client.estimateGas({
-      account: input.from,
-      ...(input.to !== null ? { to: input.to } : {}),
-      data: input.data,
-      ...(input.value !== undefined ? { value: input.value } : {}),
-    });
+    [nonce, gas, gasPrice] = await Promise.all([
+      client.getTransactionCount({ address: input.from }),
+      client.estimateGas(estimateArgs),
+      client.getGasPrice(),
+    ]);
   } catch (error) {
-    console.warn(
-      `[wallet-tx] App-side gas estimate failed for ${
-        input.to === null ? "contract creation" : `call to ${input.to}`
-      }; falling back to wallet-side estimation.`,
-      error instanceof Error ? error.message : error,
+    throw new Error(
+      `Could not prepare the transaction against the dashboard RPC (${error instanceof Error ? error.message : String(error)}). Check the RPC in /dashboard/settings.`,
     );
   }
-  try {
-    fields.gasPrice = await client.getGasPrice();
-  } catch (error) {
-    console.warn(
-      "[wallet-tx] App-side gasPrice failed; wallet will query its own RPC.",
-      error instanceof Error ? error.message : error,
-    );
-  }
-  return fields;
+  const tx: PreparedTx = {
+    from: input.from,
+    ...(input.to !== null ? { to: input.to } : {}),
+    data: input.data,
+    value: toQuantity(input.value ?? 0n),
+    nonce: toQuantity(nonce),
+    gas: toQuantity(gas),
+    gasPrice: toQuantity(gasPrice),
+    ...(input.chainId !== undefined ? { chainId: toQuantity(input.chainId) } : {}),
+  };
+  return { client, tx, gas };
 }
 
 function walletErrorText(cause: unknown): string {
-  const e = cause as { message?: string; details?: string; shortMessage?: string } | null;
-  return [e?.message, e?.details, e?.shortMessage].filter(Boolean).join(" ");
+  if (cause == null || typeof cause !== "object") return typeof cause === "string" ? cause : "";
+  const e = cause as Record<string, unknown>;
+  const nested = [e.data, e.error, e.cause]
+    .filter((value) => value && typeof value === "object")
+    .map((value) => walletErrorText(value))
+    .join(" ");
+  return [e.message, e.details, e.shortMessage, nested].filter(Boolean).join(" ");
+}
+
+function isUserRejected(cause: unknown): boolean {
+  return (cause as { code?: number } | null)?.code === 4001;
+}
+
+function isMissingMethod(cause: unknown): boolean {
+  const e = cause as { code?: number; message?: string } | null;
+  if (e?.code === -32601) return true;
+  return /method .*not (found|supported|available)|does not exist|eth_signTransaction/i.test(
+    e?.message ?? "",
+  );
+}
+
+function isWalletConnectRpcFailure(cause: unknown): boolean {
+  return /not available on free plan|rpc\.walletconnect\.org/i.test(walletErrorText(cause));
 }
 
 /** Map raw wallet RPC rejections (EIP-1193 provider errors) to actionable copy. */
@@ -170,39 +217,58 @@ async function ensureWalletAuthorized(from?: Address): Promise<Injected> {
   return provider;
 }
 
+function addChainParams(chain: SoulVaultChain, rpcUrl: string) {
+  return {
+    chainId: `0x${chain.id.toString(16)}`,
+    chainName: chain.name,
+    nativeCurrency: chain.currency,
+    rpcUrls: [rpcUrl],
+    blockExplorerUrls: [chain.explorer],
+  };
+}
+
+function rpcUrlForChain(chainId: number): string | undefined {
+  const config = getBrowserSoulVaultClientConfig();
+  if (config && chainId === config.chainId) {
+    return parseRpcUrlList(config.rpcUrl)[0] ?? config.rpcUrl;
+  }
+  return chainById(chainId)?.rpcUrl;
+}
+
 /**
- * Make sure the injected wallet's active network matches `chainId`, switching
- * (and adding the chain) if needed. No-op when the wallet is already there.
+ * Point the wallet at the dashboard RPC for this chain. Rabby defaults Sepolia
+ * to WalletConnect's free endpoint, which rejects eth_gasPrice. add+switch is
+ * best-effort: a rejected prompt must not block eth_signTransaction + raw send.
  */
-async function ensureWalletOnChain(provider: Injected, chainId: number): Promise<void> {
+async function pinChainRpc(provider: Injected, chainId: number): Promise<void> {
+  const chain = chainById(chainId);
+  const rpcUrl = rpcUrlForChain(chainId);
+  if (!chain || !rpcUrl) return;
+  try {
+    await provider.request({
+      method: "wallet_addEthereumChain",
+      params: [addChainParams(chain, rpcUrl)],
+    });
+  } catch (cause) {
+    if (!isUserRejected(cause)) throw walletRequestError(cause);
+  }
   const current = (await provider.request({ method: "eth_chainId" })) as Hex;
   if (Number(BigInt(current)) === chainId) return;
-  const chain = chainById(chainId);
   try {
     await provider.request({
       method: "wallet_switchEthereumChain",
       params: [{ chainId: `0x${chainId.toString(16)}` }],
     });
   } catch (cause) {
-    // 4902 = chain not added to the wallet yet.
-    if ((cause as { code?: number })?.code !== 4902 || !chain) {
-      throw walletRequestError(cause);
+    if ((cause as { code?: number })?.code === 4902) {
+      await provider.request({
+        method: "wallet_addEthereumChain",
+        params: [addChainParams(chain, rpcUrl)],
+      });
+      return;
     }
-    await provider.request({
-      method: "wallet_addEthereumChain",
-      params: [addChainParams(chain)],
-    });
+    if (!isUserRejected(cause)) throw walletRequestError(cause);
   }
-}
-
-function addChainParams(chain: SoulVaultChain) {
-  return {
-    chainId: `0x${chain.id.toString(16)}`,
-    chainName: chain.name,
-    nativeCurrency: chain.currency,
-    rpcUrls: [chain.rpcUrl],
-    blockExplorerUrls: [chain.explorer],
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -244,32 +310,47 @@ function walletSendError(cause: unknown, gas: bigint | undefined): Error {
 const RECEIPT_TIMEOUT_MS = 240_000;
 const receiptChainByHash = new Map<Hex, number | undefined>();
 
+function looksLikeTxHash(value: string): value is Hex {
+  return /^0x[0-9a-fA-F]{64}$/.test(value);
+}
+
+async function signAndBroadcast(
+  provider: Injected,
+  client: AppRpcClient,
+  tx: PreparedTx,
+  gas: bigint,
+): Promise<Hex> {
+  try {
+    const signed = (await provider.request({
+      method: "eth_signTransaction",
+      params: [tx],
+    })) as string;
+    if (looksLikeTxHash(signed)) return signed;
+    return await client.sendRawTransaction({ serializedTransaction: signed as Hex });
+  } catch (cause) {
+    if (isUserRejected(cause)) throw walletRequestError(cause);
+    if (!isMissingMethod(cause) && !isWalletConnectRpcFailure(cause)) {
+      throw walletSendError(cause, gas);
+    }
+  }
+  try {
+    return (await provider.request({
+      method: "eth_sendTransaction",
+      params: [tx],
+    })) as Hex;
+  } catch (cause) {
+    throw walletSendError(cause, gas);
+  }
+}
+
 const browserChannel: TxChannel = {
   async submit(input) {
     const provider = await ensureWalletAuthorized(input.from);
     if (input.chainId !== undefined) {
-      await ensureWalletOnChain(provider, input.chainId);
+      await pinChainRpc(provider, input.chainId);
     }
-    const { gas, gasPrice } = await appGasFields(input);
-    let hash: unknown;
-    try {
-      hash = await provider.request({
-        method: "eth_sendTransaction",
-        params: [
-          {
-            from: input.from,
-            ...(input.to !== null ? { to: input.to } : {}),
-            data: input.data,
-            ...(input.value !== undefined ? { value: `0x${input.value.toString(16)}` } : {}),
-            ...(gas !== undefined ? { gas: `0x${gas.toString(16)}` } : {}),
-            ...(gasPrice !== undefined ? { gasPrice: `0x${gasPrice.toString(16)}` } : {}),
-          },
-        ],
-      });
-    } catch (cause) {
-      throw walletSendError(cause, gas);
-    }
-    const txHash = hash as Hex;
+    const { client, tx, gas } = await prepareAppTx(input);
+    const txHash = await signAndBroadcast(provider, client, tx, gas);
     receiptChainByHash.set(txHash, input.chainId);
     return txHash;
   },

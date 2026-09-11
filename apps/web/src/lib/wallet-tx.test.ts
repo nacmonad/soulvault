@@ -16,6 +16,8 @@ vi.mock("@/lib/onchain/client", () => ({
   createSoulVaultPublicClient: vi.fn(() => ({
     estimateGas: vi.fn(async () => 12345n),
     getGasPrice: vi.fn(async () => 1_000_000_000n),
+    getTransactionCount: vi.fn(async () => 7),
+    sendRawTransaction: vi.fn(async () => "0xabc"),
   })),
 }));
 
@@ -33,6 +35,8 @@ vi.mock("@/lib/chains", () => ({
   publicClientForChainId: vi.fn(() => ({
     estimateGas: vi.fn(async () => 12345n),
     getGasPrice: vi.fn(async () => 1_000_000_000n),
+    getTransactionCount: vi.fn(async () => 7),
+    sendRawTransaction: vi.fn(async () => "0xabc"),
   })),
 }));
 
@@ -44,10 +48,39 @@ function globalAsWindow(): WindowWithEthereum {
   return globalThis as unknown as WindowWithEthereum;
 }
 
-function injectWallet(handlers: { sendTransaction: (params: SendParams) => Promise<Hex> }) {
+const WC_GAS_PRICE_ERROR = Object.assign(
+  new Error(
+    "RPC Request failed. URL: https://rpc.walletconnect.org/v1/?chainId=eip155%3A11155111 Details: chain is not available on free plan, please upgrade to paid plan",
+  ),
+  { code: -32603 },
+);
+
+function injectWallet(handlers: {
+  signTransaction?: (params: SendParams) => Promise<string>;
+  sendTransaction?: (params: SendParams) => Promise<Hex>;
+} = {}) {
   const request = vi.fn(async ({ method, params }: { method: string; params?: unknown[] }) => {
     if (method === "eth_requestAccounts") return [FROM];
-    if (method === "eth_sendTransaction") return handlers.sendTransaction(params![0] as SendParams);
+    if (method === "eth_chainId") return "0xaa36a7";
+    if (method === "wallet_addEthereumChain") return null;
+    if (method === "wallet_switchEthereumChain") return null;
+    if (
+      method === "eth_gasPrice" ||
+      method === "eth_estimateGas" ||
+      method === "eth_getTransactionCount" ||
+      method === "eth_feeHistory" ||
+      method === "eth_maxPriorityFeePerGas"
+    ) {
+      throw WC_GAS_PRICE_ERROR;
+    }
+    if (method === "eth_signTransaction") {
+      if (handlers.signTransaction) return handlers.signTransaction(params![0] as SendParams);
+      return `0x${"ab".repeat(80)}`;
+    }
+    if (method === "eth_sendTransaction") {
+      if (handlers.sendTransaction) return handlers.sendTransaction(params![0] as SendParams);
+      throw new Error("eth_sendTransaction should not be required when sign+raw works");
+    }
     if (method === "eth_getTransactionReceipt") {
       return { status: "0x1", contractAddress: FROM, blockNumber: "0x1" };
     }
@@ -66,41 +99,59 @@ describe("browser channel gas pre-estimation", () => {
     delete globalAsWindow().window;
   });
 
-  it("passes the app-side estimate as explicit gas so the wallet skips its own estimator", async () => {
-    let sent: SendParams | undefined;
-    injectWallet({ sendTransaction: async (params) => { sent = params; return "0xabc" as Hex; } });
+  it("signs a fully prepared tx and broadcasts via the dashboard RPC", async () => {
+    let signed: SendParams | undefined;
+    const request = injectWallet({
+      signTransaction: async (params) => {
+        signed = params;
+        return `0x${"ab".repeat(80)}`;
+      },
+    });
 
     const hash = await sendWalletTransaction({ from: FROM, to: null, data: "0x6080" });
     expect(hash).toBe("0xabc");
-    expect(sent?.gas).toBe("0x3039");
-    expect(sent?.gasPrice).toBe("0x3b9aca00");
-    expect(sent?.to).toBeUndefined();
+    expect(signed?.gas).toBe("0x3039");
+    expect(signed?.gasPrice).toBe("0x3b9aca00");
+    expect(signed?.nonce).toBe("0x7");
+    expect(signed?.to).toBeUndefined();
+    expect(request.mock.calls.map((c) => c[0].method)).not.toContain("eth_sendTransaction");
+    expect(request.mock.calls.map((c) => c[0].method)).not.toContain("eth_gasPrice");
   });
 
-  it("omits gas when the app-side estimate fails, falling back to wallet estimation", async () => {
+  it("never asks the wallet for gasPrice/nonce/estimate (WalletConnect-dead RPC)", async () => {
+    const request = injectWallet();
+    await sendWalletTransaction({ from: FROM, to: null, data: "0x6080", chainId: 11155111 });
+    const methods = request.mock.calls.map((c) => c[0].method);
+    expect(methods).not.toContain("eth_gasPrice");
+    expect(methods).not.toContain("eth_estimateGas");
+    expect(methods).not.toContain("eth_getTransactionCount");
+    expect(methods).toContain("eth_signTransaction");
+  });
+
+  it("throws if the dashboard RPC cannot prepare nonce/gas/gasPrice", async () => {
     const { createSoulVaultPublicClient } = await import("@/lib/onchain/client");
     vi.mocked(createSoulVaultPublicClient).mockImplementationOnce(() => ({
-      estimateGas: vi.fn(async () => { throw new Error("rpc down"); }),
+      estimateGas: vi.fn(async () => {
+        throw new Error("rpc down");
+      }),
       getGasPrice: vi.fn(async () => 1_000_000_000n),
+      getTransactionCount: vi.fn(async () => 7),
+      sendRawTransaction: vi.fn(async () => "0xabc"),
     }) as never);
 
-    let sent: SendParams | undefined;
-    injectWallet({ sendTransaction: async (params) => { sent = params; return "0xabc" as Hex; } });
-
-    await sendWalletTransaction({ from: FROM, to: null, data: "0x6080" });
-    expect(sent?.gas).toBeUndefined();
-    expect(sent?.gasPrice).toBe("0x3b9aca00");
+    injectWallet();
+    await expect(sendWalletTransaction({ from: FROM, to: null, data: "0x6080" })).rejects.toThrow(
+      /Could not prepare the transaction against the dashboard RPC/,
+    );
   });
 
   it("maps WalletConnect free-plan RPC failures to a Sepolia RPC hint", async () => {
     injectWallet({
+      signTransaction: async () => {
+        throw WC_GAS_PRICE_ERROR;
+      },
       sendTransaction: async () => {
-        throw Object.assign(
-          new Error(
-            "RPC Request failed. URL: https://rpc.walletconnect.org/v1/?chainId=eip155%3A11155111 Details: chain is not available on free plan, please upgrade to paid plan",
-          ),
-          { code: -32603 },
-        );
+        throw WC_GAS_PRICE_ERROR;
       },
     });
 
@@ -115,7 +166,7 @@ describe("browser channel gas pre-estimation", () => {
       { code: -32603 },
     );
     injectWallet({
-      sendTransaction: async () => {
+      signTransaction: async () => {
         throw walletError;
       },
     });
@@ -125,47 +176,45 @@ describe("browser channel gas pre-estimation", () => {
     );
   });
 
-  it("wraps wallet estimation failures with rpc guidance when the app-side estimate failed too", async () => {
-    const { createSoulVaultPublicClient } = await import("@/lib/onchain/client");
-    vi.mocked(createSoulVaultPublicClient).mockImplementationOnce(() => ({
-      estimateGas: vi.fn(async () => { throw new Error("rpc down"); }),
-      getGasPrice: vi.fn(async () => 1_000_000_000n),
-    }) as never);
-
-    injectWallet({
-      sendTransaction: async () => {
-        throw Object.assign(new Error("execution reverted"), { code: -32603 });
+  it("falls back to eth_sendTransaction when eth_signTransaction is unsupported", async () => {
+    let sent: SendParams | undefined;
+    const request = injectWallet({
+      signTransaction: async () => {
+        throw Object.assign(new Error("Method eth_signTransaction is not supported"), { code: -32601 });
+      },
+      sendTransaction: async (params) => {
+        sent = params;
+        return "0xdef" as Hex;
       },
     });
 
-    await expect(sendWalletTransaction({ from: FROM, to: null, data: "0x6080" })).rejects.toThrow(
-      /could not pre-estimate/,
-    );
+    const hash = await sendWalletTransaction({ from: FROM, to: null, data: "0x6080" });
+    expect(hash).toBe("0xdef");
+    expect(sent?.gasPrice).toBe("0x3b9aca00");
+    expect(request.mock.calls.map((c) => c[0].method)).toContain("eth_sendTransaction");
   });
 
-  it("switches the wallet to the target chain before sending", async () => {
+  it("pins the dashboard RPC then switches to the target chain", async () => {
     const requests: string[] = [];
     const request = vi.fn(async ({ method, params }: { method: string; params?: unknown[] }) => {
       requests.push(method);
       if (method === "eth_requestAccounts") return [FROM];
-      if (method === "eth_chainId") return "0xaa36a7"; // Sepolia
+      if (method === "eth_chainId") return "0xaa36a7";
+      if (method === "wallet_addEthereumChain") return null;
       if (method === "wallet_switchEthereumChain") return null;
-      if (method === "eth_sendTransaction") return "0xabc" as Hex;
-      if (method === "eth_getTransactionReceipt") {
-        return { status: "0x1", contractAddress: FROM, blockNumber: "0x1" };
-      }
+      if (method === "eth_signTransaction") return `0x${"ab".repeat(80)}`;
       throw new Error(`unexpected method ${method}`);
     });
     (globalThis as WindowWithEthereum).window = { ethereum: { request } };
 
     await sendWalletTransaction({ from: FROM, to: null, data: "0x", chainId: 84532 });
 
-    // switch (via switchEthereumChain) happens before the send; no add needed.
     expect(requests).toEqual([
       "eth_requestAccounts",
+      "wallet_addEthereumChain",
       "eth_chainId",
       "wallet_switchEthereumChain",
-      "eth_sendTransaction",
+      "eth_signTransaction",
     ]);
     expect(request).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -173,55 +222,19 @@ describe("browser channel gas pre-estimation", () => {
         params: [{ chainId: "0x14a34" }],
       }),
     );
-  });
-
-  it("adds an unknown chain after a 4902 switch rejection", async () => {
-    const request = vi.fn(async ({ method, params }: { method: string; params?: unknown[] }) => {
-      if (method === "eth_requestAccounts") return [FROM];
-      if (method === "eth_chainId") return "0xaa36a7";
-      if (method === "wallet_switchEthereumChain") {
-        throw Object.assign(new Error("Unrecognized chain."), { code: 4902 });
-      }
-      if (method === "wallet_addEthereumChain") return null;
-      if (method === "eth_sendTransaction") return "0xabc" as Hex;
-      if (method === "eth_getTransactionReceipt") {
-        return { status: "0x1", contractAddress: FROM, blockNumber: "0x1" };
-      }
-      throw new Error(`unexpected method ${method}`);
-    });
-    (globalThis as WindowWithEthereum).window = { ethereum: { request } };
-
-    await sendWalletTransaction({ from: FROM, to: null, data: "0x", chainId: 84532 });
-
-    expect(request).toHaveBeenCalledWith(
-      expect.objectContaining({ method: "wallet_addEthereumChain" }),
-    );
     const addCall = request.mock.calls.find((c) => c[0].method === "wallet_addEthereumChain");
-    expect(addCall).toBeDefined();
     const addParams = addCall![0].params![0] as Record<string, unknown>;
     expect(addParams.chainId).toBe("0x14a34");
-    expect((addParams.nativeCurrency as { symbol: string }).symbol).toBe("ETH");
+    expect(addParams.rpcUrls).toEqual(["https://test-rpc.example"]);
   });
 
   it("does not touch the wallet network when no chainId is given", async () => {
-    const requests: string[] = [];
-    injectWallet({
-      sendTransaction: async (params) => {
-        void params;
-        return "0xabc" as Hex;
-      },
-    });
-    // Re-wrap the injected request to record method order.
-    const eth = (globalThis as WindowWithEthereum).window!.ethereum!;
-    const original = eth.request.bind(eth);
-    eth.request = (async (args: { method: string }) => {
-      requests.push(args.method);
-      return original(args);
-    }) as typeof eth.request;
-
+    const request = injectWallet();
     await sendWalletTransaction({ from: FROM, to: null, data: "0x" });
-    expect(requests).not.toContain("eth_chainId");
-    expect(requests).not.toContain("wallet_switchEthereumChain");
+    const methods = request.mock.calls.map((c) => c[0].method);
+    expect(methods).not.toContain("eth_chainId");
+    expect(methods).not.toContain("wallet_switchEthereumChain");
+    expect(methods).not.toContain("wallet_addEthereumChain");
   });
 });
 

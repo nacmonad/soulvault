@@ -26,6 +26,7 @@ import { resolveIdentityEventSource } from '@/lib/identity-registry';
 import { useSoulVaultWallet } from '@/components/providers/soulvault-ledger-provider';
 import type { ActiveGrant, SoulVaultContractKind, SoulVaultDeployment, SoulVaultEvent } from '@/lib/onchain/types';
 import { mergeEventBatches, SoulVaultEventWatcher } from '@/lib/onchain/watcher';
+import { loadPersistedEvents, persistEvents, deletePersistedEventsForSources } from '@/lib/onchain/event-store';
 
 export type SoulVaultEventsStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -141,6 +142,25 @@ export function SoulVaultEventsProvider({
 
   useEffect(() => () => stopRef.current?.(), []);
 
+  // Cross-session hydration: events are immutable facts, so the persisted
+  // IndexedDB tail is authoritative history — merge it in before the first
+  // scan so pages render instantly on reload (the scan then appends new
+  // events; the merge dedupes the overlap). Best-effort: IDB may be
+  // unavailable (private mode) or empty (first visit).
+  useEffect(() => {
+    let cancelled = false;
+    void loadPersistedEvents().then((persisted) => {
+      if (cancelled || persisted.length === 0) return;
+      setState((s) => ({
+        ...s,
+        events: mergeEventBatches(persisted, s.events),
+      }));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const getWatcher = useCallback(() => {
     const config = resolvedConfig.current;
     if (!config) return null;
@@ -176,6 +196,7 @@ export function SoulVaultEventsProvider({
           // A newer scan (started after this one) supersedes this snapshot.
           if (seq !== scanSeq.current) return;
           setState({ events, status: 'ready', error: null });
+          void persistEvents(events);
           return;
         }
         // Join the shared scan instead of starting a duplicate.
@@ -215,7 +236,10 @@ export function SoulVaultEventsProvider({
       stopRef.current = watcher.watchLive({
         pollSeconds: pollSeconds ?? 5,
         fromBlock: latest === null ? undefined : latest + BigInt(1),
-        onEvents: (batch) => setState((s) => ({ ...s, events: mergeEventBatches(s.events, batch) })),
+        onEvents: (batch) => {
+          setState((s) => ({ ...s, events: mergeEventBatches(s.events, batch) }));
+          void persistEvents(batch);
+        },
         onError: (error) => setState((s) => ({ ...s, error })),
       });
     },
@@ -264,6 +288,7 @@ export function SoulVaultEventsProvider({
       if (removed.length > 0) {
         const gone = new Set(removed.map((s) => s.address.toLowerCase()));
         setState((s) => ({ ...s, events: s.events.filter((e) => !gone.has(e.source.toLowerCase())) }));
+        void deletePersistedEventsForSources([...gone]);
       }
       await addSources(sources);
       if (removed.length > 0) {

@@ -86,8 +86,8 @@ export function OrgWizard() {
     <div className="mt-6 max-w-xl border border-border p-4">
       <p className="text-sm font-medium">Create organization</p>
       <p className="mt-1 text-sm text-muted-foreground">
-        Registers a new root .eth name on Sepolia. Two signatures: commit, then register after
-        the controller wait. The connected wallet becomes the owner.
+        Registers a new root .eth name on Sepolia (commit, then register). If Sepolia has
+        disabled this controller, use Remember name below with a name you already own.
       </p>
 
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -113,7 +113,7 @@ export function OrgWizard() {
       </div>
       {quote ? (
         <p className="mt-2 text-xs text-muted-foreground">
-          ~{formatEther(quote.valueWei)} ETH for 1 year (110% of quote) · wait{" "}
+          ~{formatEther(quote.valueWei)} ETH for 1 year · wait{" "}
           {quote.minCommitmentAge.toString()}s between txs
         </p>
       ) : null}

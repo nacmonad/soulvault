@@ -18,6 +18,7 @@ import { normalize } from "viem/ens";
 
 import { SEPOLIA_CHAIN_ID } from "@/lib/chains";
 import {
+  BASE_REGISTRAR,
   ETH_REGISTRAR_CONTROLLER,
   ENS_REGISTRY,
   PUBLIC_RESOLVER,
@@ -30,6 +31,16 @@ import { sendWalletTransaction, waitForWalletReceipt } from "@/lib/wallet-tx";
 
 export const ONE_YEAR_SECONDS = 31_536_000n;
 export const ORG_ENS_CLASS_VALUE = "soulvault.organization";
+
+const BASE_REGISTRAR_ABI = [
+  {
+    type: "function",
+    name: "controllers",
+    stateMutability: "view",
+    inputs: [{ name: "controller", type: "address" }],
+    outputs: [{ type: "bool" }],
+  },
+] as const;
 
 const REGISTRATION_COMPONENTS = [
   { name: "label", type: "string" },
@@ -170,9 +181,14 @@ export function parseEthRootLabel(name: string): { normalized: string; label: st
   return { normalized, label: parts[0] };
 }
 
-/** 110% of (base + premium), same buffer as the CLI. */
+/** 110% of (base + premium). Do not send this — overpay refunds via `.transfer()` and reverts on EIP-7702 EOAs. */
 export function registrationValueWei(base: bigint, premium: bigint): bigint {
   return ((base + premium) * 110n) / 100n;
+}
+
+/** Exact rent. The controller refunds overpay with `.transfer()` (2300 gas). */
+export function registrationPaymentWei(base: bigint, premium: bigint): bigint {
+  return base + premium;
 }
 
 export function newRegistrationSecret(): Hex {
@@ -237,7 +253,7 @@ export async function quoteRegistration(label: string): Promise<{
     minCommitmentAge,
     base: price.base,
     premium: price.premium,
-    valueWei: registrationValueWei(price.base, price.premium),
+    valueWei: registrationPaymentWei(price.base, price.premium),
   };
 }
 
@@ -393,6 +409,17 @@ export async function registerOrganizationEns(input: {
   if (!displayName) throw new Error("Organization name is required.");
 
   input.onStep("check", { status: "signing" });
+  const authorized = await publicClient().readContract({
+    address: BASE_REGISTRAR,
+    abi: BASE_REGISTRAR_ABI,
+    functionName: "controllers",
+    args: [ETH_REGISTRAR_CONTROLLER],
+  });
+  if (!authorized) {
+    throw new Error(
+      "Sepolia's .eth BaseRegistrar no longer authorizes this ETH Registrar Controller. Remember a name you already own, or use the ENSv2 register path when that lane is live.",
+    );
+  }
   const availability = await checkEnsNameAvailability(input.ensName);
   if (!availability.valid) {
     throw new Error(`ENS name "${availability.name}" is not a valid .eth label.`);
@@ -458,7 +485,9 @@ export async function registerOrganizationEns(input: {
     });
     input.onStep("wait", { status: "done", detail: `${waitSec}s` });
 
-    input.onStep("register", { status: "signing", detail: `${quote.valueWei.toString()} wei` });
+    const payable = await quoteRegistration(availability.label);
+    result.amountWei = payable.valueWei;
+    input.onStep("register", { status: "signing", detail: `${payable.valueWei.toString()} wei` });
     result.registerTxHash = await sendAndWait({
       from: input.from,
       to: ETH_REGISTRAR_CONTROLLER,
@@ -467,7 +496,7 @@ export async function registerOrganizationEns(input: {
         functionName: "register",
         args: [registration],
       }),
-      value: quote.valueWei,
+      value: payable.valueWei,
     });
     input.onStep("register", { status: "done", txHash: result.registerTxHash });
 

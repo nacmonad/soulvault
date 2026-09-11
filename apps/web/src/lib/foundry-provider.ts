@@ -110,7 +110,7 @@ function asTx(raw: unknown): {
   return {
     ...(tx.to ? { to: tx.to as Address } : {}),
     ...(tx.data ? { data: tx.data as Hex } : {}),
-    ...(tx.value ? { value: BigInt(tx.value) } : {}),
+    ...(tx.value !== undefined && tx.value !== "" ? { value: BigInt(tx.value) } : {}),
     ...(tx.gas ? { gas: BigInt(tx.gas) } : {}),
     ...(tx.gasPrice ? { gasPrice: BigInt(tx.gasPrice) } : {}),
     ...(tx.nonce ? { nonce: Number(BigInt(tx.nonce)) } : {}),

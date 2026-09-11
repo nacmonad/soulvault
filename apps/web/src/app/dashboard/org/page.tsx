@@ -6,10 +6,12 @@ import { sepolia } from "viem/chains";
 
 import { Button } from "@/components/ui/button";
 import { OrgWizard } from "@/components/create/org-wizard";
+import { OrgWizardV2 } from "@/components/create/org-wizard-v2";
 import { useDashboardSelection } from "@/components/dashboard/selection-provider";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
 import { createSepoliaEnsClient, getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 import { shortAddress } from "@/lib/format";
+import { getEnsModeOverride, setEnsModeOverride, resolveEnsMode, type EnsMode } from "@/lib/ens-mode";
 
 type EnsRecord = {
   name: string;
@@ -29,6 +31,7 @@ export default function OrgPage() {
   const [reverseName, setReverseName] = useState<string | null>(null);
   const [record, setRecord] = useState<EnsRecord | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [ensMode, setEnsModeState] = useState<{ mode: EnsMode; source: string } | null>(null);
 
   const names = useMemo(() => {
     const set = new Set(selection.rememberedOrgs);
@@ -92,6 +95,21 @@ export default function OrgPage() {
       }
     })();
   }, [selection.orgId]);
+
+  // Which wizard do we show? Explicit localStorage override wins; otherwise
+  // auto-detect from the org's `soulvault.ensv2Registry` pointer record
+  // (present ⇒ v2, absent ⇒ v1 — legacy orgs keep the untouched v1 flow).
+  // Re-runs after `record` resolves so a fresh pointer read is authoritative.
+  useEffect(() => {
+    const name = selection.orgId;
+    if (!name) {
+      setEnsModeState(null);
+      return;
+    }
+    void resolveEnsMode(name).then(setEnsModeState);
+  }, [selection.orgId, record]);
+
+  const override = getEnsModeOverride();
 
   if (!address) return null;
 
@@ -188,7 +206,44 @@ export default function OrgPage() {
 
 
 
-      <OrgWizard />
+      {ensMode ? (
+        <div className="mt-8 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span>
+            ENS mode: <span className="font-mono uppercase">{ensMode.mode}</span>
+            {ensMode.source === "override"
+              ? " (manual override)"
+              : ensMode.source === "detected"
+                ? " (detected from registry record)"
+                : " (default)"}
+          </span>
+          {override ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setEnsModeOverride(null);
+                if (selection.orgId) void resolveEnsMode(selection.orgId).then(setEnsModeState);
+              }}
+            >
+              Use auto-detect
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const flipped = ensMode.mode === "v2" ? "v1" : "v2";
+                setEnsModeOverride(flipped);
+                setEnsModeState({ mode: flipped, source: "override" });
+              }}
+            >
+              Force {ensMode.mode === "v2" ? "v1" : "v2"}
+            </Button>
+          )}
+        </div>
+      ) : null}
+
+      {ensMode?.mode === "v2" ? <OrgWizardV2 /> : <OrgWizard />}
 
     </div>
   );

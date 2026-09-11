@@ -5,8 +5,14 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "@playwright/test";
 
 /**
- * Documents e2e (ticket 006) — Alice / Charlie / Mallory against the built
- * dashboard with an emulated Ledger (Speculos).
+ * Speculos/Playwright e2e against the built dashboard.
+ *
+ * Default suite (ticket 023): `proof-of-selfie.speculos.e2e.ts` — publish
+ * flag, fixture proof on request, Grants fail-closed, unwrap ungated.
+ * Detector strings are not the pass condition.
+ *
+ * Opt-in Alice/Charlie/Mallory Ledger scenario (ticket 006):
+ *   SOULVAULT_E2E_SUITE=documents pnpm --filter soulvault-web test:e2e:ledger:documents
  *
  * Required outside env:
  *   - a local Anvil/ens-app-v3 node at SOULVAULT_E2E_RPC_URL (default
@@ -31,13 +37,25 @@ process.env.SOULVAULT_SPECULOS_IMAGE ||= "ghcr.io/ledgerhq/speculos@sha256:6ed9e
 
 const rpcUrl = process.env.SOULVAULT_E2E_RPC_URL || "http://127.0.0.1:8545";
 const chainId = process.env.SOULVAULT_E2E_CHAIN_ID || "1337";
+const worldAppId = process.env.NEXT_PUBLIC_WORLD_APP_ID || "app_99dc82c37d167284ef081f8cdbe20222";
+const worldRpId = process.env.NEXT_PUBLIC_WORLD_RP_ID || "rp_301afe7f18a97891";
+const worldRpUrl = process.env.NEXT_PUBLIC_WORLD_RP_URL || "http://127.0.0.1:8787";
+const suite = process.env.SOULVAULT_E2E_SUITE === "documents" ? "documents-flow.speculos.e2e.ts" : "proof-of-selfie.speculos.e2e.ts";
 // A dedicated e2e build flag compiles the test-only Speculos transport gate in;
 // regular production builds dead-code-eliminate it (never shipped).
-const buildEnv = `SOULVAULT_WEB_E2E=1 NEXT_PUBLIC_SOULVAULT_RPC_URL=${rpcUrl} NEXT_PUBLIC_SOULVAULT_CHAIN_ID=${chainId}`;
+const buildEnv = [
+  "SOULVAULT_WEB_E2E=1",
+  `NEXT_PUBLIC_SOULVAULT_RPC_URL=${rpcUrl}`,
+  `NEXT_PUBLIC_SOULVAULT_CHAIN_ID=${chainId}`,
+  `NEXT_PUBLIC_WORLD_APP_ID=${worldAppId}`,
+  `NEXT_PUBLIC_WORLD_RP_ID=${worldRpId}`,
+  `NEXT_PUBLIC_WORLD_RP_URL=${worldRpUrl}`,
+  "NEXT_PUBLIC_WORLD_ENVIRONMENT=staging",
+].join(" ");
 
 export default defineConfig({
   testDir: ".",
-  testMatch: "**/*.speculos.e2e.ts",
+  testMatch: suite,
   globalSetup: "./global-setup.ts",
   fullyParallel: false,
   workers: 1,

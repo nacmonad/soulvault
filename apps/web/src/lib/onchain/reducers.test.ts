@@ -231,6 +231,19 @@ describe('reduceDocumentState', () => {
     expect(doc.publishedAt.blockNumber).toBe(1n);
   });
 
+  it('records selfieRequired=true from DocumentPublished', async () => {
+    const flagged = makeRawLog({
+      kind: 'document',
+      address: DOC_ADDRESS,
+      eventName: 'DocumentPublished',
+      args: { docHash: DOC_HASH, author: ALICE, slotIds: ['sv_a_1'], selfieRequired: true },
+      blockNumber: 1n,
+      logIndex: 0,
+    });
+    const { documents } = reduceDocumentState(await decode([flagged]));
+    expect(documents.get(DOC_HASH)!.selfieRequired).toBe(true);
+  });
+
   it('republishing the same docHash keeps the latest metadata', async () => {
     const other = HASH('bb') as Hex;
     const { documents } = reduceDocumentState(await decode([publish(DOC_HASH, 1n), publish(other, 2n, BOB)]));

@@ -54,8 +54,8 @@ test.describe.serial("documents: Alice / Charlie / Mallory", () => {
     await download.saveAs(bundlePath);
 
     const session = await page.evaluate(() => {
-      const current = window.sessionStorage.getItem("soulvault.document.current");
-      const sessionJson = current ? window.sessionStorage.getItem(`soulvault.document.${current}`) : null;
+      const current = window.localStorage.getItem("soulvault.document.current");
+      const sessionJson = current ? window.localStorage.getItem(`soulvault.document.${current}`) : null;
       return { documentId: current, sessionJson };
     });
     if (!session.documentId || !session.sessionJson) throw new Error("Alice's document session was not written to sessionStorage");

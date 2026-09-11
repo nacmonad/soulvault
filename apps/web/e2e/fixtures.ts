@@ -38,6 +38,7 @@ export const writeState = (name: string, contents: string): string => {
 
 export const ALICE_ADDRESS = (): string => privateKeyToAccount(process.env.SOULVAULT_E2E_ALICE_KEY as `0x${string}`).address; // anvil account[1]
 export const MALLORY_ADDRESS = (): string => privateKeyToAccount(process.env.SOULVAULT_E2E_MALLORY_KEY as `0x${string}`).address; // anvil account[2]
+export const CHARLIE_ADDRESS = (): string => privateKeyToAccount(process.env.SOULVAULT_E2E_CHARLIE_KEY as `0x${string}`).address; // anvil account[3]
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- Playwright's extend wants explicit empty test fixtures when only adding worker fixtures
 export const test = speculosTest.extend<{}, { sidecar: SidecarSigner }>({
@@ -49,6 +50,7 @@ export const test = speculosTest.extend<{}, { sidecar: SidecarSigner }>({
         keys: {
           [ALICE_ADDRESS()]: process.env.SOULVAULT_E2E_ALICE_KEY as string,
           [MALLORY_ADDRESS()]: process.env.SOULVAULT_E2E_MALLORY_KEY as string,
+          [CHARLIE_ADDRESS()]: process.env.SOULVAULT_E2E_CHARLIE_KEY as string,
         },
       });
       await use(signer);
@@ -94,13 +96,18 @@ export async function seedRegistryOverride(page: Page): Promise<void> {
 }
 
 /** Seeds Alice's document session (slot keys) from a previous test's export. */
-export async function seedDocumentSession(page: Page, session: { documentId: string } & Record<string, unknown>): Promise<void> {
+export async function seedDocumentSession(
+  page: Page,
+  session: { documentId: string; sessionJson?: string } & Record<string, unknown>,
+): Promise<void> {
+  const documentId = session.documentId.replace(/^0x/i, "").toLowerCase();
+  const sessionJson = typeof session.sessionJson === "string" ? session.sessionJson : JSON.stringify(session);
   await page.addInitScript(
-    ({ documentId, sessionJson }) => {
-      window.sessionStorage.setItem(`soulvault.document.${documentId}`, sessionJson);
-      window.sessionStorage.setItem("soulvault.document.current", documentId);
+    ({ id, json }) => {
+      window.localStorage.setItem(`soulvault.document.${id}`, json);
+      window.localStorage.setItem("soulvault.document.current", id);
     },
-    { documentId: session.documentId, sessionJson: JSON.stringify(session) },
+    { id: documentId, json: sessionJson },
   );
 }
 

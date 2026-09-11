@@ -39,6 +39,19 @@ describe('world RP server', () => {
     }
   })
 
+  it('allows the Playwright e2e origin', async () => {
+    const { port, close } = await startWorldRpServer({ config, port: 0, mock: true })
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/health`, {
+        headers: { origin: 'http://127.0.0.1:3100' },
+      })
+      expect(res.status).toBe(200)
+      expect(res.headers.get('access-control-allow-origin')).toBe('http://127.0.0.1:3100')
+    } finally {
+      await close()
+    }
+  })
+
   it('verifies an IDKit-shaped selfie with the mock and rejects replay', async () => {
     const { port, close } = await startWorldRpServer({ config, port: 0, mock: true })
     try {

@@ -6,6 +6,8 @@ import {
   grantEnsV2RootRoles,
   revokeEnsV2RootRoles,
   readEnsV2RootRoles,
+  authorizeEnsV2ResolverRoles,
+  readEnsV2ResolverRoles,
 } from '@soulvault/node/ensv2-grants';
 
 export function registerEnsCommands(program: Command) {
@@ -145,6 +147,94 @@ export function registerEnsCommands(program: Command) {
       const result = await readEnsV2RootRoles({
         registryAddress: options.registry,
         account: options.account,
+      });
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  // --- Resolver-side EAC (record-level delegation) ---------------------------
+  // Registry and resolver are separate EAC trust domains: holding registry roles
+  // says nothing about writing records THROUGH the resolver. The resolver
+  // authorizers are name+record-part scoped — the finest delegation in the
+  // stack (an agent may edit one text key on one name and nothing else).
+
+  ens
+    .command('authorize-text')
+    .description(
+      'Grant/revoke ROLE_SET_TEXT on a resolver for ONE text key on ONE name (record-level EAC). ' +
+        'This is the resolver-side trust domain — registry roles do not cross over. ' +
+        'Example: soulvault ens authorize-text --resolver 0xAbC... --name charlie.ops.soulvault.eth ' +
+        "--key soulvault.agentName --to 0xAgent... — the agent can then write exactly that record.",
+    )
+    .requiredOption('--resolver <address>', 'PermissionedResolver address holding the name\'s records')
+    .requiredOption('--name <name>', 'Fully-qualified name, e.g. charlie.ops.soulvault.eth')
+    .requiredOption('--key <key>', 'Text record key to scope the grant to, e.g. soulvault.agentName')
+    .requiredOption('--to <address>', 'Recipient wallet (agent)')
+    .option('--revoke', 'Revoke instead of grant', false)
+    .action(async (options) => {
+      const result = await authorizeEnsV2ResolverRoles({
+        resolverAddress: options.resolver,
+        fullName: options.name,
+        key: options.key,
+        account: options.to,
+        grant: !options.revoke,
+      });
+      console.error(
+        `\n${result.grant ? 'Granted' : 'Revoked'} set-text(${result.key}) on ${result.fullName} ` +
+          `${result.grant ? '→' : '←'} ${result.account}\n` +
+          `  resolver: ${result.resolverAddress}\n` +
+          `  resource: ${result.resource}\n` +
+          `  tx: ${result.txHash}\n` +
+          `\nThe agent can now setText(${result.key}) on ${result.fullName} through this resolver directly.`,
+      );
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  ens
+    .command('authorize-name')
+    .description(
+      'Grant/revoke resolver roles node-wide on a name (authorizeNameRoles — covers all record types ' +
+        'the granted roles cover). Resolver-side trust domain. ' +
+        'Example: soulvault ens authorize-name --resolver 0xAbC... --name charlie.ops.soulvault.eth ' +
+        '--role set-text,set-name --to 0xAgent...',
+    )
+    .requiredOption('--resolver <address>', 'PermissionedResolver address')
+    .requiredOption('--name <name>', 'Fully-qualified name')
+    .requiredOption('--role <roles>', 'Comma-separated resolver roles: set-addr, set-text, set-contenthash, set-pubkey, set-abi, set-interface, set-name, clear')
+    .requiredOption('--to <address>', 'Recipient wallet (agent)')
+    .option('--revoke', 'Revoke instead of grant', false)
+    .action(async (options) => {
+      const result = await authorizeEnsV2ResolverRoles({
+        resolverAddress: options.resolver,
+        fullName: options.name,
+        roleSpec: options.role,
+        account: options.to,
+        grant: !options.revoke,
+      });
+      console.error(
+        `\n${result.grant ? 'Granted' : 'Revoked'} ${result.roles.join(', ')} (node-wide) on ${result.fullName} ` +
+          `${result.grant ? '→' : '←'} ${result.account}\n` +
+          `  resolver: ${result.resolverAddress}\n` +
+          `  resource: ${result.resource}\n` +
+          `  tx: ${result.txHash}`,
+      );
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  ens
+    .command('resolver-roles')
+    .description(
+      'Read the resolver-side EAC roles an account holds on a name (node-wide, or scoped to one text key).',
+    )
+    .requiredOption('--resolver <address>', 'PermissionedResolver address')
+    .requiredOption('--name <name>', 'Fully-qualified name')
+    .requiredOption('--account <address>', 'Wallet to inspect')
+    .option('--key <key>', 'Inspect the text-key-scoped resource instead of the node-wide one')
+    .action(async (options) => {
+      const result = await readEnsV2ResolverRoles({
+        resolverAddress: options.resolver,
+        fullName: options.name,
+        account: options.account,
+        key: options.key,
       });
       console.log(JSON.stringify(result, null, 2));
     });

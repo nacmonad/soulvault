@@ -12,7 +12,7 @@
 // it via readEnsV2NameState (hierarchy walk), so callers never handle
 // registry addresses or resource IDs directly.
 
-import { Contract } from 'ethers';
+import { AbiCoder, Contract, keccak256, namehash, toUtf8Bytes } from 'ethers';
 import { labelhash as viemLabelhash } from 'viem/ens';
 import { createEnsSigner } from './ens.js';
 import { getEnsV2Provider, readEnsV2NameState, hasEnsV2Roles } from './ensv2.js';
@@ -259,5 +259,170 @@ export async function readEnsV2RootRoles(input: { registryAddress: string; accou
     roleBitmap: bitmap.toString(),
     roles: formatEnsV2RoleBitmap(bitmap),
     resource: ROOT_RESOURCE.toString(),
+  };
+}
+
+// --- Resolver-side EAC (record-level delegation) ----------------------------
+//
+// Registry and resolver are SEPARATE EAC trust domains: ROLE_SET_RESOLVER on
+// the registry points a name at a resolver; writing records THROUGH the
+// resolver checks resolver-side roles (PermissionedResolverLib). The resolver
+// authorizers are name+record-part scoped — the finest delegation in the
+// stack: an agent may edit `soulvault.*` text records on its own name and be
+// unable to touch any other key or name. Grant authority: caller must hold
+// the role on resource(node, 0) or the resolver root (org owner does).
+
+/** Resolver-side role names → PermissionedResolverLib bit positions (nybble-packed). */
+export const ENSV2_RESOLVER_ROLE_NAMES = {
+  'set-addr': 1n << 0n,
+  'set-text': 1n << 4n,
+  'set-contenthash': 1n << 8n,
+  'set-pubkey': 1n << 12n,
+  'set-abi': 1n << 16n,
+  'set-interface': 1n << 20n,
+  'set-name': 1n << 24n,
+  'clear': 1n << 32n,
+} as const;
+
+export type EnsV2ResolverRoleName = keyof typeof ENSV2_RESOLVER_ROLE_NAMES;
+
+export const ENSV2_RESOLVER_ABI_EAC = [
+  'function authorizeTextRoles(bytes toName, string key, address account, bool grant) returns (bool)',
+  'function authorizeNameRoles(bytes toName, uint256 roleBitmap, address account, bool grant) returns (bool)',
+  'function roles(uint256 resource, address account) view returns (uint256)',
+] as const;
+
+/** Parse a comma-separated resolver role list ("set-text,set-name") into a bitmap. */
+export function parseEnsV2ResolverRoleBitmap(spec: string): bigint {
+  let bitmap = 0n;
+  for (const raw of spec.split(',')) {
+    const name = raw.trim().toLowerCase();
+    if (name === '') continue;
+    const bit = ENSV2_RESOLVER_ROLE_NAMES[name as EnsV2ResolverRoleName];
+    if (bit === undefined) {
+      throw new Error(
+        `Unknown ENSv2 resolver role "${name}". Valid roles: ${Object.keys(ENSV2_RESOLVER_ROLE_NAMES).join(', ')}.`,
+      );
+    }
+    bitmap |= bit;
+  }
+  if (bitmap === 0n) throw new Error('Empty resolver role bitmap.');
+  return bitmap;
+}
+
+/** Human-readable resolver role list for a bitmap (inverse of the parser). */
+export function formatEnsV2ResolverRoleBitmap(bitmap: bigint): string[] {
+  return Object.entries(ENSV2_RESOLVER_ROLE_NAMES)
+    .filter(([, bit]) => (bitmap & bit) !== 0n)
+    .map(([name]) => name);
+}
+
+/** DNS-encode an ENS name the way NameCoder.encode does: \x07charlie\x03ops…\x00 */
+export function dnsEncodeName(name: string): string {
+  const labels = name.split('.').filter((l) => l.length > 0);
+  const bytes: number[] = [];
+  for (const label of labels) {
+    const utf8 = Buffer.from(label, 'utf8');
+    if (utf8.length === 0 || utf8.length > 255) {
+      throw new Error(`Invalid DNS label "${label}" in "${name}".`);
+    }
+    bytes.push(utf8.length, ...utf8);
+  }
+  bytes.push(0); // root terminator
+  return '0x' + Buffer.from(bytes).toString('hex');
+}
+
+/** PermissionedResolverLib.resource(node, part) — keccak256(abi.encode(node, part)). */
+export function resolverResource(node: string, part: string): bigint {
+  const encoded = AbiCoder.defaultAbiCoder().encode(['bytes32', 'bytes32'], [node, part]);
+  return BigInt(keccak256(encoded));
+}
+
+
+export type EnsV2ResolverAuthorizeInput = {
+  /** Fully-qualified name to authorize on (DNS-encoded for the resolver call). */
+  fullName: string;
+  /** Deployed org resolver address (e.g. the org profile's resolver / 0x684B…b01c). */
+  resolverAddress: string;
+  /** Text record key to scope the grant to (authorizeTextRoles), e.g. "soulvault.agentName". */
+  key?: string;
+  /** For authorizeNameRoles: comma-separated role list. Mutually exclusive with `key`. */
+  roleSpec?: string;
+  account: string;
+  /** true = grant, false = revoke. */
+  grant: boolean;
+};
+
+/**
+ * Authorize (grant=true) or revoke (grant=false) resolver-side roles:
+ *  - with `key`: ROLE_SET_TEXT on resource(namehash(fullName), keccak256(key)) — the agent
+ *    can write exactly that text record on exactly that name.
+ *  - with `roleSpec`: the given resolver roles on resource(namehash(fullName), 0) — node-wide.
+ */
+export async function authorizeEnsV2ResolverRoles(input: EnsV2ResolverAuthorizeInput) {
+  if (!input.key && !input.roleSpec) {
+    throw new Error('Provide either --key (scoped text grant) or --role (node-wide grant).');
+  }
+  if (input.key && input.roleSpec) {
+    throw new Error('Pass either --key or --role, not both (they authorize different resources).');
+  }
+  const signer = await createEnsSigner();
+  const resolver = new Contract(input.resolverAddress, ENSV2_RESOLVER_ABI_EAC, signer);
+  const toName = dnsEncodeName(input.fullName);
+  const node = namehash(input.fullName);
+  let resource: bigint;
+  let tx;
+  let rolesLabel: string[];
+  if (input.key) {
+    const roleBit = ENSV2_RESOLVER_ROLE_NAMES['set-text'];
+    resource = resolverResource(node, keccak256(toUtf8Bytes(input.key)));
+    tx = await resolver.authorizeTextRoles(toName, input.key, input.account, input.grant);
+    rolesLabel = ['set-text'];
+  } else {
+    const roleBitmap = parseEnsV2ResolverRoleBitmap(input.roleSpec!);
+    resource = resolverResource(node, '0x' + '00'.repeat(32));
+    tx = await resolver.authorizeNameRoles(toName, roleBitmap, input.account, input.grant);
+    rolesLabel = formatEnsV2ResolverRoleBitmap(roleBitmap);
+  }
+  const receipt = await tx.wait();
+  // Verify readback before claiming success.
+  const reader = new Contract(input.resolverAddress, ENSV2_RESOLVER_ABI_EAC, await getEnsV2Provider());
+  const held = await reader.roles(resource, input.account);
+  return {
+    fullName: input.fullName,
+    resolverAddress: input.resolverAddress,
+    account: input.account,
+    grant: input.grant,
+    key: input.key,
+    roles: rolesLabel,
+    resource: resource.toString(),
+    heldAfter: held.toString(),
+    txHash: receipt?.hash as string | undefined,
+  };
+}
+
+/** Read the resolver-side role bitmap an account holds on a name's node resource (part=0). */
+export async function readEnsV2ResolverRoles(input: {
+  fullName: string;
+  resolverAddress: string;
+  account: string;
+  /** Optional text key: read resource(node, keccak256(key)) instead of resource(node, 0). */
+  key?: string;
+}) {
+  const provider = await getEnsV2Provider();
+  const resolver = new Contract(input.resolverAddress, ENSV2_RESOLVER_ABI_EAC, provider);
+  const node = namehash(input.fullName);
+  const resource = input.key
+    ? resolverResource(node, keccak256(toUtf8Bytes(input.key)))
+    : resolverResource(node, '0x' + '00'.repeat(32));
+  const bitmap = await resolver.roles(resource, input.account);
+  return {
+    fullName: input.fullName,
+    resolverAddress: input.resolverAddress,
+    account: input.account,
+    key: input.key,
+    resource: resource.toString(),
+    roleBitmap: bitmap.toString(),
+    roles: formatEnsV2ResolverRoleBitmap(bitmap),
   };
 }

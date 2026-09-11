@@ -345,9 +345,82 @@ export async function readEnsV2RegistryRecord(orgName: string): Promise<{
   return decodeEnsV2RegistryRecord(value);
 }
 
-export async function detectOrgEnsVersion(orgName: string): Promise<OrgEnsVersion> {
+export async function detectOrgEnsVersion(
+  orgName: string,
+  viewer?: Address,
+): Promise<OrgEnsVersion> {
   const record = await readEnsV2RegistryRecord(orgName).catch(() => null);
-  return record ? "v2" : "v1";
+  if (record) return "v2";
+  // The pointer record is written to the org's PermissionedResolver, which the
+  // v1-registry-walking viem ENS client can never discover for a fresh v2 name
+  // (no v1 owner). Fall back to the deterministic CREATE2 probe from the
+  // viewer's wallet — same math the registration wizard uses for idempotency.
+  if (viewer && (await resolveEnsV2OrgRecord({ orgName, viewer }))) return "v2";
+  return "v1";
+}
+
+export type ResolvedEnsV2OrgRecord = {
+  registry: Address;
+  resolver: Address;
+  owner: Address;
+  expiry: bigint;
+};
+
+/**
+ * Locate a v2 org's registry + attached PermissionedResolver without relying on
+ * v1-registry discovery (impossible for fresh v2 names — the v1 registry has no
+ * owner for them, so viem's ENS helpers return 0x0). Two probes, in order:
+ *   1. The `soulvault.ensv2Registry` pointer record — authoritative when the
+ *      name resolves v1-side (orgs with a mixed/legacy setup).
+ *   2. The viewer's deterministic CREATE2 registry address (salts bind the
+ *      deployer, so this only answers for the owner's own wallet) — works with
+ *      zero prior knowledge of local artifacts.
+ * Returns null when no v2 org can be proven for this name/viewer.
+ */
+export async function resolveEnsV2OrgRecord(input: {
+  orgName: string;
+  viewer?: Address;
+}): Promise<ResolvedEnsV2OrgRecord | null> {
+  const config = getBrowserSoulVaultClientConfig();
+  if (!config) return null;
+  const client = createSoulVaultPublicClient(config);
+
+  const probeRegistry = async (registry: Address, label: string): Promise<ResolvedEnsV2OrgRecord | null> => {
+    try {
+      const labelStateId = BigInt(labelhash(label));
+      const state = await readLabelState(client, registry, labelStateId);
+      if (state.status !== 2) return null;
+      const resolver = await readRegistryResolver(client, registry, label);
+      if (!resolver) return null;
+      return { registry, resolver, owner: state.latestOwner, expiry: state.expiry };
+    } catch {
+      return null;
+    }
+  };
+
+  const pointer = await readEnsV2RegistryRecord(input.orgName).catch(() => null);
+  if (pointer) {
+    const { label } = parseEnsV2OrgLabel(input.orgName);
+    const viaPointer = await probeRegistry(pointer.registry, label);
+    if (viaPointer) return viaPointer;
+  }
+
+  if (!input.viewer) return null;
+  const { label } = parseEnsV2OrgLabel(input.orgName);
+  try {
+    const shared = getEnsV2SharedAddresses();
+    const expectedRegistry = computeVerifiableProxyAddress({
+      factory: getAddress(shared.verifiableFactory),
+      proxyLogic: await readFactoryProxyLogic(client, shared.verifiableFactory as Address),
+      deployer: getAddress(input.viewer),
+      salt: orgRegistrySalt(label),
+    });
+    const code = await client.getBytecode({ address: expectedRegistry }).catch(() => null);
+    if (!code || code === "0x") return null;
+    return await probeRegistry(expectedRegistry, label);
+  } catch {
+    return null;
+  }
 }
 
 // --- Registration flow (one wallet prompt per step).
@@ -410,20 +483,25 @@ export async function registerOrganizationEnsV2(input: {
     })
     .catch(() => null);
   if (existing) {
-    // A registry exists at the deterministic address — check the label state.
-    const state = (await client.readContract({
-      address: expectedRegistry,
-      abi: REGISTRY_STATE_ABI,
-      functionName: "getState",
-      args: [labelStateId],
-    })) as unknown as readonly [number, bigint, Address, bigint, bigint];
+    // A registry exists at the deterministic address (initialized by this owner)
+    // — never re-deploy, or the label-derived CREATE2 salt collides and the
+    // factory reverts. Check the label state to decide whether register() is
+    // also already done.
+    registryAddress = expectedRegistry;
+    const state = await readLabelState(client, expectedRegistry, labelStateId);
     const nowSec = BigInt(Math.floor(Date.now() / 1000));
-    if (state[0] === 2 && state[1] > nowSec) {
+    if (state.status === 2 && state.expiry > nowSec) {
       // Already registered + unexpired → skip deploy + register.
-      registryAddress = expectedRegistry;
-      existingState = { status: state[0], expiry: state[1], latestOwner: state[2] };
+      existingState = { status: state.status, expiry: state.expiry, latestOwner: state.latestOwner };
       input.onStep?.("deploy", { status: "done", detail: registryAddress });
       input.onStep?.("register", { status: "done", detail: "already registered" });
+    } else {
+      // Partial prior run: registry deployed but label not (yet) registered
+      // (or expired) → resume at register without redeploying.
+      input.onStep?.("deploy", {
+        status: "done",
+        detail: `${registryAddress} (already deployed — recovered)`,
+      });
     }
   }
 
@@ -497,13 +575,8 @@ export async function registerOrganizationEnsV2(input: {
   // re-run converges on the same resolver address; if the registry's resolver
   // slot is already set we skip both txs.
   input.onStep?.("resolver", { status: "active" });
-  const labelState = (await client.readContract({
-    address: registryAddress,
-    abi: REGISTRY_STATE_ABI,
-    functionName: "getState",
-    args: [labelStateId],
-  })) as unknown as readonly [number, bigint, Address, bigint, bigint];
-  let resolverAddress = labelState[2] === zeroAddress ? null : await readRegistryResolver(client, registryAddress, label);
+  const labelState = await readLabelState(client, registryAddress, labelStateId);
+  let resolverAddress = labelState.latestOwner === zeroAddress ? null : await readRegistryResolver(client, registryAddress, label);
   if (!resolverAddress) {
     const proxyLogic = await readFactoryProxyLogic(client, shared.verifiableFactory as Address);
     const expectedResolver = computeVerifiableProxyAddress({
@@ -573,25 +646,37 @@ export async function registerOrganizationEnsV2(input: {
   // registry, where a fresh v2 name has no owner (0x0) — it can never find the
   // resolver we just attached.
   input.onStep?.("mirror", { status: "active" });
-  const mirrorHash = await writeEnsV2RegistryPointer({
-    from: owner,
-    orgName: normalized,
-    orgNode: namehash(normalized),
-    resolver: resolverAddress!,
-    record: encodeEnsV2RegistryRecord({
-      registry: registryAddress,
-      owner,
-      deployedAt: new Date().toISOString(),
-    }),
-  });
+  // Idempotent skip: the record embeds a `deployedAt` timestamp that changes
+  // every run, so exact-value comparison would never fire. A valid pointer
+  // (same registry + owner, any timestamp) proves the mirror already happened.
+  const currentPointer = (await readResolverText(resolverAddress!, namehash(normalized), ENSV2_REGISTRY_TEXT_KEY).catch(() => null)) as string | null;
+  const existingPointer = currentPointer ? decodeEnsV2RegistryRecord(currentPointer) : null;
+  const mirrorDone = !!existingPointer && existingPointer.registry === registryAddress && existingPointer.owner === owner;
+  let mirrorHash: Hex | null = null;
+  if (!mirrorDone) {
+    mirrorHash = await writeEnsV2RegistryPointer({
+      from: owner,
+      orgName: normalized,
+      orgNode: namehash(normalized),
+      resolver: resolverAddress!,
+      record: encodeEnsV2RegistryRecord({
+        registry: registryAddress,
+        owner,
+        // On overwrite repair, keep the original deployment time when known.
+        deployedAt: existingPointer?.deployedAt ?? new Date().toISOString(),
+      }),
+    });
+  }
   if (mirrorHash) {
     const mirrorReceipt = await waitForWalletReceipt(mirrorHash);
     if (mirrorReceipt.status !== "success") {
       throw new Error(`Registry pointer write reverted (tx ${mirrorHash}).`);
     }
     txHashes.mirror = mirrorHash;
+    input.onStep?.("mirror", { status: "done" });
+  } else {
+    input.onStep?.("mirror", { status: "done", detail: "already written" });
   }
-  input.onStep?.("mirror", { status: "done" });
 
   // Step 4 — metadata records (same keys as the v1 wizard + CLI).
   input.onStep?.("metadata", { status: "active" });
@@ -704,6 +789,43 @@ async function readFactoryProxyLogic(
   return getAddress(logic);
 }
 
+type LabelState = { status: number; expiry: bigint; latestOwner: Address };
+
+/**
+ * getState returns a named tuple; this viem version decodes named tuple outputs
+ * to objects (not arrays), so numeric indexing silently yields undefined and
+ * the idempotency probe would re-deploy an already-deployed registry (CREATE2
+ * collision). Normalize both shapes here.
+ */
+async function readLabelState(
+  client: ReturnType<typeof createSoulVaultPublicClient>,
+  registry: Address,
+  labelStateId: bigint,
+): Promise<LabelState> {
+  const state = (await client.readContract({
+    address: registry,
+    abi: REGISTRY_STATE_ABI,
+    functionName: "getState",
+    args: [labelStateId],
+  })) as unknown as {
+    status: number;
+    expiry: bigint;
+    latestOwner: Address;
+    tokenId: bigint;
+    resource: bigint;
+  };
+  const parts = (
+    Array.isArray(state)
+      ? state
+      : [state.status, state.expiry, state.latestOwner, state.tokenId, state.resource]
+  ) as unknown as readonly [number, bigint, Address, bigint, bigint];
+  return {
+    status: Number(parts[0]),
+    expiry: BigInt(parts[1]),
+    latestOwner: getAddress(parts[2]),
+  };
+}
+
 /**
  * Read the resolver slot for `label` from the registry (getResolver(label)).
  */
@@ -769,7 +891,18 @@ const SET_TEXT_ABI = [
   },
 ] as const;
 
-/** Metadata records — same text keys as v1 (class, name, description, url). */
+/** Resolver batching — same multicall(bytes[]) shape as ENS PublicResolver. */
+const MULTICALL_ABI = [
+  {
+    type: "function",
+    name: "multicall",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "data", type: "bytes[]" }],
+    outputs: [{ name: "", type: "bytes[]" }],
+  },
+] as const;
+
+/** Metadata records — same text keys as v1 (class, name, url). */
 async function writeOrgMetadataRecordsV2(input: {
   from: Address;
   orgName: string;
@@ -778,24 +911,62 @@ async function writeOrgMetadataRecordsV2(input: {
   displayName: string;
 }): Promise<Hex | null> {
   const node = input.orgNode;
-  let lastHash: Hex | null = null;
   const records: Array<[string, string]> = [
     ["class", ORG_ENS_CLASS_VALUE],
     ["name", input.displayName],
     ["url", `https://${input.orgName}`],
   ];
+  const changed: Array<[string, string]> = [];
   for (const [key, value] of records) {
-    lastHash = await sendWalletTransaction({
-      from: input.from,
-      to: input.resolver,
-      data: encodeFunctionData({
-        abi: SET_TEXT_ABI,
-        functionName: "setText",
-        args: [node, key, value],
-      }),
-    });
+    // Idempotent skip: only send records whose value differs on-chain.
+    const current = (await readResolverText(input.resolver, node, key).catch(() => null)) as string | null;
+    if (current !== value) changed.push([key, value]);
   }
-  return lastHash;
+  if (changed.length === 0) {
+    return null;
+  }
+  const calldatas = changed.map(([key, value]) =>
+    encodeFunctionData({
+      abi: SET_TEXT_ABI,
+      functionName: "setText",
+      args: [node, key, value],
+    }),
+  );
+  // All changed records ride a single multicall(bytes[]) tx (msg.sender
+  // semantics preserved — the owner's setter roles apply to every inner call).
+  return sendWalletTransaction({
+    from: input.from,
+    to: input.resolver,
+    data: encodeFunctionData({
+      abi: MULTICALL_ABI,
+      functionName: "multicall",
+      args: [calldatas],
+    }),
+  });
+}
+
+async function readResolverText(resolver: Address, node: Hex, key: string): Promise<string | null> {
+  const config = getBrowserSoulVaultClientConfig();
+  if (!config) return null;
+  const client = createSoulVaultPublicClient(config);
+  const value = (await client.readContract({
+    address: resolver,
+    abi: [
+      {
+        type: "function",
+        name: "text",
+        stateMutability: "view",
+        inputs: [
+          { name: "node", type: "bytes32" },
+          { name: "key", type: "string" },
+        ],
+        outputs: [{ name: "", type: "string" }],
+      },
+    ] as const,
+    functionName: "text",
+    args: [node, key],
+  })) as string;
+  return value || null;
 }
 
 const ORG_ENS_CLASS_VALUE = "soulvault.organization";

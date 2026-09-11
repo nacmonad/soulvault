@@ -43,7 +43,7 @@ export default function DocumentRegistryPage() {
   useEffect(() => {
     setOverrideState(getDocumentRegistryOverride());
     let cancelled = false;
-    readDocumentRegistryEntries(rootEnsName)
+    readDocumentRegistryEntries(rootEnsName, undefined, address ?? undefined)
       .then((records) => {
         if (cancelled) return;
         setEntries(
@@ -58,7 +58,7 @@ export default function DocumentRegistryPage() {
     return () => {
       cancelled = true;
     };
-  }, [registry, rootEnsName]);
+  }, [registry, rootEnsName, address]);
 
   if (!address) return null;
 

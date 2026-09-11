@@ -37,10 +37,11 @@ export function setEnsModeOverride(mode: EnsMode | null): void {
 
 export async function resolveEnsMode(
   orgName: string,
+  viewer?: Parameters<typeof detectOrgEnsVersion>[1],
 ): Promise<{ mode: EnsMode; source: EnsModeSource }> {
   const override = getEnsModeOverride();
   if (override) return { mode: override, source: "override" };
-  const detected = await detectOrgEnsVersion(orgName).catch(() => null);
+  const detected = await detectOrgEnsVersion(orgName, viewer).catch(() => null);
   if (detected === "v2") return { mode: "v2", source: "detected" };
   return { mode: "v1", source: "default" };
 }

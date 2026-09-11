@@ -4,6 +4,7 @@ import {
   coinTypeForChain,
   encodeStringArrayCbor,
   encodeSwarmsListDataUri,
+  normalizeEnsV2LabelState,
 } from "./ens-writes";
 
 // The CLI-side reference implementation lives in packages/node/src/ens.ts. Its
@@ -45,5 +46,34 @@ describe("ens-writes CBOR parity with packages/node/src/ens.ts", () => {
     expect(coinTypeForChain(11155111)).toBe(2158638759);
     // Historical 0G Galileo. (The old glossary said 2147500186 — off by 64, a doc typo.)
     expect(coinTypeForChain(16602)).toBe(2147500250);
+  });
+});
+
+// Regression: this viem version decodes named tuple outputs to OBJECTS (see
+// ens-register-v2.ts readLabelState). readEnsV2OrgContext used to numeric-index
+// the getState result, so the v2 fallback ownership check always failed and
+// treasury/swarm creation for v2 orgs died with "does not own (owner 0x000…0)"
+// — even for the actual owner, when the pointer record wasn't readable yet.
+describe("normalizeEnsV2LabelState", () => {
+  const owner = "0x56C528C96D19bd88844fb608035f4c745f25287b" as const;
+
+  it("reads the object shape this viem version produces", () => {
+    expect(
+      normalizeEnsV2LabelState({ status: 2, expiry: 123n, latestOwner: owner, tokenId: 7n, resource: 8n }),
+    ).toEqual({ status: 2, expiry: 123n, latestOwner: owner });
+  });
+
+  it("reads the array shape defensive callers may still see", () => {
+    expect(normalizeEnsV2LabelState([2, 123n, owner, 7n, 8n])).toEqual({
+      status: 2,
+      expiry: 123n,
+      latestOwner: owner,
+    });
+  });
+
+  it("returns null for empty/undefined/malformed decodes", () => {
+    expect(normalizeEnsV2LabelState(null)).toBeNull();
+    expect(normalizeEnsV2LabelState(undefined)).toBeNull();
+    expect(normalizeEnsV2LabelState({})).toBeNull();
   });
 });

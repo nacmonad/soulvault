@@ -5,14 +5,22 @@
  * swarm member rows. Renders whatever the registration agentURI carries
  * (SoulVault shape: packages/node/src/identity.ts) and degrades gracefully:
  * http(s) URIs show as a plain link, missing fields stay hidden.
+ *
+ * When `resolveRoles` is provided, the ENSv2 EAC self-serve roles the wallet
+ * holds on the swarm's name render as badges (live read on mount).
  */
+import { useEffect, useState } from 'react';
 import { isAddressEqual, type Address } from 'viem';
 
 import { parseAgentUri } from '@/lib/onchain/reducers';
 import { shortAddress } from '@/lib/format';
 import { CopyableAddress } from '@/components/dashboard/copyable-address';
+import { formatEnsV2RoleBitmap, type EnsV2RoleName } from '@/lib/ensv2-eac';
 
 const AVATAR_SIZE_PX = 40;
+
+/** Resolves the EAC roles `wallet` holds on the relevant name (best-effort). */
+export type EacRolesResolver = (wallet: Address) => Promise<bigint | null>;
 
 export function AgentIdentityCard({
   agentId,
@@ -20,6 +28,7 @@ export function AgentIdentityCard({
   uri,
   compareWallet,
   swarmName,
+  resolveRoles,
 }: {
   agentId: bigint;
   wallet: Address;
@@ -29,6 +38,8 @@ export function AgentIdentityCard({
   /** Resolved ENS name of the swarm the URI's swarmContract points at, when
    * the consumer knows it (org discovery). Unknown contracts stay blank. */
   swarmName?: string | null;
+  /** ENSv2 EAC role-bitmap loader (best-effort) — role badges on mount. */
+  resolveRoles?: EacRolesResolver;
 }) {
   const payload = parseAgentUri(uri);
   const name = typeof payload?.name === 'string' && payload.name ? payload.name : null;
@@ -36,6 +47,22 @@ export function AgentIdentityCard({
   const memberAddress = payload?.soulvault?.memberAddress;
   const attributedSwarm = payload?.soulvault?.swarmContract;
   const ensName = typeof payload?.soulvault?.ensName === 'string' && payload.soulvault.ensName ? payload.soulvault.ensName : null;
+  const [eacRoles, setEacRoles] = useState<EnsV2RoleName[] | null>(null);
+  useEffect(() => {
+    if (!resolveRoles) return;
+    let cancelled = false;
+    resolveRoles(wallet)
+      .then((bitmap) => {
+        if (cancelled) return;
+        setEacRoles(bitmap === null ? null : formatEnsV2RoleBitmap(bitmap));
+      })
+      .catch(() => {
+        if (!cancelled) setEacRoles(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [resolveRoles, wallet]);
   const attributionMismatch =
     compareWallet !== undefined &&
     compareWallet !== null &&
@@ -68,6 +95,17 @@ export function AgentIdentityCard({
         ) : (
           <p className="mt-1 text-xs text-muted-foreground">no swarm attribution in registration</p>
         )}
+        {eacRoles && eacRoles.length > 0 ? (
+          // ENSv2 EAC self-serve grants on the swarm name (live read).
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">ens roles:</span>
+            {eacRoles.map((role) => (
+              <span key={role} className="chip text-xs">
+                {role}
+              </span>
+            ))}
+          </div>
+        ) : null}
         {payload?.description ? (
           <p className="mt-1 text-xs text-muted-foreground">{payload.description}</p>
         ) : null}

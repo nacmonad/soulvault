@@ -379,7 +379,8 @@ describe("createLedgerTxChannel — EIP-1559 signing", () => {
     expect(hash).toBe("0xabc");
     const parsed = parseTransaction(signTransaction.mock.calls[0]![0]);
     expect(parsed.type).toBe("eip1559");
-    expect(parsed.maxFeePerGas).toBe(5_000_000_000n);
+    // maxFeePerGas padded to 2x estimate for base-fee drift tolerance; tip unchanged.
+    expect(parsed.maxFeePerGas).toBe(10_000_000_000n);
     expect(parsed.maxPriorityFeePerGas).toBe(1_500_000_000n);
     expect(parsed.gasPrice).toBeUndefined();
     // Broadcast payload carries the fee fields and the device parity.
@@ -387,7 +388,7 @@ describe("createLedgerTxChannel — EIP-1559 signing", () => {
     const broadcasted = parseTransaction(sent.params[0]);
     expect(broadcasted.type).toBe("eip1559");
     expect(broadcasted.yParity).toBe(1);
-    expect(broadcasted.maxFeePerGas).toBe(5_000_000_000n);
+    expect(broadcasted.maxFeePerGas).toBe(10_000_000_000n);
   });
 
   it("falls back to a legacy tx when the device rejects the typed payload with 6a80", async () => {

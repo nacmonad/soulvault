@@ -199,7 +199,16 @@ export function createLedgerTxChannel(input: {
         ]);
         const eip1559Fees =
           fees?.maxFeePerGas !== undefined && fees?.maxPriorityFeePerGas !== undefined
-            ? { maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas }
+            ? {
+                // The fee estimate is a point-in-time snapshot: between
+                // pre-flight and broadcast the base fee can drift above a bare
+                // ceiling and every RPC then rejects the raw tx. Pad the
+                // ceiling (2x estimate, floor of 2x gasPrice) — the priority
+                // tip stays as estimated, so this only widens the tolerance
+                // window, it doesn't bid up the price paid.
+                maxFeePerGas: fees.maxFeePerGas * 2n > gasPrice * 2n ? fees.maxFeePerGas * 2n : gasPrice * 2n,
+                maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
+              }
             : undefined;
         return { candidate, nonce, gasPrice, gas, ...(eip1559Fees ? { fees: eip1559Fees } : {}) };
       } catch (cause) {

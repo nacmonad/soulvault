@@ -241,8 +241,8 @@ function encodeCreationData(bytecode: Hex, initialTreasury: Address): Hex {
     ],
     functionName: "init",
     args: [initialTreasury],
-  }).slice(10) as Hex; // strip the 4-byte selector, keep the 32-byte word
-  return (bytecode + encodedArgs.slice(2)) as Hex;
+  }).slice(10) as Hex; // strip the 4-byte selector, keep the 32-byte word — NOTE: no `0x` prefix after this (same hazard as ens-register-v2.ts computeVerifiableProxyAddress, fixed in 0d07d92)
+  return (bytecode + encodedArgs) as Hex;
 }
 
 function publicClient() {

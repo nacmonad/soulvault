@@ -44,6 +44,29 @@ export type AgentDirectory = {
   byWallet: Map<Address, AgentProfile[]>;
 };
 
+/**
+ * The ERC-8004 identity registry is a global singleton, so AgentRegistered
+ * events are emitted for every agent on the chain regardless of organization.
+ * SoulVault registrations carry the attribution key inside the agentURI — a
+ * `data:application/json;base64` payload whose `soulvault.swarmContract` names
+ * the swarm contract the agent belongs to (packages/node/src/identity.ts).
+ * Parse it here so consumers can org-scope the directory.
+ */
+export function agentSwarmContractFromUri(uri: string | null): Address | null {
+  const prefix = 'data:application/json;base64,';
+  if (!uri || !uri.startsWith(prefix)) return null;
+  try {
+    const parsed = JSON.parse(atob(uri.slice(prefix.length))) as {
+      soulvault?: { swarmContract?: unknown };
+    };
+    const sc = parsed?.soulvault?.swarmContract;
+    if (typeof sc !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(sc)) return null;
+    return sc as Address;
+  } catch {
+    return null;
+  }
+}
+
 export function reduceAgentState(events: readonly SoulVaultEvent[]): AgentDirectory {
   const byId = new Map<bigint, AgentProfile>();
   for (const event of orderEvents(events)) {
@@ -53,10 +76,11 @@ export function reduceAgentState(events: readonly SoulVaultEvent[]): AgentDirect
     switch (event.eventName) {
       case 'AgentRegistered': {
         if (byId.has(agentId)) break;
+        const uri = (args.agentURI as string) ?? null;
         byId.set(agentId, {
           agentId,
           wallet: args.agentWallet as Address,
-          uri: (args.agentURI as string) ?? null,
+          uri,
           metadata: {},
           registeredAt: at(event),
           updatedAt: at(event),

@@ -5,26 +5,43 @@ import { isAddressEqual } from "viem";
 
 import { Button } from "@/components/ui/button";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
+import { useDashboardSelection } from "@/components/dashboard/selection-provider";
 import { useAgentEvents } from "@/hooks/useAgentEvents";
 import { useSwarmEvents } from "@/hooks/useSwarmEvents";
+import { useOrgDiscovery } from "@/hooks/useOrgDiscovery";
 import { shortAddress } from "@/lib/format";
 
 export default function AgentsPage() {
   const { address } = useSoulVaultWallet();
+  const { selection } = useDashboardSelection();
   const { agentProfiles, status } = useAgentEvents();
   const swarm = useSwarmEvents();
-  const [scope, setScope] = useState<"wallet" | "swarm" | "all">("wallet");
+  const discovery = useOrgDiscovery(selection.orgId);
+  const [scope, setScope] = useState<"org" | "wallet" | "swarm" | "all">("org");
 
   const swarmWallets = useMemo(() => [...swarm.members.keys()], [swarm.members]);
+  const orgSwarmContracts = useMemo(
+    () =>
+      (discovery.swarms ?? [])
+        .map((entry) => entry.address)
+        .filter((a): a is NonNullable<typeof a> => a !== null)
+        .map((address) => address.toLowerCase()),
+    [discovery.swarms],
+  );
 
   const rows = useMemo(() => {
     if (!address) return [];
     return agentProfiles.filter((profile) => {
       if (scope === "all") return true;
       if (scope === "wallet") return isAddressEqual(profile.wallet, address);
+      if (scope === "org") {
+        // The identity registry is global; org-scope by the swarmContract the
+        // registration URI carries. Agents without attribution stay hidden.
+        return !!profile.swarmContract && orgSwarmContracts.includes(profile.swarmContract.toLowerCase());
+      }
       return swarmWallets.some((member) => isAddressEqual(member, profile.wallet));
     });
-  }, [address, agentProfiles, scope, swarmWallets]);
+  }, [address, agentProfiles, scope, swarmWallets, orgSwarmContracts]);
 
   if (!address) return null;
 
@@ -37,14 +54,14 @@ export default function AgentsPage() {
       </p>
 
       <div className="mt-6 flex flex-wrap gap-2">
-        {(["wallet", "swarm", "all"] as const).map((value) => (
+        {(["org", "wallet", "swarm", "all"] as const).map((value) => (
           <Button
             key={value}
             size="sm"
             variant={scope === value ? "default" : "outline"}
             onClick={() => setScope(value)}
           >
-            {value === "wallet" ? "This wallet" : value === "swarm" ? "Swarm members" : "All"}
+            {value === "org" ? "This organization" : value === "wallet" ? "This wallet" : value === "swarm" ? "Swarm members" : "All"}
           </Button>
         ))}
       </div>

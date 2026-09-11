@@ -23,6 +23,7 @@ import {
 } from '@/lib/onchain/client';
 import { resolveDocumentEventSource } from '@/lib/document-registry';
 import { resolveIdentityEventSource } from '@/lib/identity-registry';
+import { useSoulVaultWallet } from '@/components/providers/soulvault-ledger-provider';
 import type { ActiveGrant, SoulVaultContractKind, SoulVaultDeployment, SoulVaultEvent } from '@/lib/onchain/types';
 import { mergeEventBatches, SoulVaultEventWatcher } from '@/lib/onchain/watcher';
 
@@ -47,6 +48,10 @@ export type SoulVaultEventsContextValue = {
   resolveGrants: (docHash: Hex, recipient: Address) => Promise<ActiveGrant[]>;
   /** Merge runtime-discovered sources (ENS) into the watcher; rescans once when new. */
   addSources: (sources: readonly SoulVaultDeployment[]) => Promise<boolean>;
+  /** Org-scoped source replacement: removes ALL swarm/treasury sources (they
+   * are always org-derived), purges their events from the shared cache, adds
+   * the new org's sources, and rescans. Keeps document/identity sources. */
+  replaceOrgSources: (sources: readonly SoulVaultDeployment[]) => Promise<void>;
 };
 
 export const SoulVaultEventsContext = createContext<SoulVaultEventsContextValue | null>(null);
@@ -245,15 +250,53 @@ export function SoulVaultEventsProvider({
   );
 
   /**
+   * Org switch semantics: the bridge previously called addSources on every org
+   * change, which only ever added — the previous org's swarm/treasury sources
+   * stayed registered (their events kept flowing) and the shared cache kept
+   * their events, so the page showed a stale union of both orgs. This replaces
+   * the whole org-scoped slice: remove old, purge cache, add new, rescan.
+   */
+  const replaceOrgSources = useCallback(
+    async (sources: readonly SoulVaultDeployment[]) => {
+      const watcher = getWatcher();
+      if (!watcher) throw new Error(CONFIG_ERROR);
+      const removed = watcher.removeSourcesMatching((s) => s.kind === 'swarm' || s.kind === 'treasury');
+      if (removed.length > 0) {
+        const gone = new Set(removed.map((s) => s.address.toLowerCase()));
+        setState((s) => ({ ...s, events: s.events.filter((e) => !gone.has(e.source.toLowerCase())) }));
+      }
+      await addSources(sources);
+      if (removed.length > 0) {
+        // Old org's sources gone: force a rescan even when the new org added
+        // nothing new, so status settles on the reduced source set.
+        await refresh();
+      }
+    },
+    [getWatcher, refresh, addSources],
+  );
+
+  /**
    * DocumentRegistry discovery (ENSIP-11 on the protocol root name) — merged
    * into the watcher so Overview/Documents, the events page, and grants see
    * DocumentPublished/SlotKeyGranted. Retried and periodically re-resolved
    * (see useDiscoveredEventSource) so a fresh deploy/announce is picked up.
+   * viewer = connected wallet: pure-v2 org root names are only discoverable
+   * via the ENSv2 CREATE2 recompute, which is viewer-bound. Re-resolved when
+   * the wallet (re)connects.
    */
-  useDiscoveredEventSource(resolveDocumentEventSource, addSources);
+  const { address: viewer } = useSoulVaultWallet();
+  const resolveDocumentSource = useCallback(
+    () => resolveDocumentEventSource({ viewer: viewer ?? undefined }),
+    [viewer],
+  );
+  const resolveIdentitySource = useCallback(
+    () => resolveIdentityEventSource({ viewer: viewer ?? undefined }),
+    [viewer],
+  );
+  useDiscoveredEventSource(resolveDocumentSource, addSources);
 
   /** Identity registry (built-in Sepolia constant / erc8004.registry record). */
-  useDiscoveredEventSource(resolveIdentityEventSource, addSources);
+  useDiscoveredEventSource(resolveIdentitySource, addSources);
 
   const resolveGrants = useCallback(
     async (docHash: Hex, recipient: Address) => {
@@ -277,8 +320,9 @@ export function SoulVaultEventsProvider({
       stopLive,
       resolveGrants,
       addSources,
+      replaceOrgSources,
     }),
-    [state, isLive, refresh, startLive, stopLive, resolveGrants, addSources],
+    [state, isLive, refresh, startLive, stopLive, resolveGrants, addSources, replaceOrgSources],
   );
 
   return <SoulVaultEventsContext.Provider value={value}>{children}</SoulVaultEventsContext.Provider>;

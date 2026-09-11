@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { SECP_WRAP_ALGORITHM } from '@soulvault/protocol';
 import type { Address, Hex, Log, PublicClient } from 'viem';
-import { reduceAgentState, reduceDocumentState, reduceSwarmState, resolveActiveGrants } from './reducers';
+import { agentSwarmContractFromUri, reduceAgentState, reduceDocumentState, reduceSwarmState, resolveActiveGrants } from './reducers';
 import { parseDocumentEvent, SoulVaultEventWatcher } from './watcher';
 import {
   ALICE,
@@ -51,6 +51,28 @@ async function decodeDocEvents(logs: Log[]): Promise<SoulVaultDocumentEvent[]> {
 }
 
 // --- agents ---------------------------------------------------------------------
+
+const SWARM_CONTRACT = '0x8888888888888888888888888888888888888888';
+
+function agentUri(payload: { soulvault?: { swarmContract?: string } }): string {
+  return 'data:application/json;base64,' + btoa(JSON.stringify(payload));
+}
+
+describe('agentSwarmContractFromUri', () => {
+  it('extracts soulvault.swarmContract from the base64 JSON agentURI', () => {
+    expect(agentSwarmContractFromUri(agentUri({ soulvault: { swarmContract: SWARM_CONTRACT } }))).toBe(
+      '0x8888888888888888888888888888888888888888',
+    );
+  });
+
+  it('returns null for http URIs, payloads without swarmContract, and garbage', () => {
+    expect(agentSwarmContractFromUri('https://a.example')).toBeNull();
+    expect(agentSwarmContractFromUri(agentUri({}))).toBeNull();
+    expect(agentSwarmContractFromUri(agentUri({ soulvault: { swarmContract: 'not-an-address' } }))).toBeNull();
+    expect(agentSwarmContractFromUri('data:application/json;base64,%%%garbage%%%')).toBeNull();
+    expect(agentSwarmContractFromUri(null)).toBeNull();
+  });
+});
 
 describe('reduceAgentState', () => {
   it('builds profiles through the register → update-uri → metadata lifecycle', async () => {

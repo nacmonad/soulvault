@@ -30,6 +30,8 @@ const DEFAULT_IDENTITY_FROM_BLOCK = 10592315n;
  */
 export async function resolveIdentityEventSource(input?: {
   chainId?: number;
+  /** Connected wallet — pure-v2 org root names need it for resolver discovery. */
+  viewer?: Address;
 }): Promise<SoulVaultDeployment | null> {
   const config = getBrowserSoulVaultClientConfig();
   const chainId = input?.chainId ?? config?.chainId ?? SEPOLIA_CHAIN_ID;
@@ -39,7 +41,7 @@ export async function resolveIdentityEventSource(input?: {
   let address: Address | null = null;
   try {
     const client = publicClientForChainId(SEPOLIA_CHAIN_ID);
-    const raw = client ? await readEnsText(rootEnsName, ERC8004_REGISTRY_TEXT_KEY) : null;
+    const raw = client ? await readEnsText(rootEnsName, ERC8004_REGISTRY_TEXT_KEY, input?.viewer) : null;
     if (raw && /^0x[0-9a-fA-F]{40}$/.test(raw)) address = getAddress(raw);
   } catch {
     // fall through to the built-in constant

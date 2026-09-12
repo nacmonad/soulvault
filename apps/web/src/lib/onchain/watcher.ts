@@ -133,11 +133,31 @@ export class SoulVaultEventWatcher {
    * ENS, which cannot be a build-time env entry). Dedupes by address; returns
    * whether the source was new — callers rescan only when it was.
    */
+  /**
+   * Register a deployment discovered at runtime (e.g. the DocumentRegistry via
+   * ENS, which cannot be a build-time env entry). Dedupes by address; returns
+   * whether the source was new — callers rescan only when it was.
+   */
   addSource(source: SoulVaultDeployment): boolean {
     const key = source.address.toLowerCase();
     if (this._sources.some((s) => s.address.toLowerCase() === key)) return false;
     this._sources.push(source);
     return true;
+  }
+
+  /**
+   * Remove all sources matching `predicate` (e.g. the previous org's
+   * swarm/treasury contracts when the org selection changes — addSource only
+   * ever adds, so without this a switch left both orgs' contracts watched and
+   * their events merged in the shared cache). Returns the removed sources so
+   * callers can purge their cached events.
+   */
+  removeSourcesMatching(predicate: (source: SoulVaultDeployment) => boolean): SoulVaultDeployment[] {
+    const removed: SoulVaultDeployment[] = [];
+    for (let i = this._sources.length - 1; i >= 0; i--) {
+      if (predicate(this._sources[i])) removed.push(this._sources.splice(i, 1)[0]);
+    }
+    return removed;
   }
 
   async latestBlock(): Promise<bigint> {

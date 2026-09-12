@@ -72,7 +72,8 @@ Organization  (ENS root, admin boundary, optional treasury per chain)
 | `soulvault.treasuries` text record | Org ENS name | JSON array enumerating the org's treasuries — one `{chainId, address, label?, createdAt?}` entry per chain (ERC-634 has no key enumeration, so this single known key is the discovery index) |
 | `class` text record | Org ENS name | `soulvault.organization` — signals this is a SoulVault org |
 | `name` text record | Org ENS name | Human-readable org name |
-| `soulvault.swarms` text record | Org ENS name | CBOR array of swarm labels (`data:application/cbor;base64,…`) |
+| `soulvault.swarms` text record | Org ENS name | CBOR array of swarm labels (`data:application/cbor;base64,…`) — v1 discovery; superseded by per-swarm subname registration on ENSv2 |
+| `soulvault.ensv2Registry` text record | Org ENS name | JSON `{version: 2, registry, owner, deployedAt?}` — address of the org's SoulVaultRegistry (UserRegistry proxy deployed via the VerifiableFactory). Authoritative for `*.<orgName>` subnames and the v1/v2 protocol marker readers use for auto-detection |
 | `soulvault.swarmContract` text record | Swarm subdomain | Swarm contract address on 0G |
 | `soulvault.chainId` text record | Swarm subdomain | Chain ID where the swarm contract lives |
 
@@ -134,8 +135,9 @@ The CLI follows an entity-first model:
 | `organization list` | List org profiles |
 | `organization use <name>` | Set active org |
 | `organization status` | Show active org |
-| `organization register-ens` | Register ENS root on Sepolia + write org metadata records (`class`, `name`) |
+| `organization register-ens` | Register ENS root on Sepolia + write org metadata records (`class`, `name`); `--ens-v2` forces the ENSv2 flow (org registry + epoch-bound expiry) |
 | `organization set-ens-name` | Attach a root `.eth` name to an existing profile |
+| `organization deploy-registry` | Deploy the org's ENSv2 SoulVaultRegistry (custom subname registry via VerifiableFactory) + record it on the org profile |
 
 ### Treasury
 | Command | Description |
@@ -153,6 +155,7 @@ The CLI follows an entity-first model:
 | Command | Description |
 |---------|-------------|
 | `swarm create` | Deploy contract on 0G (auto-discovers treasury via ENSIP-11) + bind ENS subdomain |
+| `swarm register-ens` | Register the swarm subname in the org's ENSv2 registry with epoch-bound expiry (`--with-agent-namespace` enables agent subnames) |
 | `swarm remove --swarm <s> --yes` | Archive profile + strip from org's ENS swarms list |
 | `swarm list / use / status` | Profile management |
 | `swarm join-request` | Agent submits join request |
@@ -172,6 +175,15 @@ The CLI follows an entity-first model:
 |---------|-------------|
 | `agent create / status` | Local agent profile |
 | `agent register / update / show` | ERC-8004 identity on Sepolia |
+| `agent register-ens` | Register `<agent>.<swarm>.<org>.eth` in the org registry + mirror the ERC-8004 identity into resolver records |
+| `agent show --ens` | Reverse-resolve the agent's ENSv2 name back to its ERC-8004 identity |
+
+### ENS (ENSv2)
+| Command | Description |
+|---------|-------------|
+| `ens grant` | Grant an EAC role (e.g. `set-resolver`) on one name to a wallet — scoped delegation |
+| `ens revoke` | Revoke a granted role |
+| `ens roles` | Read the role bitmap on a name |
 
 ### Epoch
 | Command | Description |
@@ -434,6 +446,46 @@ for the World developer tooling challenge (same format as the Ledger notes above
 | Selfie Check access | Selfie Check (Beta) is feature-flag gated per app; docs direct developers to request access through a World point of contact before any proof flow can run, including in Sandbox. | Requested enablement for the SoulVault sandbox app. Earlier self-serve sandbox enablement (or a documented SLA for the access request) would remove the biggest lead-time risk for hackathon timelines. |
 | Credential surface | Selfie Check returns a proof of completed check, not a uniqueness score; validity is a fixed 90-day window. | Treat the proof as an authorization-time signal (verify at grant approval), not a stored identity attribute. |
 | Docs discoverability | `docs.world.org/llms.txt` provides a clean LLM-facing index and the Developer Portal exposes an MCP context server; both materially reduce hallucinated SDK usage. | Keep the MCP endpoint and `llms.txt` index in sync with SDK releases; note SDK versions (`@worldcoin/agentkit`, `@worldcoin/idkit-core`) in the quickstart so agents can pin correctly. |
+
+### ENS track progress
+
+- Shipped an ENSv2-first architecture on Sepolia: the org's config layer IS a custom
+  ENSv2 subname registry (UserRegistry proxy deployed via the canonical VerifiableFactory),
+  not a side database. Org → swarm → agent is a real registry hierarchy with epoch-bound
+  expiries, EAC role bitmaps, and Permissioned Resolvers.
+- **Phase 1 — v2 client + dispatch.** `ensv2.ts` implements the v2 hierarchy walk
+  (label-string navigation, per-label resolver slots, name state, EAC role checks); every
+  ENS read/write entry point in `ens.ts` dispatches v1 ↔ v2 on one feature flag.
+- **Phase 2 — org registry + swarm subnames.** `organization deploy-registry` deploys the
+  org's SoulVaultRegistry (verifiable proxy, deployer holds all root roles); `swarm
+  register-ens` registers `<swarm>.<org>.eth` with expiry = epoch length, replacing the
+  CBOR `soulvault.swarms` membership list with real registry entries.
+- **Phase 3 — EAC scoped delegation.** `ens grant/revoke/roles` delegate exactly the roles
+  needed on exactly one name (e.g. `set-resolver` on the swarm name to the agent wallet);
+  every grant is verified onchain post-tx before the CLI claims success.
+- **Phase 4 — expiry as liveness + ERC-8004 bridge.** Every epoch rotation renews the
+  swarm's subname (best-effort, never blocks rotation); `agent register-ens` registers
+  `<agent>.<swarm>.<org>.eth` and mirrors the ERC-8004 identity into the name's resolver
+  records; `agent show --ens` reverse-resolves the name back to the ERC-8004 identity.
+- **Test coverage:** 118 unit tests (network-free, mocked contracts) + a 6/6 forge spike
+  against the vendored ENSv2 contracts; live Sepolia demo pending a funded wallet.
+
+### ENS developer challenge notes
+
+These notes are a running record of integration friction, solutions, and feedback for the
+ENS developer challenge (same format as the Ledger/World notes above).
+
+| Area | Finding | Resolution / feedback |
+|------|---------|-----------------------|
+| v2 name navigation | ENSv2 replaces labelhash-keyed registry traversal with per-label string navigation (`getSubregistry(label)` / `getResolver(label)` on the registry HOLDING the name). Code ported from v1 labelhash walks breaks silently if it keeps hashing. | Centralize the hierarchy walk in one client (`ensv2.ts`) and dispatch all v1 call sites through it; pin ABIs to a known contracts-v2 commit and note it in-source. |
+| Beta deployments | ENSv2 Sepolia contracts (ETHRegistry, ETHRegistrar, ENSV2Resolver) are beta and can redeploy; discovery docs are the only stable reference. | All pinned addresses are env-overridable (`SOULVAULT_ENSV2_*`); the code treats docs.ens.domains deployments as defaults, not constants. |
+| Custom subname registries | Third-party namespace operators deploy their own UserRegistry via the VerifiableFactory; there is no turnkey "deploy my subname registry" CLI. | Wrapped the factory flow (deploy proxy → initialize with root roles → verify ROLE_REGISTRAR onchain before trusting the address) into one `organization deploy-registry` command. A first-class ENS SDK for subname-registry operators would remove the proxy-verification footwork. |
+| Expiry semantics | `register()` takes a `uint64` absolute expiry; there is no native "extend by epoch" helper, and expired names change state visibly. | Model expiry as liveness: one renewal per epoch rotation in the same transaction flow that publishes the new key bundle, so name expiry can never outrun operational continuity. |
+| EAC role granularity | The role bitmap (nybble-packed) enables per-name, per-role delegation — far finer than v1's resolver-level permissions, but there is no built-in "agent record editing" preset. | Standardized two presets in the CLI: swarm names get SET_RESOLVER\|RENEW, agent names get the same minus any unregister/parent rights; `ens grant` post-verifies the bitmap onchain before reporting success. |
+| Resolver record portability | Text-record ABI is unchanged from v1, but the resolver is now per-label (each registry entry points at its own Permissioned Resolver), so "the resolver address" is a property discovered by walking, not a global. | All `setText`/`text` paths resolve the target resolver from the hierarchy at call time; callers never handle resolver addresses. |
+| Browser-side protocol detection | `SOULVAULT_ENSV2` is a node env var; the dashboard has no env channel, and hard-coding a mode picker would split the org UX per protocol. | Made the protocol self-describing onchain: the org name carries a `soulvault.ensv2Registry` pointer record written at deploy time. The dashboard reads it to pick the right wizard (v2 present ⇒ v2 wizard, absent ⇒ legacy v1 commit/reveal flow untouched), with a localStorage override for testing. One source of truth, shared with the node package's org-profile `ensv2Registry` field. |
+| Dual-wizard registration UX | The v1 (commit/reveal/wait/unwrap) and v2 (deploy registry → register with epoch expiry) flows have structurally different steps — forcing them through one state machine would mean conditionals in every phase. | Dedicated v2 org-registration wizard sharing the same scaffolding (wallet hooks, step list, CLI recovery hints, TxChannel write path so injected-wallet and Ledger connectors both work unchanged). Grant/renew/role flows stay shared — they map 1:1 across versions and dispatch underneath. |
+| Factory proxy address discovery | The VerifiableFactory emits no dedicated deployment event; the proxy address must come from the deploy receipt's `contractAddress` (or receipt logs on channels that don't surface it). | The web wizard reads `contractAddress` from the wallet receipt with a raw `eth_getTransactionReceipt` fallback, then post-verifies `ROLE_REGISTRAR` on the root resource onchain before trusting the address — same trust rule as the node CLI. |
 
 ## Roadmap
 

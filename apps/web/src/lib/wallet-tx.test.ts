@@ -276,7 +276,10 @@ describe("EIP-1559 fee preparation (browser channel)", () => {
 
     await sendWalletTransaction({ from: FROM, to: null, data: "0x6080" });
     expect(signed?.type).toBe("0x2");
-    expect(signed?.maxFeePerGas).toBe("0x12a05f200");
+    // maxFeePerGas is padded to 2x the estimate (5 gwei → 10) so base-fee drift
+    // between estimate and broadcast can't invalidate the ceiling; the tip is
+    // unchanged, so the price actually paid doesn't move.
+    expect(signed?.maxFeePerGas).toBe("0x2540be400");
     expect(signed?.maxPriorityFeePerGas).toBe("0x59682f00");
     expect(signed?.gasPrice).toBeUndefined();
   });

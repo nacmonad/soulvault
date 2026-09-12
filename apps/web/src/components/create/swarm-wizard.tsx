@@ -178,7 +178,8 @@ export function SwarmWizard({ orgEnsName }: { orgEnsName: string }) {
             <p className="mt-1 font-mono text-xs">{outcome.swarmEnsName} → {outcome.swarmAddress}</p>
             <p className="mt-1 text-xs text-muted-foreground">
               {chainById(chainId)?.name ?? `chain ${chainId}`} · bound treasury{" "}
-              {shortAddress(outcome.boundTreasury)} · deploy block {outcome.blockNumber.toString()} ·
+              {shortAddress(outcome.boundTreasury)}
+              {outcome.blockNumber > 0n ? ` · deploy block ${outcome.blockNumber.toString()}` : " · adopted existing deployment"} ·
               published on the org ENS record — events flow automatically, no env entry needed.
             </p>
           </div>

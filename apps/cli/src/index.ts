@@ -13,6 +13,7 @@ import { registerMessageCommands } from './commands/message.js';
 import { registerDocumentCommands } from './commands/document.js';
 import { registerSyncCommands } from './commands/sync.js';
 import { registerStatusCommand } from './commands/status.js';
+import { registerEnsCommands } from './commands/ens.js';
 
 const program = new Command();
 
@@ -59,6 +60,7 @@ registerMessageCommands(program);
 registerDocumentCommands(program);
 registerSyncCommands(program);
 registerStatusCommand(program);
+registerEnsCommands(program);
 
 program.parseAsync(process.argv).catch((error) => {
   console.error(error instanceof Error ? error.message : error);

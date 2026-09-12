@@ -1,0 +1,7 @@
+Referral 11 Sep 2026
+Patient: Marta Vidal, DOB 1984-03-12
+Email: marta.vidal@example.test
+Phone: +34 612 345 678
+IBAN: ES9121000418450200051332
+Card: 4111111111111111
+Follow-up with Dr Serra next Tuesday at Hospital del Mar.

@@ -41,6 +41,7 @@ v1 side on `main`: ENSIP-11 fallback in `documentRegistryAddress()` + optional
 | [020-deployer-factory-cal.md](./020-deployer-factory-cal.md) | Audited deployer-factory → fixed addresses → Ledger CAL descriptors (kill the blind-sign screen walk) | draft |
 | [021-device-derived-slot-keys.md](./021-device-derived-slot-keys.md) | Device-derived deterministic slot keys (Ledger Key Ring / OpenPGP) | idea — parked |
 | [022-presentation-g0.md](./022-presentation-g0.md) | Presentation: G0 one-liner, demo order, redaction-model comparison | live |
+| [023-detector-bakeoff.md](./023-detector-bakeoff.md) | What we ran: presidio-web vs OpenRedaction on a demo fixture vs published OPF numbers | live |
 
 Do not start Next work until the parent IA is locked in the GitHub issue.
 

@@ -1,15 +1,16 @@
 import { NextResponse } from "next/server";
+import { storageBackend, uploadPayload } from "@soulvault/node/storage";
 
 /**
  * Storage seam for swarm message payloads.
  *
  * The dashboard posts sealed envelopes here and gets back an opaque
- * `payloadRef`. Today the backend persists to 0G Storage; swapping to IPFS
- * (or any locator-addressed store) later only changes this route — UI and
- * on-chain `postMessage` payloadRef/payloadHash flow stay identical.
+ * `payloadRef`. The backend is selected by SOULVAULT_STORAGE_BACKEND
+ * (`0g` default, `file` for co-located demos/dev) in @soulvault/node/storage —
+ * swapping to IPFS later only touches that module; UI and on-chain
+ * `postMessage` payloadRef/payloadHash flow stay identical.
  *
- * NOTE: this route runs server-side where SOULVAULT_* env + the node signer
- * live. Envelopes posted here are always ECDH-sealed client-side first — the
+ * Envelopes posted here are always ECDH-sealed client-side first — the
  * server never sees plaintext key material.
  */
 export async function POST(request: Request) {
@@ -24,21 +25,11 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { uploadJsonTo0G } = await import("@soulvault/node/0g");
-    const upload = (await uploadJsonTo0G(envelope)) as {
-      rootHash?: string;
-      rootHashes?: string[];
-      txHash?: string;
-      txHashes?: string[];
-    };
-    const payloadRef = upload.rootHash ?? upload.rootHashes?.[0];
-    if (!payloadRef) {
-      return NextResponse.json({ error: "upload returned no root hash" }, { status: 502 });
-    }
+    const upload = await uploadPayload(envelope);
     return NextResponse.json({
-      payloadRef,
-      storage: "0g",
-      txHash: upload.txHash ?? upload.txHashes?.[0] ?? null,
+      payloadRef: upload.payloadRef,
+      storage: upload.backend,
+      txHash: upload.txHash ?? null,
     });
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : "upload failed";

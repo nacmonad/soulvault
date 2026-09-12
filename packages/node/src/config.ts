@@ -55,6 +55,10 @@ const envSchema = z.object({
   SOULVAULT_0G_STORAGE_URL: z.string().optional(),
   SOULVAULT_0G_INDEXER_URL: z.string().url().default('https://indexer-storage-testnet-turbo.0g.ai'),
   SOULVAULT_0G_AUTH_TOKEN: z.string().optional(),
+  /** Payload storage backend for swarm messages: `0g` (default) or `file` (co-located demos/dev). */
+  SOULVAULT_STORAGE_BACKEND: z.enum(['0g', 'file']).optional(),
+  /** Directory for the `file` storage backend (default: `<repo>/.soulvault-storage`). */
+  SOULVAULT_STORAGE_DIR: z.string().optional(),
   SOULVAULT_ERC8004_REGISTRY_ADDRESS: z.string().optional(),
   SOULVAULT_DEFAULT_SWARM_ADDRESS: z.string().optional(),
   SOULVAULT_DEFAULT_HARNESS: z.string().default('openclaw'),

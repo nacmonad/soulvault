@@ -15,7 +15,8 @@
     "pretest": "pnpm artifacts:check",
     "test": "vitest run",
     "test:foundry": "SOULVAULT_FOUNDRY_FORK=1 vitest run src/lib/foundry-provider.test.ts src/lib/ens-register.foundry.test.ts",
-    "test:e2e:ledger": "playwright test --config e2e/playwright.config.ts"
+    "test:e2e:ledger": "playwright test --config e2e/playwright.config.ts",
+    "test:e2e:ledger:documents": "SOULVAULT_E2E_SUITE=documents playwright test --config e2e/playwright.config.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
@@ -26,6 +27,7 @@
     "@soulvault/node": "workspace:*",
     "@soulvault/presidio-adapter": "workspace:*",
     "@soulvault/protocol": "workspace:*",
+    "@worldcoin/idkit": "^4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.33.0",

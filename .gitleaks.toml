@@ -2,16 +2,17 @@
 [extend]
 useDefault = true
 
-# The canonical Anvil/Hardhat dev keys (accounts 0-2 of the default test
-# mnemonic "test test ... junk"). These are universally public constants,
+# The canonical Anvil/Hardhat dev keys of the default test mnemonic
+# "test test ... junk". These are universally public constants,
 # pre-funded on every local dev chain, and appear in env templates and
 # integration tests on purpose. Real keys are never allowlisted here.
-# Account 5 is allowlisted separately: it appears (prefixed) as the Mallory
-# test wallet in apps/web/e2e/global-setup.ts.
+# Accounts used in apps/web/e2e/global-setup.ts:
+#   0 funder, 1 Alice, 2 unused-here, 3 Charlie, 5 Mallory.
 [allowlist]
 regexes = [
   '''ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80''',
   '''59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d''',
   '''5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a''',
+  '''7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6''',
   '''8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba''',
 ]

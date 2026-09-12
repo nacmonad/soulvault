@@ -17,6 +17,17 @@ export const WRITE_ABI = [
     inputs: [
       { name: "docHash", type: "bytes32" },
       { name: "slotIds", type: "string[]" },
+      { name: "selfieRequired", type: "bool" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "publishDocument",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "docHash", type: "bytes32" },
+      { name: "slotIds", type: "string[]" },
     ],
     outputs: [],
   },
@@ -47,6 +58,17 @@ export const WRITE_ABI = [
       { name: "algorithm", type: "string" },
       { name: "ephemeralPublicKeys", type: "string[]" },
       { name: "nonces", type: "string[]" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "requestRehydration",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "docHash", type: "bytes32" },
+      { name: "rehydrationPublicKey", type: "string" },
+      { name: "selfieProof", type: "string" },
     ],
     outputs: [],
   },
@@ -171,14 +193,31 @@ export async function publishDocument(input: {
   from: Address;
   documentId: string;
   slotIds: string[];
+  selfieRequired?: boolean;
   send: ChainSender;
 }): Promise<Hex> {
   const to = (await resolveDocumentRegistryAddress({ viewer: input.from })).address;
   if (!to) throw new Error("No document registry discovered on ENS. Deploy one from the Documents page first.");
-  const data = encodeFunctionData({
+  const selfieRequired = Boolean(input.selfieRequired);
+  const flagged = encodeFunctionData({
     abi: WRITE_ABI,
     functionName: "publishDocument",
-    args: [asDocHash(input.documentId), input.slotIds],
+    args: [asDocHash(input.documentId), input.slotIds, selfieRequired],
+  });
+  const data = await encodeWithLegacyFallback({
+    to,
+    from: input.from,
+    preferred: flagged,
+    legacy:
+      selfieRequired
+        ? null
+        : encodeFunctionData({
+            abi: WRITE_ABI,
+            functionName: "publishDocument",
+            args: [asDocHash(input.documentId), input.slotIds],
+          }),
+    missing:
+      "This DocumentRegistry has no selfieRequired on publish. Redeploy the registry to set the World Selfie Check flag.",
   });
   return input.send({ from: input.from, to, data });
 }
@@ -289,16 +328,51 @@ export async function requestRehydration(input: {
   from: Address;
   documentId: string;
   rehydrationPublicKey: string;
+  selfieProof?: string;
   send: ChainSender;
 }): Promise<Hex> {
   const to = (await resolveDocumentRegistryAddress({ viewer: input.from })).address;
   if (!to) throw new Error("No document registry discovered on ENS. Deploy one from the Documents page first.");
-  const data = encodeFunctionData({
+  const proof = input.selfieProof ?? "";
+  const flagged = encodeFunctionData({
     abi: WRITE_ABI,
     functionName: "requestRehydration",
-    args: [asDocHash(input.documentId), input.rehydrationPublicKey],
+    args: [asDocHash(input.documentId), input.rehydrationPublicKey, proof],
+  });
+  const data = await encodeWithLegacyFallback({
+    to,
+    from: input.from,
+    preferred: flagged,
+    legacy:
+      proof.length > 0
+        ? null
+        : encodeFunctionData({
+            abi: WRITE_ABI,
+            functionName: "requestRehydration",
+            args: [asDocHash(input.documentId), input.rehydrationPublicKey],
+          }),
+    missing:
+      "This DocumentRegistry has no selfieProof on request. Redeploy the registry to carry a World Selfie Check proof.",
   });
   return input.send({ from: input.from, to, data });
+}
+
+async function encodeWithLegacyFallback(input: {
+  to: Address;
+  from: Address;
+  preferred: Hex;
+  legacy: Hex | null;
+  missing: string;
+}): Promise<Hex> {
+  const client = publicClientForChainId(getBrowserSoulVaultClientConfig()?.chainId ?? SEPOLIA_CHAIN_ID);
+  if (!client) return input.preferred;
+  try {
+    await client.call({ to: input.to, data: input.preferred, account: input.from });
+    return input.preferred;
+  } catch {
+    if (!input.legacy) throw new Error(input.missing);
+    return input.legacy;
+  }
 }
 
 // ---------------------------------------------------------------------------

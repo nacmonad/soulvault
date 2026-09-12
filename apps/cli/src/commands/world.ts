@@ -7,6 +7,7 @@ import {
   evaluateRehydrateRequest,
   generateRpSignature,
 } from '@soulvault/node/world-identity'
+import { startWorldRpServer } from '@soulvault/node/world-rp-server'
 import { loadEnv, loadWorldIdentityConfig } from '@soulvault/node/config'
 
 /**
@@ -110,6 +111,35 @@ export function registerWorldCommands(program: Command) {
           2,
         ),
       )
- if (!result.approved) process.exitCode = 2
+      if (!result.approved) process.exitCode = 2
+    })
+
+  world
+    .command('rp-server')
+    .description(
+      'Serve GET /rp-signature and POST /verify for the dashboard IDKit widget. Signing key stays on this process.',
+    )
+    .option('--port <port>', 'Listen port', '8787')
+    .option('--host <host>', 'Listen host', '127.0.0.1')
+    .option('--mock', 'Use the mock Selfie Check verifier (no Portal call)', false)
+    .action(async (options) => {
+      const env = loadEnv()
+      const config = loadWorldIdentityConfig(env)
+      const port = Number(options.port)
+      const mock = Boolean(options.mock) || !config
+      const { port: bound } = await startWorldRpServer({
+        config,
+        port,
+        host: options.host,
+        mock,
+      })
+      console.log(
+        JSON.stringify({
+          listening: `http://${options.host}:${bound}`,
+          configured: Boolean(config),
+          mock,
+          action: REHYDRATE_REQUEST_ACTION,
+        }),
+      )
     })
 }

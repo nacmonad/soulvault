@@ -86,10 +86,18 @@ buttons were pressed. Store artifacts as CI artifacts, not in git.
   Network Access). Use the fixture's APDU/events bridge URLs for the
   in-page transport; the controller talks to `apiUrl` from the worker
   process.
-- The World gate is off in this suite (deferred to the World feature branch,
-  see 005); the Ledger clear-sign gate is the one under test.
+- Default `pnpm --filter soulvault-web test:e2e:ledger` runs
+  `proof-of-selfie.speculos.e2e.ts` (ticket 023): publish flag, fixture
+  proof on request, Grants fail-closed, unwrap ungated. It does **not**
+  assert detector strings — the author can edit the public bundle before
+  submit. Charlie is a mock injected wallet so the selfie gate can pass
+  independently of the still-broken Ledger connect.
+- This Alice/Charlie/Mallory Ledger scenario is opt-in:
+  `pnpm --filter soulvault-web test:e2e:ledger:documents`. World gate off
+  (`selfieRequired=false`); the Ledger clear-sign gate is the one under test.
 - Use the synthetic Alice fixture text from the headless acceptance
-  scenario. No real PII.
+  scenario. No real PII. Do not treat exact redaction spans as the pass
+  condition.
 - Speculos proves browser integration and the device-action state machine.
   It does not prove WebHID discovery, physical possession, or secure-element
   behavior — release validation on real hardware remains a human step.

@@ -167,6 +167,7 @@ function titleFor(functionName: string | undefined, tx: { to: Address | null; da
     case "cancelFundRequest": return "Cancel fund request";
     case "publishDocument": return "Publish document";
     case "grantSlotKey": return "Grant slot key";
+    case "requestRehydration": return "Request rehydration";
     default: return `Contract call (${tx.data.slice(0, 10)})`;
   }
 }

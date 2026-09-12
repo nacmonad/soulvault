@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import { createPublicClient, createWalletClient, http, type Address, type Chain } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import type { FullConfig } from "@playwright/test";
+import { WorldIdentityConfig } from "@soulvault/node/world-identity";
+import { startWorldRpServer } from "@soulvault/node/world-rp-server";
 
 /**
  * e2e global setup (ticket 006).
@@ -17,14 +19,16 @@ import type { FullConfig } from "@playwright/test";
  * 3. Deploys a fresh SoulVaultDocumentRegistry with the Alice key and exports
  *    its address to the workers via process.env.
  *
- * Alice and Mallory are deterministic Anvil accounts (pre-funded on any
- * Anvil-launched chain). Charlie is the emulated Ledger — he never spends
- * gas (attest is an EIP-712 signature; rehydrate is local compute), so no
- * funding is required for him.
+ * Alice, Charlie, and Mallory are deterministic Anvil accounts (pre-funded).
+ * The proof-of-selfie suite uses Charlie as a mock injected wallet because
+ * `requestRehydration` spends gas. The ticket 006 Ledger Charlie path still
+ * only attests (EIP-712) and unwraps locally.
  */
 
 const ANVIL_ALICE_KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"; // anvil account[1]
 const ANVIL_MALLORY_KEY = "0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba"; // anvil account[2]
+const ANVIL_CHARLIE_KEY = "0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6"; // anvil account[3]
+const WORLD_RP_PORT = Number(process.env.SOULVAULT_E2E_WORLD_RP_PORT || 8787);
 
 export const repoRoot = path.resolve(fileURLToPath(new URL("../../..", import.meta.url)));
 export const stateDir = path.join(repoRoot, "apps/web/e2e/.state");
@@ -56,7 +60,11 @@ export default async function globalSetup(_config: FullConfig) {
 
   // Funded-account sanity: Alice and Mallory come pre-funded from Anvil's
   // default mnemonic; fail loudly instead of mysteriously mid-test.
-  for (const [label, key] of [["alice", ANVIL_ALICE_KEY], ["mallory", ANVIL_MALLORY_KEY]] as const) {
+  for (const [label, key] of [
+    ["alice", ANVIL_ALICE_KEY],
+    ["mallory", ANVIL_MALLORY_KEY],
+    ["charlie", ANVIL_CHARLIE_KEY],
+  ] as const) {
     const balance = await client.getBalance({ address: privateKeyToAccount(key).address });
     if (balance === 0n) {
       throw new Error(`e2e account "${label}" (${privateKeyToAccount(key).address}) has no balance on ${rpcUrl}.`);
@@ -91,5 +99,30 @@ export default async function globalSetup(_config: FullConfig) {
   process.env.SOULVAULT_E2E_CHAIN_ID = String(chainId);
   process.env.SOULVAULT_E2E_ALICE_KEY = ANVIL_ALICE_KEY;
   process.env.SOULVAULT_E2E_MALLORY_KEY = ANVIL_MALLORY_KEY;
+  process.env.SOULVAULT_E2E_CHARLIE_KEY = ANVIL_CHARLIE_KEY;
   process.env.SOULVAULT_E2E_STATE_DIR = stateDir;
+
+  const worldConfig = WorldIdentityConfig.parse({
+    appId: process.env.NEXT_PUBLIC_WORLD_APP_ID || "app_99dc82c37d167284ef081f8cdbe20222",
+    rpId: process.env.NEXT_PUBLIC_WORLD_RP_ID || "rp_301afe7f18a97891",
+    signingKeyHex: process.env.WORLD_RP_SIGNING_KEY || "aa".repeat(32),
+    environment: "staging",
+  });
+  const rp = await startWorldRpServer({
+    config: worldConfig,
+    mock: true,
+    host: "127.0.0.1",
+    port: WORLD_RP_PORT,
+    allowedOrigins: [
+      "http://127.0.0.1:3100",
+      "http://localhost:3100",
+      "http://127.0.0.1:46183",
+      "http://localhost:46183",
+    ],
+  });
+  process.env.NEXT_PUBLIC_WORLD_RP_URL = `http://127.0.0.1:${rp.port}`;
+
+  return async () => {
+    await rp.close();
+  };
 }

@@ -64,6 +64,7 @@ const DOCUMENT_EVENT_ABI = [
       { name: 'docHash', type: 'bytes32', indexed: true },
       { name: 'author', type: 'address', indexed: true },
       { name: 'slotIds', type: 'string[]', indexed: false },
+      { name: 'selfieRequired', type: 'bool', indexed: false },
     ],
   },
   {

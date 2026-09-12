@@ -17,6 +17,7 @@ import {
   evaluateSelfieProof,
   parsePastedSelfieProof,
   publicHydrationError,
+  rehydrateSelfieSignal,
   resolveWorldRehydrateGate,
   RehydrateGateError,
   WORLD_REHYDRATE_ACTION,
@@ -99,10 +100,13 @@ describe("resolveWorldRehydrateGate", () => {
   });
 
   it("turns the gate on when an app id is set", () => {
-    expect(resolveWorldRehydrateGate({ appId: "app_test" })).toEqual({
+    expect(resolveWorldRehydrateGate({ appId: "app_test", rpId: "rp_test", rpUrl: "http://127.0.0.1:8787/" })).toEqual({
       mode: "required",
       appId: "app_test",
       action: WORLD_REHYDRATE_ACTION,
+      rpId: "rp_test",
+      rpUrl: "http://127.0.0.1:8787",
+      environment: "staging",
     });
   });
 
@@ -161,6 +165,21 @@ describe("evaluateSelfieProof", () => {
 
   it("rejects malformed pasted JSON", () => {
     expect(() => parsePastedSelfieProof("{nope")).toThrow(RehydrateGateError);
+  });
+
+  it("accepts an IDKit 3.0 selfie payload as the staging fixture", () => {
+    const signal = rehydrateSelfieSignal(wallet, "0x" + "ab".repeat(32));
+    expect(
+      evaluateSelfieProof({
+        proof: {
+          protocol_version: "3.0",
+          signal,
+          responses: [{ identifier: "selfie", nullifier: "n-idkit" }],
+        },
+        expectedSignal: signal,
+        consumedNullifiers: new Set(),
+      }),
+    ).toEqual({ ok: true, nullifier: "n-idkit" });
   });
 });
 

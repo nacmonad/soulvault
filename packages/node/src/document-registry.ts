@@ -9,7 +9,8 @@ import {
 
 const REGISTRY_ABI = [
   'function publishDocument(bytes32 docHash, string[] slotIds)',
-  'event DocumentPublished(bytes32 indexed docHash, address indexed author, string[] slotIds)',
+  'function publishDocument(bytes32 docHash, string[] slotIds, bool selfieRequired)',
+  'event DocumentPublished(bytes32 indexed docHash, address indexed author, string[] slotIds, bool selfieRequired)',
 ] as const;
 
 /** The documents lane rides the identity lane: Sepolia (tickets 012 §A/§D). */
@@ -20,6 +21,8 @@ export type DocumentPublishInput = {
   docHash: string;
   /** Slot ids being published; must be non-empty (the contract rejects empty slots). */
   slotIds: string[];
+  /** World Selfie Check policy. Default false; does not gate this tx. */
+  selfieRequired?: boolean;
   /** Registry address; omit to resolve via ENS discovery on the protocol root name. */
   registry?: string;
   /** Protocol root ENS name (defaults to the active organization's ensName, then soluvault.eth). */
@@ -133,7 +136,9 @@ export async function publishDocumentOnRegistry(input: DocumentPublishInput): Pr
 
   const signer = await createEnsSigner();
   const contract = new Contract(registry, REGISTRY_ABI, signer);
-  const tx = await contract.publishDocument(docHash, slotIds);
+  const tx = input.selfieRequired
+    ? await contract["publishDocument(bytes32,string[],bool)"](docHash, slotIds, true)
+    : await contract["publishDocument(bytes32,string[])"](docHash, slotIds);
   const receipt = await tx.wait();
   return {
     registry,

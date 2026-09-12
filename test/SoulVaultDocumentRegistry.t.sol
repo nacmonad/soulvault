@@ -18,7 +18,7 @@ contract SoulVaultDocumentRegistryTest is Test {
     string internal wrappedKey = "AAECAwQFBgcICQ==";
     string internal ephemeralPublicKey = "04ee";
 
-    event DocumentPublished(bytes32 indexed docHash, address indexed author, string[] slotIds);
+    event DocumentPublished(bytes32 indexed docHash, address indexed author, string[] slotIds, bool selfieRequired);
     event SlotKeyGranted(
         bytes32 indexed docHash,
         string slotId,
@@ -28,7 +28,12 @@ contract SoulVaultDocumentRegistryTest is Test {
         string ephemeralPublicKey,
         string nonce
     );
-    event RehydrationRequested(bytes32 indexed docHash, address indexed recipient, string rehydrationPublicKey);
+    event RehydrationRequested(
+        bytes32 indexed docHash,
+        address indexed recipient,
+        string rehydrationPublicKey,
+        string selfieProof
+    );
 
     string internal charlieRehydrationKey = "04a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9";
 
@@ -45,7 +50,7 @@ contract SoulVaultDocumentRegistryTest is Test {
     function test_publishDocument_emitsAnchorEvent() public {
         vm.prank(alice);
         vm.expectEmit(true, true, false, true, address(registry));
-        emit DocumentPublished(docHash, alice, slotIds);
+        emit DocumentPublished(docHash, alice, slotIds, false);
         registry.publishDocument(docHash, slotIds);
 
         assertEq(registry.publicationAuthor(docHash), alice);
@@ -164,7 +169,7 @@ contract SoulVaultDocumentRegistryTest is Test {
 
         vm.prank(charlie);
         vm.expectEmit(true, true, false, true, address(registry));
-        emit RehydrationRequested(docHash, charlie, charlieRehydrationKey);
+        emit RehydrationRequested(docHash, charlie, charlieRehydrationKey, "");
         registry.requestRehydration(docHash, charlieRehydrationKey);
     }
 
@@ -194,7 +199,7 @@ contract SoulVaultDocumentRegistryTest is Test {
 
         vm.prank(charlie);
         vm.expectEmit(true, true, false, true, address(registry));
-        emit RehydrationRequested(docHash, charlie, "04ff");
+        emit RehydrationRequested(docHash, charlie, "04ff", "");
         registry.requestRehydration(docHash, "04ff");
     }
 
@@ -207,8 +212,41 @@ contract SoulVaultDocumentRegistryTest is Test {
 
         vm.prank(mallory);
         vm.expectEmit(true, true, false, true, address(registry));
-        emit RehydrationRequested(docHash, mallory, charlieRehydrationKey);
+        emit RehydrationRequested(docHash, mallory, charlieRehydrationKey, "");
         registry.requestRehydration(docHash, charlieRehydrationKey);
+    }
+
+    function test_publishDocument_selfieRequiredDoesNotBlockPublish() public {
+        vm.prank(alice);
+        vm.expectEmit(true, true, false, true, address(registry));
+        emit DocumentPublished(docHash, alice, slotIds, true);
+        registry.publishDocument(docHash, slotIds, true);
+        assertTrue(registry.selfieRequired(docHash));
+        assertEq(registry.publicationAuthor(docHash), alice);
+    }
+
+    function test_requestRehydration_emptyProofRevertsWhenSelfieRequired() public {
+        vm.prank(alice);
+        registry.publishDocument(docHash, slotIds, true);
+
+        vm.prank(charlie);
+        vm.expectRevert(SoulVaultDocumentRegistry.EmptySelfieProof.selector);
+        registry.requestRehydration(docHash, charlieRehydrationKey);
+
+        vm.prank(charlie);
+        vm.expectRevert(SoulVaultDocumentRegistry.EmptySelfieProof.selector);
+        registry.requestRehydration(docHash, charlieRehydrationKey, "");
+    }
+
+    function test_requestRehydration_carriesSelfieProofWhenRequired() public {
+        vm.prank(alice);
+        registry.publishDocument(docHash, slotIds, true);
+
+        string memory proof = '{"nullifier":"n1","credentialId":11}';
+        vm.prank(charlie);
+        vm.expectEmit(true, true, false, true, address(registry));
+        emit RehydrationRequested(docHash, charlie, charlieRehydrationKey, proof);
+        registry.requestRehydration(docHash, charlieRehydrationKey, proof);
     }
 
     // --- grantSlotKeys (batch) ------------------------------------------

@@ -12,6 +12,7 @@ const SOULVAULT_SWARM_ABI = [
   'function requestJoin(bytes pubkey, string pubkeyRef, string metadataRef) returns (uint256 requestId)',
   'function approveJoin(uint256 requestId)',
   'function rejectJoin(uint256 requestId, string reason)',
+  'function removeMember(address member)',
   'function rotateEpoch(uint64 newEpoch, string keyBundleRef, bytes32 keyBundleHash, uint64 expectedMembershipVersion)',
   'function requestBackup(uint64 epoch, string reason, string targetRef, uint64 deadline)',
   'function updateMemberFileMapping(address member, string storageLocator, bytes32 merkleRoot, bytes32 publishTxHash, bytes32 manifestHash, uint64 epoch)',
@@ -134,6 +135,33 @@ export async function approveJoinSwarm(input: { swarm?: string; requestId: strin
     currentEpoch: currentEpoch.toString(),
     membershipVersion: membershipVersion.toString(),
     memberCount: memberCount.toString(),
+  };
+}
+
+/**
+ * Remove a swarm member (kick). Owner-only, bumps membershipVersion and emits
+ * MemberRemoved — the successor/onboarding counterpart of approveJoin.
+ */
+export async function removeMemberSwarm(input: { swarm?: string; member: string }) {
+  const { profile, contract } = await getSwarmContract(input.swarm);
+  const tx = await contract.removeMember(input.member);
+  const receipt = await tx.wait();
+  const [currentEpoch, membershipVersion, memberCount, active] = await Promise.all([
+    contract.currentEpoch(),
+    contract.membershipVersion(),
+    contract.memberCount(),
+    contract.isActiveMember(input.member),
+  ]);
+
+  return {
+    swarm: profile.slug,
+    contractAddress: profile.contractAddress,
+    txHash: receipt?.hash,
+    member: input.member,
+    currentEpoch: currentEpoch.toString(),
+    membershipVersion: membershipVersion.toString(),
+    memberCount: memberCount.toString(),
+    stillActive: active,
   };
 }
 

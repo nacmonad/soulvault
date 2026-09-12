@@ -28,6 +28,7 @@ import {
   readSwarmTreasury,
   requestBackupForSwarm,
   requestFundsOnSwarm,
+  removeMemberSwarm,
   requestEpochKeyOnSwarm,
   requestJoinSwarm,
   setSwarmTreasury,
@@ -395,6 +396,36 @@ export function registerSwarmCommands(program: Command) {
         swarm: options.swarm,
         requestId: options.requestId,
       });
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  swarm
+    .command('remove-member')
+    .description('Remove a member from the swarm (owner-only). Bumps membershipVersion, emits MemberRemoved — the swarm-side half of agent offboarding.')
+    .requiredOption('--member <address>', 'Member wallet to remove')
+    .option('--swarm <nameOrEns>')
+    .option('--yes', 'Skip the confirmation prompt (for scripting)', false)
+    .action(async (options) => {
+      if (!options.yes) {
+        const { createInterface } = await import('node:readline/promises');
+        const rl = createInterface({ input: process.stdin, output: process.stderr });
+        const answer = await rl.question(`Remove member ${options.member} from the swarm? (y/N) `);
+        rl.close();
+        if (answer.trim().toLowerCase() !== 'y') {
+          console.error('Aborted.');
+          return;
+        }
+      }
+      const result = await removeMemberSwarm({
+        swarm: options.swarm,
+        member: options.member,
+      });
+      console.error(
+        `\nRemoved ${result.member} from swarm ${result.swarm}\n` +
+          `  tx: ${result.txHash}\n` +
+          `  membershipVersion: ${result.membershipVersion} | memberCount: ${result.memberCount} | stillActive: ${result.stillActive}\n` +
+          `\nIf this is an agent succession, also consider: \`ens burn --name <agent-name>\` (ENS identity) — the successor re-registers.`,
+      );
       console.log(JSON.stringify(result, null, 2));
     });
 

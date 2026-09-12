@@ -13,7 +13,7 @@ import { SwarmWizard } from "@/components/create/swarm-wizard";
 import { CliRecoveryHint } from "@/components/create/wizard-steps";
 import { publicClientForChainId } from "@/lib/chains";
 import { reduceSwarmState, type SwarmState } from "@/lib/onchain/reducers";
-import { approveJoin, rejectJoin } from "@/lib/treasury-contract";
+import { approveJoin, rejectJoin, removeMember } from "@/lib/treasury-contract";
 import { shortAddress, shortTx, explorerTxUrl } from "@/lib/format";
 import { useAgentEvents } from "@/hooks/useAgentEvents";
 import { AgentIdentityCard, type EacRolesResolver } from "@/components/dashboard/agent-identity-card";
@@ -329,7 +329,27 @@ export default function SwarmPage() {
           ) : (
             <ul className="mt-2 border border-border">
               {members.map((member) => (
-                <MemberRow key={member.wallet} member={member} agents={agentsByWallet.get(member.wallet.toLowerCase()) ?? []} swarmLabel={current?.label ?? null} resolveRoles={resolveRoles} />
+                <MemberRow
+                  key={member.wallet}
+                  member={member}
+                  agents={agentsByWallet.get(member.wallet.toLowerCase()) ?? []}
+                  swarmLabel={current?.label ?? null}
+                  resolveRoles={resolveRoles}
+                  canRemove={canManage}
+                  busy={busy}
+                  onRemove={(wallet) =>
+                    current?.address &&
+                    void run(`remove-${wallet}`, async () => {
+                      if (!confirm(`Remove ${wallet} from the swarm? This bumps membershipVersion and cannot be undone.`)) return null;
+                      return removeMember({
+                        from: address as Address,
+                        member: wallet,
+                        swarm: current.address as Address,
+                        ...(current.chainId !== null ? { chainId: current.chainId } : {}),
+                      });
+                    })
+                  }
+                />
               ))}
             </ul>
           )}
@@ -516,9 +536,11 @@ type MemberRowAgent = {
  * One member row: wallet + join epoch, enriched with whatever the member's
  * ERC-8004 registration carries (via the shared AgentIdentityCard). Identity
  * data is additive — a wallet with no registration shows the plain row.
+ * Owners get a Remove action (swarm-side kick) for offboarding/succession.
  */
-function MemberRow({ member, agents, swarmLabel, resolveRoles }: { member: MemberRowMember; agents: MemberRowAgent[]; swarmLabel: string | null; resolveRoles?: EacRolesResolver }) {
+function MemberRow({ member, agents, swarmLabel, resolveRoles, canRemove, busy, onRemove }: { member: MemberRowMember; agents: MemberRowAgent[]; swarmLabel: string | null; resolveRoles?: EacRolesResolver; canRemove?: boolean; busy?: string | null; onRemove?: (member: Address) => void }) {
   const identity = agents[0] ?? null;
+  const removeKey = `remove-${member.wallet}`;
   return (
     <li className="border-b border-border px-4 py-2 text-sm last:border-b-0">
       {identity ? (
@@ -531,6 +553,23 @@ function MemberRow({ member, agents, swarmLabel, resolveRoles }: { member: Membe
             swarmName={identity.swarmContract && swarmLabel ? swarmLabel : null}
             resolveRoles={resolveRoles}
           />
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 font-mono">
+          <span>{shortAddress(member.wallet)}</span>
+          <span className="text-muted-foreground">joined epoch {member.joinedEpoch.toString()}</span>
+        </div>
+      )}
+      {canRemove && onRemove ? (
+        <div className="mt-1 flex justify-end">
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={busy !== null && busy !== undefined}
+            onClick={() => onRemove(member.wallet)}
+          >
+            {busy === removeKey ? "…" : "Remove"}
+          </Button>
         </div>
       ) : null}
     </li>

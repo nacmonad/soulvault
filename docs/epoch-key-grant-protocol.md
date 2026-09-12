@@ -68,23 +68,36 @@ Posted as a DM payload (uploaded like other DM payloads; `payloadRef` +
 
 ```mermaid
 sequenceDiagram
-    participant C2 as Charlie v2<br/>(new wallet, rehydrated)
+    participant C2 as Charlie v2<br/>(new wallet, zero state)
     participant S as SoulVaultSwarm<br/>(Sepolia)
-    participant A as Alice<br/>(owner, Ledger + dashboard)
+    participant A as Alice<br/>(org owner, Ledger + dashboard)
+    participant R as ENSv2 Registry<br/>(PermissionedRegistry + EAC)
     participant L as Ledger Key Ring<br/>(secure element)
     participant E as Shared storage<br/>(escrow ciphertext)
 
     Note over C2: v1 dead — wallet gone,<br/>membership revoked (MemberRemoved)
     Note over C2,E: ciphertext survives:<br/>memory.epoch7.enc under keyName<br/>soulvault:epoch-recovery:charlie…:epoch-000007
 
+    rect rgb(235, 244, 255)
+    Note over C2,R: Succession — the identity is the NAME,<br/>not the wallet: burn v1's name, re-issue to v2
+    C2->>S: join-request (fresh pubkey)<br/>+ fresh ERC-8004 record (identity create-agent)
+    A->>S: approveJoin(requestId)
+    A->>R: unregister("charlie") — burn v1's name token<br/>(ROLE_UNREGISTER at org root)
+    A->>R: grantRoles(ROLE_REGISTRAR on ops subregistry) → C2
+    C2->>R: register("charlie", C2, resolver, …)<br/>same label, new owner — name continuity
+    C2->>R: resolver records → v2's new ERC-8004 agentId
+    Note over C2: charlie.ops.soulvault-ensv2.eth now<br/>resolves to v2 — zero state carried over
+    end
+
     C2->>S: requestEpochKey(keyName, reason)
     S-->>A: EpochKeyRequested(keyName, requester,<br/>requesterPubkey, epoch)
-    Note over A: dashboard shows request —<br/>successor identified by pubkey<br/>(matches re-pointed ENS name)
+    Note over A: dashboard shows request —<br/>successor identified by pubkey<br/>(matches re-registered ENS name)
 
     A->>L: ring derive/decrypt(keyName)
     L-->>A: plaintext (on-chip only)
     A->>A: ECDH-wrap payload to requesterPubkey<br/>(secp256k1-ecdh-aes-256-gcm)
     A->>S: postMessage(to=requester, topic="epoch-key-grant",<br/>payloadRef, payloadHash)
+    Note over S,E: grant DM payload lands in shared store —<br/>propagates to the swarm payload store
     S-->>C2: AgentMessagePosted(dm)
 
     C2->>S: fetch DM payload (payloadRef)

@@ -169,7 +169,8 @@ async function cycleRestore(ring, agentId, bodylessEscrowBody, maxEpoch = 64) {
 // ─────────────────────────────────────────────────────────────
 
 const H1 = (t) => console.log(`\n━━━ ${t} ━━━`);
-const HMEMORIES = `# Atlas — harness memory (epoch 3)
+const AGENT_ENS = 'charlie.ops.soulvault-ensv2.eth'; // ENS subname = stable identity across re-deploys
+const HMEMORIES = `# Charlie — harness memory (epoch 3)
 - Learned: swarm quorum flow uses MemberFileMappingUpdated events
 - Lesson: 0G upload needs rootHash + txHash verified before publish
 - Context: working on ETHOnline 2026 Ledger Key Ring integration
@@ -183,24 +184,24 @@ const HMEMORIES = `# Atlas — harness memory (epoch 3)
     console.log(`   ${cond ? '✅' : '❌'} ${name}`);
   };
 
-  H1('1. Agent "atlas" backs up harness memories at epoch 3');
-  console.log(`   $ soulvault recovery escrow --agent atlas --epoch 3 --archive memories.md`);
-  ring.enroll('atlas');
-  const escrow = await writeEscrow(ring, 'atlas', 3, enc.encode(HMEMORIES));
+  H1('1. Agent "charlie.ops" backs up harness memories at epoch 3');
+  console.log(`   $ soulvault recovery escrow --agent ${AGENT_ENS} --epoch 3 --archive memories.md`);
+  ring.enroll(AGENT_ENS);
+  const escrow = await writeEscrow(ring, AGENT_ENS, 3, enc.encode(HMEMORIES));
   console.log(`   escrow written: ${escrow.length} bytes (header plaintext, body GCM-encrypted)`);
   console.log('   keys on disk at rest: ZERO — derived in memory, then discarded');
 
-  H1('2. Atlas dies. Fresh instance, zero local state → fast-path restore');
-  console.log(`   $ soulvault recovery restore --agent atlas --epoch 3`);
-  ring.enroll('atlas-v2');
+  H1('2. Charlie dies. Fresh instance, zero local state → fast-path restore');
+  console.log(`   $ soulvault recovery restore --agent ${AGENT_ENS} --epoch 3`);
+  ring.enroll(AGENT_ENS); // fresh machine, SAME ENS identity — that's the whole point
   const fast = await fastRestore(ring, escrow);
   check('restored via header keyName', dec.decode(fast.payload) === HMEMORIES);
   console.log(`   first line: ${dec.decode(fast.payload).split('\n')[0]}`);
 
   H1('3. Escrow header destroyed → cycle-path restore (name sweep)');
-  console.log(`   $ soulvault recovery restore --agent atlas --scan`);
+  console.log(`   $ soulvault recovery restore --agent ${AGENT_ENS} --scan`);
   const bodyOnly = bodyOf(escrow);
-  const cycled = await cycleRestore(ring, 'atlas', bodyOnly);
+  const cycled = await cycleRestore(ring, AGENT_ENS, bodyOnly);
   check('recovered by sweeping epoch names (GCM auth)', dec.decode(cycled.payload) === HMEMORIES);
   console.log(`   sweep found epoch ${cycled.epoch} — no false positives possible, no server round-trips`);
 
@@ -219,9 +220,9 @@ const HMEMORIES = `# Atlas — harness memory (epoch 3)
   }
   check('pre-rotation escrow NOT decryptable under new generation', postKick === null);
   const legacy = ring.preRotationRing();
-  legacy.enroll('atlas-v2'); // sweep operator holds pre-rotation capability
+  legacy.enroll(AGENT_ENS); // sweep operator holds pre-rotation capability
   const swept = await fastRestore(legacy, escrow);
-  const newEscrow = await writeEscrow(ring, 'atlas', 3, swept.payload);
+  const newEscrow = await writeEscrow(ring, AGENT_ENS, 3, swept.payload);
   const recheck = await fastRestore(ring, newEscrow);
   check('sweep re-escrowed and verified post-rotation', dec.decode(recheck.payload) === HMEMORIES);
 

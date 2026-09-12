@@ -38,6 +38,32 @@ export function formatEnsV2RoleBitmap(bitmap: bigint): EnsV2RoleName[] {
 /** The delegation UI's sensible presets (self-serve record management). */
 export const SELF_SERVE_ROLES: EnsV2RoleName[] = ["set-resolver", "renew"];
 
+/** The registry's root resource — registration (and root grants) live here. */
+export const ENSV2_ROOT_RESOURCE = 0n;
+
+const REGISTRY_ROOT_GRANT_ABI = [
+  {
+    type: "function",
+    name: "grantRootRoles",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "roleBitmap", type: "uint256" },
+      { name: "account", type: "address" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "revokeRootRoles",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "roleBitmap", type: "uint256" },
+      { name: "account", type: "address" },
+    ],
+    outputs: [],
+  },
+] as const;
+
 const REGISTRY_GRANT_ABI = [
   {
     type: "function",
@@ -172,6 +198,86 @@ export async function grantNameEacRoles(input: {
   });
   const receipt = await waitForWalletReceipt(txHash);
   if (receipt.status !== "success") throw new Error(`grantRoles reverted (tx ${txHash}).`);
+  return txHash;
+}
+
+/**
+ * Resolve just the org registry address for a name. Root grants (grantRootRoles)
+ * are registry-level — no name resource needed — but the registry must still be
+ * located from a v2-managed name.
+ */
+export async function resolveOrgRegistry(input: {
+  fullName: string;
+  viewer: Address;
+  client: PublicClient;
+}): Promise<Address | null> {
+  const orgRoot = ensV2OrgRoot(input.fullName);
+  const v2 = await readEnsV2OrgContext(orgRoot, input.viewer).catch(() => null);
+  return v2?.registry ?? null;
+}
+
+/** Read the roles `account` holds on the registry's ROOT resource (resource 0). */
+export async function readRootEacRoles(input: {
+  registry: Address;
+  client: PublicClient;
+  account: Address;
+}): Promise<{ bitmap: bigint; roles: EnsV2RoleName[] }> {
+  const bitmap = (await input.client
+    .readContract({
+      address: input.registry,
+      abi: REGISTRY_GRANT_ABI,
+      functionName: "roles",
+      args: [ENSV2_ROOT_RESOURCE, input.account],
+    })
+    .catch(() => 0n)) as bigint;
+  return { bitmap, roles: formatEnsV2RoleBitmap(bitmap) };
+}
+
+/**
+ * Grant roles on the registry's ROOT resource (resource 0). This is the
+ * self-registration unlock: `_register` checks ROLE_REGISTRAR on the root, and
+ * EAC resources are flat — name-scoped grants cannot express it.
+ */
+export async function grantRootEacRoles(input: {
+  from: Address;
+  registry: Address;
+  account: Address;
+  roleBitmap: bigint;
+}): Promise<Hex> {
+  const txHash = await sendWalletTransaction({
+    from: input.from,
+    to: input.registry,
+    data: encodeFunctionData({
+      abi: REGISTRY_ROOT_GRANT_ABI,
+      functionName: "grantRootRoles",
+      args: [input.roleBitmap, input.account],
+    }),
+    chainId: SEPOLIA_CHAIN_ID,
+  });
+  const receipt = await waitForWalletReceipt(txHash);
+  if (receipt.status !== "success") throw new Error(`grantRootRoles reverted (tx ${txHash}).`);
+  return txHash;
+}
+
+/** Revoke roles on the registry's ROOT resource (registry-level offboarding). */
+export async function revokeRootEacRoles(input: {
+  from: Address;
+  registry: Address;
+  account: Address;
+  roleBitmap: bigint;
+}): Promise<Hex> {
+  const txHash = await sendWalletTransaction({
+    from: input.from,
+    to: input.registry,
+    data: encodeFunctionData({
+      abi: REGISTRY_ROOT_GRANT_ABI,
+      functionName: "revokeRootRoles",
+      args: [input.roleBitmap, input.account],
+    }),
+    chainId: SEPOLIA_CHAIN_ID,
+  });
+  const receipt = await waitForWalletReceipt(txHash);
+  if (receipt.status !== "success") throw new Error(`revokeRootRoles reverted (tx ${txHash}).`);
   return txHash;
 }
 

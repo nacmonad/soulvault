@@ -16,9 +16,13 @@ import {
   SELF_SERVE_ROLES,
   formatEnsV2RoleBitmap,
   grantNameEacRoles,
+  grantRootEacRoles,
   readNameEacRoles,
+  readRootEacRoles,
   resolveNameEacContext,
+  resolveOrgRegistry,
   revokeNameEacRoles,
+  revokeRootEacRoles,
   type EnsV2RoleName,
   type NameEacContext,
 } from "@/lib/ensv2-eac";
@@ -28,12 +32,19 @@ import { shortAddress } from "@/lib/format";
 
 const ALL_ROLES = Object.keys(ENSV2_ROLE_NAMES) as EnsV2RoleName[];
 
+/** Root registration preset: what an agent needs to register its OWN subname. */
+const SELF_REGISTER_ROLES: EnsV2RoleName[] = ["registrar"];
+
+type GrantScope = "name" | "root";
+
 export function EacDelegationPanel({ swarmEnsName }: { swarmEnsName: string | null }) {
   const { address } = useSoulVaultWallet();
   const [agentAddress, setAgentAddress] = useState("");
   const [targetName, setTargetName] = useState<string>(swarmEnsName ?? "");
+  const [scope, setScope] = useState<GrantScope>("name");
   const [selected, setSelected] = useState<Set<EnsV2RoleName>>(new Set(SELF_SERVE_ROLES));
   const [ctx, setCtx] = useState<NameEacContext | null>(null);
+  const [rootRegistry, setRootRegistry] = useState<Address | null>(null);
   const [held, setHeld] = useState<{ account: Address; roles: EnsV2RoleName[] } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -45,8 +56,18 @@ export function EacDelegationPanel({ swarmEnsName }: { swarmEnsName: string | nu
   useEffect(() => {
     setTargetName(swarmEnsName ?? "");
     setCtx(null);
+    setRootRegistry(null);
     setHeld(null);
   }, [swarmEnsName]);
+
+  // Scope switch invalidates the resolved context (name resource vs registry root).
+  useEffect(() => {
+    setCtx(null);
+    setRootRegistry(null);
+    setHeld(null);
+    setError(null);
+    setNotice(null);
+  }, [scope]);
 
   const lookup = useCallback(
     async (account: Address) => {
@@ -56,6 +77,19 @@ export function EacDelegationPanel({ swarmEnsName }: { swarmEnsName: string | nu
       setError(null);
       setNotice(null);
       try {
+        if (scope === "root") {
+          const registry = await resolveOrgRegistry({ fullName: name, viewer: address, client });
+          if (!registry) {
+            setRootRegistry(null);
+            setHeld(null);
+            setError(`${name} is not in an ENSv2 org registry — register the org name first.`);
+            return;
+          }
+          setRootRegistry(registry);
+          const roles = await readRootEacRoles({ registry, client, account });
+          setHeld({ account, roles: roles.roles });
+          return;
+        }
         const resolved = await resolveNameEacContext({ fullName: name, viewer: address, client });
         if (!resolved) {
           setCtx(null);
@@ -72,7 +106,7 @@ export function EacDelegationPanel({ swarmEnsName }: { swarmEnsName: string | nu
         setBusy(null);
       }
     },
-    [targetName, address, client],
+    [targetName, address, client, scope],
   );
 
   async function runGrant() {
@@ -86,6 +120,21 @@ export function EacDelegationPanel({ swarmEnsName }: { swarmEnsName: string | nu
     setError(null);
     setNotice(null);
     try {
+      if (scope === "root") {
+        if (!rootRegistry) {
+          setError("Resolve the registry first (Check roles).");
+          return;
+        }
+        await grantRootEacRoles({
+          from: address,
+          registry: rootRegistry,
+          account: agentAddress.trim() as Address,
+          roleBitmap: bitmap,
+        });
+        setNotice(`Granted ${formatEnsV2RoleBitmap(bitmap).join(", ")} on REGISTRY ROOT (${shortAddress(rootRegistry)}) → ${shortAddress(agentAddress.trim() as Address)}.`);
+        await lookup(agentAddress.trim() as Address);
+        return;
+      }
       await grantNameEacRoles({
         from: address,
         fullName: ctx.fullName,
@@ -113,6 +162,21 @@ export function EacDelegationPanel({ swarmEnsName }: { swarmEnsName: string | nu
     setError(null);
     setNotice(null);
     try {
+      if (scope === "root") {
+        if (!rootRegistry) {
+          setError("Resolve the registry first (Check roles).");
+          return;
+        }
+        await revokeRootEacRoles({
+          from: address,
+          registry: rootRegistry,
+          account: agentAddress.trim() as Address,
+          roleBitmap: bitmap,
+        });
+        setNotice(`Revoked ${formatEnsV2RoleBitmap(bitmap).join(", ")} on REGISTRY ROOT from ${shortAddress(agentAddress.trim() as Address)}.`);
+        await lookup(agentAddress.trim() as Address);
+        return;
+      }
       await revokeNameEacRoles({
         from: address,
         fullName: ctx.fullName,
@@ -135,10 +199,29 @@ export function EacDelegationPanel({ swarmEnsName }: { swarmEnsName: string | nu
     <div className="mt-8 border-t border-border pt-6">
       <h2 className="text-sm font-semibold">Agent delegation (ENSv2 EAC)</h2>
       <p className="mt-1 max-w-xl text-xs text-muted-foreground">
-        Grant name-scoped roles to an agent wallet so it can manage its own ENS records without
-        your wallet signing. EAC semantics: you can only grant roles you hold. CLI twin:{" "}
-        <span className="font-mono">soulvault ens grant --name &lt;name&gt; …</span>
+        Grant EAC roles to an agent wallet. Name scope: record self-serve on one name (set-resolver,
+        renew). Registry-root scope: registration rights — registering a fresh label checks
+        ROLE_REGISTRAR on resource 0, which name-scoped grants cannot express. CLI twins:{" "}
+        <span className="font-mono">soulvault ens grant</span> /{" "}
+        <span className="font-mono">soulvault ens grant-root</span>
       </p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <span className="text-xs text-muted-foreground">scope:</span>
+        <button
+          type="button"
+          onClick={() => setScope("name")}
+          className={`chip cursor-pointer text-xs ${scope === "name" ? "bg-primary/10 text-primary" : "text-muted-foreground"}`}
+        >
+          name
+        </button>
+        <button
+          type="button"
+          onClick={() => setScope("root")}
+          className={`chip cursor-pointer text-xs ${scope === "root" ? "bg-primary/10 text-primary" : "text-muted-foreground"}`}
+        >
+          registry root
+        </button>
+      </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <input
           value={targetName ?? ""}
@@ -194,7 +277,23 @@ export function EacDelegationPanel({ swarmEnsName }: { swarmEnsName: string | nu
         >
           preset: self-serve
         </button>
+        <button
+          type="button"
+          className="cursor-pointer text-xs text-muted-foreground underline decoration-dotted"
+          onClick={() => {
+            setScope("root");
+            setSelected(new Set(SELF_REGISTER_ROLES));
+          }}
+        >
+          preset: self-register (root)
+        </button>
       </div>
+      {scope === "root" ? (
+        <p className="mt-2 max-w-xl text-xs text-amber-600 dark:text-amber-400">
+          Root grants are registry-wide: registrar lets the holder register ANY label on this
+          registry. Revoke when the agent no longer needs it.
+        </p>
+      ) : null}
       <div className="mt-3 flex gap-2">
         <Button size="xs" disabled={busy !== null || !ctx || !agentAddress.trim()} onClick={() => void runGrant()}>
           {busy === "grant" ? "Signing…" : "Grant"}

@@ -297,9 +297,30 @@ export default function SwarmPage() {
             />
             <Field label="Treasury" value={view.treasury ? shortAddress(view.treasury) : "—"} mono />
             <Field label="Members" value={String(members.length)} />
+            <Field
+              label="Escrow (latest manifest)"
+              value={
+                view.latestManifest
+                  ? `${shortAddress(view.latestManifest.member)} · epoch ${view.latestManifest.epoch} · ${view.latestManifest.storageLocator.slice(0, 18)}…`
+                  : "—"
+              }
+              mono
+            />
           </dl>
 
           <h2 className="mt-8 text-sm font-semibold">Members</h2>
+          {view.removedMembers.size > 0 ? (
+            <div className="mt-2 border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm">
+              <span className="font-medium">Sweep recommended — </span>
+              <span className="text-muted-foreground">
+                {[...view.removedMembers.values()]
+                  .map((r) => `${shortAddress(r.wallet)} (kicked at epoch ${r.removedAtEpoch.toString()})`)
+                  .join(", ")} keeps pre-rotation ciphertext. Run
+                <code className="mx-1 border border-border bg-card px-1 py-0.5 font-mono text-xs">soulvault recovery sweep</code>
+                then republish manifests. This clears when the escrow layer publishes past the kick.
+              </span>
+            </div>
+          ) : null}
           {members.length === 0 ? (
             <p className="mt-2 text-sm text-muted-foreground">No members in reduced state.</p>
           ) : (

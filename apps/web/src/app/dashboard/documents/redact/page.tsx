@@ -743,6 +743,20 @@ export default function DocumentsRedactPage() {
           Continue to Grants
         </Button>
       </div>
+      {reviewing ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Click a highlight or finding to drop it or change the slot. Select missed
+          text to add a span. Then encrypt — that is the public bundle.
+        </p>
+      ) : null}
+      {accepted.size === 0 ? (
+        <p className="mt-2 text-xs text-muted-foreground">Encrypt needs at least one accepted slot.</p>
+      ) : null}
+      {result && !address ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Connect a wallet to publish on-chain. You can still download the bundle.
+        </p>
+      ) : null}
       {connector === "ledger" ? (
         <p className="mt-2 text-xs text-muted-foreground">
           On the device, expect one screen per slot plus the final approval —

@@ -46,6 +46,12 @@ const envSchema = z.object({
   SOULVAULT_ENSV2_ROOT_REGISTRY_ADDRESS: z.string().optional(),
   /** ENSv2 Universal Resolver V2 (offchain-capable resolution entry point). */
   SOULVAULT_ENSV2_UNIVERSAL_RESOLVER_ADDRESS: z.string().optional(),
+  /** ENSv2 shared LabelStore (registry deploys share one label database). */
+  SOULVAULT_ENSV2_LABEL_STORE_ADDRESS: z.string().optional(),
+  /** Canonical UserRegistry implementation (deployed via VerifiableFactory as proxy). */
+  SOULVAULT_ENSV2_USER_REGISTRY_IMPL_ADDRESS: z.string().optional(),
+  /** VerifiableFactory — trust anchor for verifiable proxy deployments. */
+  SOULVAULT_ENSV2_VERIFIABLE_FACTORY_ADDRESS: z.string().optional(),
   SOULVAULT_0G_STORAGE_URL: z.string().optional(),
   SOULVAULT_0G_INDEXER_URL: z.string().url().default('https://indexer-storage-testnet-turbo.0g.ai'),
   SOULVAULT_0G_AUTH_TOKEN: z.string().optional(),

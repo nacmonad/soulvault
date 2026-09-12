@@ -1,0 +1,65 @@
+# Deploy apps/web static export (out/) to GitHub Pages.
+#
+# This workflow does NOT build. The export is built locally (so .env.local /
+# NEXT_PUBLIC_* vars are baked in) and committed to main at apps/web/out/.
+# Pushing those artifacts to main triggers this workflow, which publishes
+# apps/web/out/ to the gh-pages branch (single-commit, force-pushed).
+#
+# Pages config: Settings → Pages → Source: "Deploy from a branch" → gh-pages.
+# Site lives at the project path /soulvault/ (next.config.ts basePath).
+
+name: Deploy web export
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/web/out/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gh-pages-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+
+      - name: Publish apps/web/out to gh-pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          OUT="apps/web/out"
+          if [ ! -f "$OUT/index.html" ]; then
+            echo "::error::$OUT/index.html not found — commit the static export (pnpm build:export in apps/web) to main first."
+            exit 1
+          fi
+
+          WORK="$(mktemp -d)"
+          trap 'rm -rf "$WORK"' EXIT
+
+          # Rebuild the branch from scratch each time: exactly one commit, the artifact.
+          cd "$WORK"
+          git init -q -b gh-pages
+          git config user.name "soulvault-pages"
+          git config user.email "pages@soulvault.local"
+
+          cp -R "$GITHUB_WORKSPACE/$OUT"/. .
+          # Without .nojekyll, GitHub Pages runs Jekyll, which skips
+          # underscore-prefixed dirs (_next/) — every bundled chunk 404s.
+          touch .nojekyll
+
+          git add -A
+          git commit -qm "web: publish static export from main (${GITHUB_SHA::7})"
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push -q --force origin gh-pages
+
+          echo "Published to gh-pages — Pages serves it at /soulvault/ once"
+          echo "Settings → Pages → Source is 'Deploy from a branch' (gh-pages, / (root))."

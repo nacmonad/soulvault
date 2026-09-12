@@ -159,7 +159,16 @@ async function prepareAppTx(input: TxSubmitInput): Promise<{ client: AppRpcClien
   }
   const eip1559Fees =
     fees?.maxFeePerGas !== undefined && fees?.maxPriorityFeePerGas !== undefined
-      ? { maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas }
+      ? {
+          // The fee estimate is a point-in-time snapshot: between preparation
+          // and wallet broadcast the base fee can drift above a bare ceiling
+          // and the wallet/RPC then rejects the tx outright. Pad the ceiling
+          // (2x estimate, floor of 2x gasPrice) — the priority tip stays as
+          // estimated, so this only widens the tolerance window, it doesn't
+          // bid up the price paid.
+          maxFeePerGas: fees.maxFeePerGas * 2n > gasPrice * 2n ? fees.maxFeePerGas * 2n : gasPrice * 2n,
+          maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
+        }
       : undefined;
   const tx: PreparedTx = {
     from: input.from,

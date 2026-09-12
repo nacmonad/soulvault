@@ -25,11 +25,13 @@ export type SoulVaultActivity = {
 /** Public-node eth_getLogs block-range cap (publicnode = 50_000; keep headroom). */
 export const GET_LOGS_MAX_RANGE = 40_000n;
 
-const CHUNK_PACE_MS = 100;
-/** Concurrent getLogs slice fetches. Public providers tolerate a small burst;
- * 429s are absorbed by the per-chunk backoff and (with a multi-provider list)
- * by failover. Sequential fetching made a ~1M-block source take minutes. */
-const CHUNK_CONCURRENCY = 3;
+const CHUNK_PACE_MS = 400;
+/** Concurrent getLogs slice fetches. Public providers throttle aggressively
+ * (publicnode 429s compound across workers — seen live); 2 workers + 400ms
+ * pacing keeps a ~1M-block source under the rate ceiling while staying
+ * ~sequential-safe. 429s are absorbed by the per-chunk backoff and (with a
+ * multi-provider list) by failover. */
+const CHUNK_CONCURRENCY = 2;
 const RATE_LIMIT_RETRIES = 3;
 const RATE_LIMIT_PATTERN = /rate limit|429|too many/i;
 
@@ -131,9 +133,28 @@ async function fetchChunkWithRetry(
       if (parseGetLogsRangeLimit(error) !== null) throw error;
       const message = error instanceof Error ? error.message : String(error);
       if (attempt >= RATE_LIMIT_RETRIES || !RATE_LIMIT_PATTERN.test(message)) throw error;
-      await sleep(1000 * 2 ** attempt);
+      // Rate-limit windows are per-second on public nodes: a fixed doubling
+      // re-enters the same window (and the 429s compound across concurrent
+      // workers). Exponential base-2s + per-attempt jitter spreads retries
+      // out of the throttle window; Retry-After wins when the provider sends
+      // one (seconds → ms).
+      const retryAfterMs = parseRetryAfterMs(error);
+      const backoffMs = retryAfterMs ?? 2000 * 2 ** attempt + Math.floor(Math.random() * 1000);
+      await sleep(backoffMs);
     }
   }
+}
+
+/** Retry-After header value (seconds) surfaced by viem as `status`, `headers`, or message text. */
+export function parseRetryAfterMs(error: unknown): number | null {
+  if (error && typeof error === "object") {
+    const e = error as { headers?: Record<string, unknown>; message?: string };
+    const header = e.headers?.["retry-after"] ?? e.headers?.["Retry-After"];
+    if (typeof header === "string" && /^\d+$/.test(header)) return Number(header) * 1000;
+    const match = /retry-after[:\s]+(\d+)/i.exec(e.message ?? "");
+    if (match) return Number(match[1]) * 1000;
+  }
+  return null;
 }
 
 function containsAddress(value: unknown, wallet: Address): boolean {

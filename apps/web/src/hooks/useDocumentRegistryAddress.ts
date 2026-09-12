@@ -8,6 +8,7 @@ import {
   resolveDocumentRegistryAddress,
   type DocumentRegistrySource,
 } from "@/lib/document-registry";
+import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
 import type { Address } from "viem";
 
 /**
@@ -18,13 +19,14 @@ import type { Address } from "viem";
 export function useDocumentRegistryAddress(
   bundle?: PublicDocumentBundle | null,
 ): { address: Address | null; source: DocumentRegistrySource } {
+  const { address: viewer } = useSoulVaultWallet();
   const [result, setResult] = useState<{ address: Address | null; source: DocumentRegistrySource }>(
     () => ({ address: documentRegistryAddress(), source: null }),
   );
 
   useEffect(() => {
     let cancelled = false;
-    resolveDocumentRegistryAddress({ bundleHint: bundle?.registry ?? null })
+    resolveDocumentRegistryAddress({ bundleHint: bundle?.registry ?? null, viewer: viewer ?? undefined })
       .then((resolved) => {
         if (cancelled) return;
         setResult(resolved);
@@ -35,7 +37,7 @@ export function useDocumentRegistryAddress(
     return () => {
       cancelled = true;
     };
-  }, [bundle]);
+  }, [bundle, viewer]);
 
   return result;
 }

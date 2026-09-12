@@ -2,6 +2,18 @@
 
 Parent: [000-parent.md](000-parent.md) · Related: 009-create-flows.md, 012-ens-deployment-bootstrap.md
 
+> **Status (2026-09-11):** implemented for the **swarm wizard**. `runSwarmCreate` runs
+> `findExistingSwarmDeployment` (read-only probe: swarm-node `addr` + `soulvault.swarmContract`
+> text on the org resolver, `treasury()` to prove it is a SoulVaultSwarm) before the deploy
+> step. Matching treasury → adopt (no deploy tx, no re-sign); mismatching treasury → hard-stop
+> with an unpublish/CLI hint. `bindSwarmEnsSubdomain` (v1 + v2 lanes) now diff-gates every
+> record: `setSubnodeRecord` skips when the subnode already resolves to the org resolver,
+> `setAddr`/`setText` skip when the on-chain value already matches (skipped txs carry the
+> "0x" sentinel). Treasury wizard detection is still open. First exercised live: the
+> 2026-09-11 `ops.soulvault-ensv2.eth` run whose deploy + ENS txs landed while the UI was
+> stuck at the ENS step — the re-run adopted the swarm and signed only the one missing
+> setText.
+
 ## Problem
 
 The swarm-create wizard always starts from step 1 ("Deploy SoulVaultSwarm") even when the

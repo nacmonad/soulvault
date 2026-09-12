@@ -17,6 +17,8 @@ export type AgentProfile = {
     txHash?: string;
     updatedAt?: string;
     lastAgentURI?: string;
+    /** ENSv2 bridge: the agent's registered name (`<label>.<swarm>.<org>.eth`). */
+    ensName?: string;
   };
 };
 

@@ -39,7 +39,9 @@ const SOULVAULT_SWARM_ABI = [
   'event FundRequestCancelled(uint256 indexed requestId, address indexed requester)',
   'function postMessage(address to, string topic, uint64 seq, uint64 epoch, string payloadRef, bytes32 payloadHash, uint64 ttl)',
   'function getLastSenderSeq(address sender) view returns (uint64)',
+  'function requestEpochKey(string keyName, string reason)',
   'event AgentMessagePosted(address indexed from, address indexed to, string topic, uint64 seq, uint64 epoch, string payloadRef, bytes32 payloadHash, uint64 ttl, uint64 timestamp)',
+  'event EpochKeyRequested(string keyName, address indexed requester, bytes requesterPubkey, string reason, uint64 epoch, uint64 timestamp)',
 ] as const;
 
 export const SOULVAULT_TREASURY_ABI = [

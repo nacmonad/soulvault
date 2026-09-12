@@ -19,7 +19,7 @@ import { useAgentEvents } from "@/hooks/useAgentEvents";
 import { AgentIdentityCard, type EacRolesResolver } from "@/components/dashboard/agent-identity-card";
 import { EacDelegationPanel } from "@/components/dashboard/eac-delegation-panel";
 import { EpochKeyGrantPanel } from "@/components/dashboard/epoch-key-grant-panel";
-import { resolveNameEacContext, readNameEacRoles } from "@/lib/ensv2-eac";
+import { resolveNameEacContext, readNameEacRoles, burnNameEac } from "@/lib/ensv2-eac";
 import { getBrowserSoulVaultClientConfig, createSoulVaultPublicClient } from "@/lib/onchain/client";
 
 type SwarmListItem = {
@@ -340,13 +340,24 @@ export default function SwarmPage() {
                   onRemove={(wallet) =>
                     current?.address &&
                     void run(`remove-${wallet}`, async () => {
-                      if (!confirm(`Remove ${wallet} from the swarm? This bumps membershipVersion and cannot be undone.`)) return null;
-                      return removeMember({
+                      const ensName = agentEnsNameFor(wallet, agentsByWallet);
+                      const burnNote = ensName
+                        ? `\n\nThis member's ENS name ${ensName} will ALSO be burned (unregister) right after the kick — no ghost name left behind.`
+                        : "";
+                      if (!confirm(`Remove ${wallet} from the swarm? This bumps membershipVersion and cannot be undone.${burnNote}`)) return null;
+                      const kickHash = await removeMember({
                         from: address as Address,
                         member: wallet,
                         swarm: current.address as Address,
                         ...(current.chainId !== null ? { chainId: current.chainId } : {}),
                       });
+                      if (!ensName) return kickHash;
+                      const config = getBrowserSoulVaultClientConfig();
+                      if (!config) throw new Error(`Kick succeeded (tx ${shortTx(kickHash)}) but no client config to resolve ${ensName} — burn it manually: soulvault ens burn --name ${ensName}`);
+                      const client = createSoulVaultPublicClient(config);
+                      const ctx = await resolveNameEacContext({ fullName: ensName, viewer: address as Address, client });
+                      if (!ctx) throw new Error(`Kick succeeded (tx ${shortTx(kickHash)}) but no registry found holding ${ensName} — burn it manually: soulvault ens burn --name ${ensName}`);
+                      return burnNameEac({ from: address as Address, fullName: ensName, ctx });
                     })
                   }
                 />
@@ -518,6 +529,19 @@ function buildSweepCommand(
     return ensName ?? r.wallet;
   });
   return agents.map((agent) => `pnpm soulvault recovery sweep --agent ${agent} --backend local`).join(" && ");
+}
+
+/** The member's ENS name from its latest ERC-8004 metadata, if any. */
+function agentEnsNameFor(wallet: Address, agentsByWallet: Map<string, MemberRowAgent[]>): string | null {
+  for (const a of agentsByWallet.get(wallet.toLowerCase()) ?? []) {
+    try {
+      const payload = a.uri ? (JSON.parse(decodeURIComponent(a.uri.replace(/^data:application\/json,/, ""))) as { soulvault?: { ensName?: string } }) : null;
+      if (typeof payload?.soulvault?.ensName === "string" && payload.soulvault.ensName) return payload.soulvault.ensName;
+    } catch {
+      // malformed URI — treat as wallet-only
+    }
+  }
+  return null;
 }
 
 type MemberRowMember = {

@@ -281,6 +281,41 @@ export async function revokeRootEacRoles(input: {
   return txHash;
 }
 
+/**
+ * Burn `fullName`'s registration from its holding registry (unregister on the
+ * name's labelhash). Wallet tx from the org owner — pairs with swarm removal
+ * so offboarding sweeps the member's name in the same flow, leaving no ghost.
+ * Caller must hold ROLE_UNREGISTER on the name's resource (or the registry
+ * root) with the connected wallet.
+ */
+export async function burnNameEac(input: {
+  from: Address;
+  fullName: string;
+  ctx: NameEacContext;
+}): Promise<Hex> {
+  const txHash = await sendWalletTransaction({
+    from: input.from,
+    to: input.ctx.registry,
+    data: encodeFunctionData({
+      abi: [
+        {
+          type: "function",
+          name: "unregister",
+          stateMutability: "nonpayable",
+          inputs: [{ name: "anyId", type: "uint256" }],
+          outputs: [],
+        },
+      ] as const,
+      functionName: "unregister",
+      args: [input.ctx.resource],
+    }),
+    chainId: SEPOLIA_CHAIN_ID,
+  });
+  const receipt = await waitForWalletReceipt(txHash);
+  if (receipt.status !== "success") throw new Error(`unregister reverted (tx ${txHash}).`);
+  return txHash;
+}
+
 /** Revoke roles on `fullName`'s resource (agent offboarding / rotation). */
 export async function revokeNameEacRoles(input: {
   from: Address;

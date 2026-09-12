@@ -184,24 +184,28 @@ const HMEMORIES = `# Atlas — harness memory (epoch 3)
   };
 
   H1('1. Agent "atlas" backs up harness memories at epoch 3');
+  console.log(`   $ soulvault recovery escrow --agent atlas --epoch 3 --archive memories.md`);
   ring.enroll('atlas');
   const escrow = await writeEscrow(ring, 'atlas', 3, enc.encode(HMEMORIES));
   console.log(`   escrow written: ${escrow.length} bytes (header plaintext, body GCM-encrypted)`);
   console.log('   keys on disk at rest: ZERO — derived in memory, then discarded');
 
   H1('2. Atlas dies. Fresh instance, zero local state → fast-path restore');
+  console.log(`   $ soulvault recovery restore --agent atlas --epoch 3`);
   ring.enroll('atlas-v2');
   const fast = await fastRestore(ring, escrow);
   check('restored via header keyName', dec.decode(fast.payload) === HMEMORIES);
   console.log(`   first line: ${dec.decode(fast.payload).split('\n')[0]}`);
 
   H1('3. Escrow header destroyed → cycle-path restore (name sweep)');
+  console.log(`   $ soulvault recovery restore --agent atlas --scan`);
   const bodyOnly = bodyOf(escrow);
   const cycled = await cycleRestore(ring, 'atlas', bodyOnly);
   check('recovered by sweeping epoch names (GCM auth)', dec.decode(cycled.payload) === HMEMORIES);
   console.log(`   sweep found epoch ${cycled.epoch} — no false positives possible, no server round-trips`);
 
   H1('4. Kick a rogue member + rotate → sweep re-escrows surviving memories');
+  console.log(`   $ wallet-cli ring remove --member rogue  &&  soulvault recovery sweep --from-agent rogue`);
   ring.enroll('rogue');
   ring.remove('rogue');
   console.log('   rogue removed: credential now fails trustchain restore (can derive nothing)');

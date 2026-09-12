@@ -226,10 +226,17 @@ const HMEMORIES = `# Charlie — harness memory (epoch 3)
   const recheck = await fastRestore(ring, newEscrow);
   check('sweep re-escrowed and verified post-rotation', dec.decode(recheck.payload) === HMEMORIES);
 
-  H1(`Demo complete — ${ok}/4 checks passed`);
+  H1('5. Aftermath: Charlie recovers under the NEW generation');
+  console.log(`   $ soulvault recovery restore --agent ${AGENT_ENS} --epoch 3`);
+  ring.enroll(AGENT_ENS); // fresh instance, same ENS identity, post-rotation ring
+  const finalRestore = await fastRestore(ring, newEscrow);
+  check('Charlie restored memories post-kick + post-rotation', dec.decode(finalRestore.payload) === HMEMORIES);
+  console.log(`   first line: ${dec.decode(finalRestore.payload).split('\n')[0]}`);
+
+  H1(`Demo complete — ${ok}/5 checks passed`);
   console.log('   Stored permanently: key NAMES only. Zero key bytes at rest.');
   console.log('   Recovery requires: one enrollment tap. Nothing else.');
-  process.exit(ok === 4 ? 0 : 1);
+  process.exit(ok === 5 ? 0 : 1);
 })().catch((e) => {
   console.error('DEMO FAILED:', e);
   process.exit(1);

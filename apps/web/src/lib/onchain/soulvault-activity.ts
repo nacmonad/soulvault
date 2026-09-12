@@ -1,57 +1,160 @@
-import { createPublicClient, decodeEventLog, http, isAddressEqual, parseAbi, type Address, type Hex, type Log } from "viem";
+import { decodeEventLog, isAddressEqual, type Address, type Hex, type Log, type PublicClient } from "viem";
+import { SOULVAULT_EVENT_ABIS } from "./abis";
+import {
+  createSoulVaultPublicClient,
+  type SoulVaultClientConfig,
+} from "./client";
+import type { SoulVaultContractKind, SoulVaultDeployment } from "./types";
 
-export type SoulVaultContractKind = "swarm" | "treasury" | "identity";
-export type SoulVaultDeployment = { address: Address; kind: SoulVaultContractKind; fromBlock: bigint; label?: string };
+export type { SoulVaultContractKind, SoulVaultDeployment };
+export {
+  createSoulVaultPublicClient,
+  getBrowserSoulVaultClientConfig as getBrowserSoulVaultActivityConfig,
+  parseSoulVaultClientConfig as parseSoulVaultActivityConfig,
+  type SoulVaultClientConfig,
+} from "./client";
+
+export type SoulVaultContractKindLegacy = SoulVaultContractKind;
 export type SoulVaultActivity = {
   contract: Address; contractKind: SoulVaultContractKind; contractLabel?: string;
   eventName: string; args: Record<string, unknown>; blockNumber: bigint;
   logIndex: number; transactionHash: Hex;
   relationship: "initiated" | "referenced" | "initiated-and-referenced";
 };
-export type SoulVaultActivityConfig = { rpcUrl: string; chainId: number; deployments: SoulVaultDeployment[] };
 
-const ABIS = {
-  swarm: parseAbi([
-    "event JoinRequested(uint256 indexed requestId, address indexed requester, bytes pubkey, string pubkeyRef, string metadataRef)",
-    "event JoinApproved(uint256 indexed requestId, address indexed requester, address indexed approver, uint64 epoch)",
-    "event JoinRejected(uint256 indexed requestId, address indexed requester, address indexed rejector, string reason)",
-    "event JoinCancelled(uint256 indexed requestId, address indexed requester)",
-    "event MemberRemoved(address indexed member, address indexed by, uint64 epoch)",
-    "event EpochRotated(uint64 indexed oldEpoch, uint64 indexed newEpoch, string keyBundleRef, bytes32 keyBundleHash, uint64 membershipVersion)",
-    "event MemberFileMappingUpdated(address indexed member, uint64 indexed epoch, string storageLocator, bytes32 merkleRoot, bytes32 publishTxHash, bytes32 manifestHash, address indexed by)",
-    "event AgentMessagePosted(address indexed from, address indexed to, string topic, uint64 seq, uint64 epoch, string payloadRef, bytes32 payloadHash, uint64 ttl, uint64 timestamp)",
-    "event AgentManifestUpdated(address indexed agent, string manifestRef, bytes32 manifestHash, uint64 timestamp)",
-    "event BackupRequested(address indexed requestedBy, uint64 indexed epoch, string reason, string targetRef, uint64 deadline, uint64 timestamp)",
-    "event HistoricalKeyBundleGranted(address indexed member, uint64 indexed epoch, string keyBundleRef, bytes32 keyBundleHash, address indexed by)",
-    "event RekeyRequested(string trigger, uint64 membershipVersion)",
-    "event Paused(address indexed by)", "event Unpaused(address indexed by)",
-    "event TreasurySet(address indexed oldTreasury, address indexed newTreasury, address indexed by)",
-    "event FundRequested(uint256 indexed requestId, address indexed requester, uint256 amount, string reason)",
-    "event FundRequestApproved(uint256 indexed requestId, address indexed requester, address indexed treasury, uint256 amount)",
-    "event FundRequestRejected(uint256 indexed requestId, address indexed requester, address indexed treasury, string reason)",
-    "event FundRequestCancelled(uint256 indexed requestId, address indexed requester)",
-  ]),
-  treasury: parseAbi([
-    "event FundsDeposited(address indexed from, uint256 amount)",
-    "event FundsReleased(address indexed swarm, uint256 indexed requestId, address indexed recipient, uint256 amount)",
-    "event FundRequestRejectedByTreasury(address indexed swarm, uint256 indexed requestId, string reason)",
-    "event TreasuryWithdrawn(address indexed to, uint256 amount)",
-  ]),
-  identity: parseAbi([
-    "event AgentRegistered(uint256 indexed agentId, address indexed agentWallet, string agentURI)",
-    "event AgentURIUpdated(uint256 indexed agentId, address indexed agentWallet, string agentURI)",
-    "event AgentMetadataSet(uint256 indexed agentId, string key, string value)",
-  ]),
-} as const;
+/** Public-node eth_getLogs block-range cap (publicnode = 50_000; keep headroom). */
+export const GET_LOGS_MAX_RANGE = 40_000n;
 
-export function parseSoulVaultActivityConfig(input: { rpcUrl?: string; chainId?: string; deployments?: string }): SoulVaultActivityConfig | null {
-  if (!input.rpcUrl || !input.deployments) return null;
-  const raw = JSON.parse(input.deployments) as Array<{ address: Address; kind: SoulVaultContractKind; fromBlock: string | number; label?: string }>;
-  return { rpcUrl: input.rpcUrl, chainId: Number(input.chainId ?? "11155111"), deployments: raw.map((d) => ({ ...d, fromBlock: BigInt(d.fromBlock) })) };
+const CHUNK_PACE_MS = 400;
+/** Concurrent getLogs slice fetches. Public providers throttle aggressively
+ * (publicnode 429s compound across workers — seen live); 2 workers + 400ms
+ * pacing keeps a ~1M-block source under the rate ceiling while staying
+ * ~sequential-safe. 429s are absorbed by the per-chunk backoff and (with a
+ * multi-provider list) by failover. */
+const CHUNK_CONCURRENCY = 2;
+const RATE_LIMIT_RETRIES = 3;
+const RATE_LIMIT_PATTERN = /rate limit|429|too many/i;
+
+/** Providers announce their getLogs range cap in the error text — Infura:
+ * "range 1082183 exceeds limit of 10000"; others phrase it "limited to N".
+ * These are deterministic: retrying the same range never helps, shrinking does. */
+const RANGE_LIMIT_PATTERNS = [/exceeds limit of (\d+)/i, /limit(?:ed)? to (\d+)/i];
+
+/** Learned per-client range caps — a provider's cap is stable, so once a client
+ * reveals it, later scans skip the failed-probe cost. WeakMap so per-test mock
+ * clients (and discarded clients) neither share nor leak the learned value. */
+const learnedRangeByClient = new WeakMap<object, bigint>();
+
+export function parseGetLogsRangeLimit(error: unknown): bigint | null {
+  const message = error instanceof Error ? error.message : String(error);
+  for (const pattern of RANGE_LIMIT_PATTERNS) {
+    const match = pattern.exec(message);
+    if (match) {
+      const limit = BigInt(match[1]);
+      if (limit > 0n) return limit;
+    }
+  }
+  return null;
 }
 
-export function getBrowserSoulVaultActivityConfig() {
-  return parseSoulVaultActivityConfig({ rpcUrl: process.env.NEXT_PUBLIC_SOULVAULT_RPC_URL, chainId: process.env.NEXT_PUBLIC_SOULVAULT_CHAIN_ID, deployments: process.env.NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS });
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Public RPCs commonly cap eth_getLogs block ranges (publicnode: 50_000,
+ * Infura: 10_000) and rate-limit request bursts. Fetch in bounded slices with
+ * bounded concurrency and pacing, retrying rate-limited slices with
+ * exponential backoff. When a provider rejects a slice for exceeding its range
+ * cap, the cap is learned (per client) and the scan is rebuilt at that width.
+ * Tolerates clients without getBlockNumber by falling back to a single
+ * unchunked call.
+ */
+export async function getLogsChunked(
+  client: Pick<PublicClient, 'getLogs' | 'getBlockNumber'>,
+  input: { address: Address; fromBlock: bigint; toBlock: bigint | 'latest' },
+): Promise<Log[]> {
+  let target: bigint | 'latest' = input.toBlock;
+  if (target === 'latest') {
+    try {
+      target = await client.getBlockNumber();
+    } catch {
+      return client.getLogs({ address: input.address, fromBlock: input.fromBlock, toBlock: 'latest' });
+    }
+  }
+  if (target < input.fromBlock) return [];
+  let range = learnedRangeByClient.get(client) ?? GET_LOGS_MAX_RANGE;
+  for (;;) {
+    const chunks: Array<{ address: Address; fromBlock: bigint; toBlock: bigint }> = [];
+    for (let start = input.fromBlock; start <= target; start += range) {
+      const end = start + range - BigInt(1) > target ? target : start + range - BigInt(1);
+      chunks.push({ address: input.address, fromBlock: start, toBlock: end });
+    }
+    try {
+      return await fetchChunksWithConcurrency(client, chunks);
+    } catch (error) {
+      const limit = parseGetLogsRangeLimit(error);
+      if (limit === null || limit >= range) throw error;
+      // Cap revealed — rebuild the whole scan at the narrower width.
+      range = limit;
+      learnedRangeByClient.set(client, limit);
+    }
+  }
+}
+
+async function fetchChunksWithConcurrency(
+  client: Pick<PublicClient, 'getLogs'>,
+  chunks: Array<{ address: Address; fromBlock: bigint; toBlock: bigint }>,
+): Promise<Log[]> {
+  const results: Log[][] = new Array(chunks.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(CHUNK_CONCURRENCY, chunks.length) }, async () => {
+    for (;;) {
+      const index = next++;
+      if (index >= chunks.length) return;
+      if (index > 0) await sleep(CHUNK_PACE_MS);
+      results[index] = await fetchChunkWithRetry(client, chunks[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results.flat();
+}
+
+async function fetchChunkWithRetry(
+  client: Pick<PublicClient, 'getLogs'>,
+  input: { address: Address; fromBlock: bigint; toBlock: bigint },
+): Promise<Log[]> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await client.getLogs(input);
+    } catch (error) {
+      // Range-cap errors are deterministic — the caller shrinks and retries;
+      // burning backoff retries on them only delays the recovery.
+      if (parseGetLogsRangeLimit(error) !== null) throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (attempt >= RATE_LIMIT_RETRIES || !RATE_LIMIT_PATTERN.test(message)) throw error;
+      // Rate-limit windows are per-second on public nodes: a fixed doubling
+      // re-enters the same window (and the 429s compound across concurrent
+      // workers). Exponential base-2s + per-attempt jitter spreads retries
+      // out of the throttle window; Retry-After wins when the provider sends
+      // one (seconds → ms).
+      const retryAfterMs = parseRetryAfterMs(error);
+      const backoffMs = retryAfterMs ?? 2000 * 2 ** attempt + Math.floor(Math.random() * 1000);
+      await sleep(backoffMs);
+    }
+  }
+}
+
+/** Retry-After header value (seconds) surfaced by viem as `status`, `headers`, or message text. */
+export function parseRetryAfterMs(error: unknown): number | null {
+  if (error && typeof error === "object") {
+    const e = error as { headers?: Record<string, unknown>; message?: string };
+    const header = e.headers?.["retry-after"] ?? e.headers?.["Retry-After"];
+    if (typeof header === "string" && /^\d+$/.test(header)) return Number(header) * 1000;
+    const match = /retry-after[:\s]+(\d+)/i.exec(e.message ?? "");
+    if (match) return Number(match[1]) * 1000;
+  }
+  return null;
 }
 
 function containsAddress(value: unknown, wallet: Address): boolean {
@@ -61,10 +164,11 @@ function containsAddress(value: unknown, wallet: Address): boolean {
   return false;
 }
 
-export async function loadSoulVaultActivity(wallet: Address, config: SoulVaultActivityConfig): Promise<SoulVaultActivity[]> {
-  const client = createPublicClient({ chain: { id: config.chainId, name: `SoulVault chain ${config.chainId}`, nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [config.rpcUrl] } } }, transport: http(config.rpcUrl) });
-  const decoded = (await Promise.all(config.deployments.map(async (deployment) => {
-    const logs = await client.getLogs({ address: deployment.address, fromBlock: deployment.fromBlock, toBlock: "latest" });
+export async function loadSoulVaultActivity(wallet: Address, config: SoulVaultClientConfig): Promise<SoulVaultActivity[]> {
+  const client = createSoulVaultPublicClient(config);
+  const deployments: SoulVaultDeployment[] = config.deployments;
+  const decoded = (await Promise.all(deployments.map(async (deployment) => {
+    const logs = await getLogsChunked(client, { address: deployment.address, fromBlock: deployment.fromBlock, toBlock: "latest" });
     return logs.flatMap((log) => decodeKnownLog(log, deployment));
   }))).flat();
   const senders = new Map<Hex, Address>();
@@ -84,7 +188,8 @@ export async function loadSoulVaultActivity(wallet: Address, config: SoulVaultAc
 
 function decodeKnownLog(log: Log, deployment: SoulVaultDeployment) {
   try {
-    const decoded = decodeEventLog({ abi: ABIS[deployment.kind], data: log.data, topics: log.topics });
+    const decoded = decodeEventLog({ abi: SOULVAULT_EVENT_ABIS[deployment.kind], data: log.data, topics: log.topics });
+    if (decoded.eventName == null) return [];
     return [{ log, deployment, eventName: decoded.eventName, args: (decoded.args ?? {}) as Record<string, unknown> }];
   } catch { return []; }
 }

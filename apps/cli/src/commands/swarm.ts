@@ -6,6 +6,8 @@ import {
   getActiveSwarm,
   getSwarmProfile,
   listSwarmProfiles,
+  setSwarmLane,
+  syncSwarmOrgList,
   unlinkSwarmFromOrgList,
   unpublishSwarm,
   updateSwarmProfile,
@@ -33,12 +35,48 @@ import {
 import { findAgentIdentitiesByWallet } from '@soulvault/node/identity';
 import { getAgentProfile } from '@soulvault/node/agent';
 import { respondToBackupRequest } from '@soulvault/node/backup-respond';
+import { registerEnsV2Subname } from '@soulvault/node/ensv2-registry';
 
 export function registerSwarmCommands(program: Command) {
   const swarm = program
     .command('swarm')
     .description('Swarm profiles, contract lifecycle, backup-request coordination, events')
     .addHelpText('after', `\nExamples:\n  soulvault swarm create --organization soulvault.eth --name ops\n  soulvault swarm use ops\n  soulvault swarm join-request --swarm ops\n  soulvault swarm approve-join --swarm ops --request-id 1\n  soulvault swarm member-identities --swarm ops\n  soulvault swarm backup-request --swarm ops --reason "manual test checkpoint"\n  soulvault swarm events watch --swarm ops`);
+
+  swarm
+    .command('register-ens')
+    .description(
+      "ENSv2 Phase 2: register the swarm's subname in the org's SoulVaultRegistry (custom subname registry) " +
+        'with an epoch-bound expiry. Registration grants the owner ROLE_SET_RESOLVER | ROLE_RENEW on the ' +
+        "name's resource — the hook for Phase 3 agent self-serve record updates. Replaces the CBOR " +
+        'soulvault.swarms membership list with a real registry entry.',
+    )
+    .requiredOption('--registry <addr>', 'Org SoulVaultRegistry address (from `organization deploy-registry`)')
+    .requiredOption('--label <label>', 'Swarm label, e.g. ops for ops.<org>.eth')
+    .option('--expiry-days <n>', 'Epoch length in days (name expires at now + n days)', '30')
+    .option('--owner <address>', 'Name owner (default: active signer)')
+    .option('--with-agent-namespace', 'Self-point the swarm subregistry at the org registry so agent labels (<agent>.<swarm>.<org>.eth) resolve beneath it (Phase 4 ERC-8004 bridge)')
+    .action(async (options) => {
+      const result = await registerEnsV2Subname({
+        registryAddress: options.registry,
+        label: options.label,
+        owner: options.owner,
+        expirySeconds: Number(options.expiryDays) * 86400,
+        // Phase 4 agent namespace: the swarm name points at the org registry so
+        // <agent>.<swarm>.<org>.eth resolves through the same registry.
+        subregistryAddress: options.withAgentNamespace ? options.registry : undefined,
+      });
+      console.error(
+        `\nRegistered ${result.label} in ${result.registryAddress}\n` +
+          `  owner: ${result.latestOwner}\n` +
+          `  status: ${result.status} (2 = REGISTERED)\n` +
+          `  expiry: ${result.expiry} (unix)\n` +
+          `  roles granted on name: ${result.roleBitmap} (SET_RESOLVER=1<<24 | RENEW=1<<16)\n` +
+          `  tx: ${result.txHash}\n` +
+          `\nNext: Phase 3 — grant scoped roles to agent wallets via EAC.`,
+      );
+      console.log(JSON.stringify(result, null, 2));
+    });
 
   swarm
     .command('create')
@@ -387,6 +425,43 @@ export function registerSwarmCommands(program: Command) {
       } catch {
         // profile refresh is best-effort
       }
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  swarm
+    .command('set-lane')
+    .description(
+      'Re-point a swarm profile to a different ops lane (chainId + rpcUrl). The contract is ' +
+        'immovable — this corrects where subsequent operations send transactions. With --ens, ' +
+        'also rewrites the soulvault.chainId AND soulvault.swarmContract text records on the ' +
+        'swarm\'s ENS name (2 signatures).',
+    )
+    .option('--chain-id <id>', 'New ops-lane chain id, e.g. 11155111 for Sepolia')
+    .option('--rpc <url>', 'New ops-lane RPC endpoint')
+    .option('--ens', 'Also rewrite the soulvault.chainId ENS text record to match --chain-id', false)
+    .option('--swarm <nameOrEns>')
+    .action(async (options) => {
+      const result = await setSwarmLane({
+        swarm: options.swarm,
+        chainId: options.chainId !== undefined ? Number(options.chainId) : undefined,
+        rpcUrl: options.rpc,
+        updateEns: options.ens,
+      });
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  swarm
+    .command('list-sync')
+    .description(
+      'Repair org-level discoverability: append the swarm\'s label to the parent org\'s ' +
+        'CBOR `soulvault.swarms` list (1 signature). Use when the subdomain is bound but ' +
+        'the append step never landed — the swarm resolves by name yet discovery can\'t see it. ' +
+        'Idempotent; public swarms only unless --force.',
+    )
+    .option('--swarm <nameOrEns>')
+    .option('--force', 'List the swarm even though its visibility is not public', false)
+    .action(async (options) => {
+      const result = await syncSwarmOrgList({ swarm: options.swarm, force: options.force });
       console.log(JSON.stringify(result, null, 2));
     });
 

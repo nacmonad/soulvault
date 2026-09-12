@@ -2,22 +2,29 @@
   "name": "soulvault-web",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "build:export": "SOULVAULT_WEB_EXPORT=1 next build",
+    "dev": "next dev --webpack",
+    "build": "next build --webpack",
+    "build:export": "SOULVAULT_WEB_EXPORT=1 next build --webpack",
     "deploy:pages": "sh scripts/deploy-pages.sh",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "artifacts:check": "forge build && node ../../scripts/generate-contract-artifacts.mjs --check",
+    "pretest": "pnpm artifacts:check",
+    "test": "vitest run",
+    "test:foundry": "SOULVAULT_FOUNDRY_FORK=1 vitest run src/lib/foundry-provider.test.ts src/lib/ens-register.foundry.test.ts",
+    "test:e2e:ledger": "playwright test --config e2e/playwright.config.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
     "@ledgerhq/context-module": "^2.5.0",
-    "@ledgerhq/device-management-kit": "^1.8.0",
-    "@ledgerhq/device-signer-kit-ethereum": "^1.16.0",
+    "@ledgerhq/device-management-kit": "^1.9.0",
+    "@ledgerhq/device-signer-kit-ethereum": "^1.18.0",
     "@ledgerhq/device-transport-kit-web-hid": "^1.2.4",
     "@soulvault/node": "workspace:*",
+    "@soulvault/presidio-adapter": "workspace:*",
     "@soulvault/protocol": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -33,6 +40,7 @@
     "viem": "^2.47.10"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "@soulvault/dmk-speculos-browser": "workspace:*",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
@@ -40,8 +48,10 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.1",
+    "fake-indexeddb": "^6.2.5",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.2"
   },
   "packageManager": "pnpm@10.30.3"
 }

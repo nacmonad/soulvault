@@ -1,0 +1,1 @@
+../../.agents/skills/dmk-speculos-browser/SKILL.md

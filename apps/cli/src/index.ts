@@ -5,12 +5,15 @@ import { registerSwarmCommands } from './commands/swarm.js';
 import { registerTreasuryCommands } from './commands/treasury.js';
 import { registerAgentCommands } from './commands/agent.js';
 import { registerIdentityCommands } from './commands/identity.js';
+import { registerWorldCommands } from './commands/world.js';
 import { registerBackupCommands } from './commands/backup.js';
 import { registerRestoreCommands } from './commands/restore.js';
 import { registerEpochCommands } from './commands/epoch.js';
 import { registerMessageCommands } from './commands/message.js';
+import { registerDocumentCommands } from './commands/document.js';
 import { registerSyncCommands } from './commands/sync.js';
 import { registerStatusCommand } from './commands/status.js';
+import { registerEnsCommands } from './commands/ens.js';
 
 const program = new Command();
 
@@ -49,12 +52,15 @@ registerSwarmCommands(program);
 registerTreasuryCommands(program);
 registerAgentCommands(program);
 registerIdentityCommands(program);
+registerWorldCommands(program);
 registerBackupCommands(program);
 registerRestoreCommands(program);
 registerEpochCommands(program);
 registerMessageCommands(program);
+registerDocumentCommands(program);
 registerSyncCommands(program);
 registerStatusCommand(program);
+registerEnsCommands(program);
 
 program.parseAsync(process.argv).catch((error) => {
   console.error(error instanceof Error ? error.message : error);

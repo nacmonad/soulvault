@@ -87,9 +87,19 @@ Register the organization's ENS root name on Sepolia. Two-step commit+register f
 --organization <nameOrEns> Target organization (defaults to active)
 ```
 
----
+### `soulvault organization set-resolver`
+Point a **registered** ENS name's resolver at the SoulVault PublicResolver. Idempotent — no-op (no tx, no signature) when the resolver is already correct. Repair for org names registered before the register flow wired the resolver atomically: without a resolver, `registry.resolver(orgNode) = 0x0`, standard ENS resolution of the org's records fails, and third-party ENS tooling sees nothing (SoulVault's own reads fall back to the pinned resolver, but that doesn't help external readers). Requires the name's owner as signer — 1 signature when a change is needed.
 
-## Swarm
+```
+--organization <nameOrEns> Target organization (defaults to active); its ensName is repaired
+--ens-name <name>          Explicit ENS name to repair (overrides --organization)
+```
+
+Example — defuse the org-node resolver landmine on an already-registered name:
+
+```
+soulvault organization set-resolver --organization soulvault-demo.eth
+```
 
 ### `soulvault swarm create`
 Create a swarm profile and deploy the `SoulVaultSwarm` contract on 0G Galileo. The contract's constructor takes `address initialTreasury`, which the CLI resolves using the following precedence:
@@ -263,6 +273,28 @@ Swarm owner binds the swarm to a `SoulVaultTreasury` contract. Re-settable. Emit
 
 After binding, refreshes the local swarm profile's cached `treasuryAddress` field.
 
+### `soulvault swarm set-lane`
+Re-point a swarm profile to a different ops lane (chainId + rpcUrl). The swarm contract itself is immovable — it lives where it was deployed — so this corrects where subsequent operations send transactions. Intended for the Sepolia-only ops-lane posture: the profile from an older run may still record 0G Galileo (16602) and would mis-route later commands.
+
+```
+--chain-id <id>            New ops-lane chain id (e.g. 11155111 for Sepolia)
+--rpc <url>                New ops-lane RPC endpoint
+--ens                      Also rewrite the `soulvault.chainId` AND `soulvault.swarmContract` text records on the swarm's ENS name (2 signatures)
+--swarm <nameOrEns>        Target swarm (defaults to active)
+```
+
+At least one of `--chain-id` / `--rpc` is required. Returns `{ slug, chainId, rpcUrl, ensTextTxHash?, ensContractTextTxHash?, ensTextError? }`.
+
+### `soulvault swarm list-sync`
+Repair org-level discoverability: append the swarm's label to the parent org's CBOR `soulvault.swarms` list (1 signature). Use when the subdomain is bound (`<label>.<org>.eth` resolves, contract + chainId records present) but the append step of `swarm create` never landed — the swarm exists yet ENS discovery (dashboard Overview/Swarms, `organization` reads) can't see it. Idempotent; only `public` swarms may be listed unless `--force`.
+
+```
+--swarm <nameOrEns>        Target swarm (defaults to active)
+--force                    List the swarm even though its visibility is not public
+```
+
+Returns `{ slug, organizationEnsName, label, alreadyListed, txHash?, swarms, appended }`.
+
 ### `soulvault swarm treasury-status`
 Read the currently-bound treasury address from the swarm contract.
 
@@ -317,22 +349,45 @@ List all fund requests on the swarm by querying `FundRequested` events and joini
 ## Treasury
 
 ### `soulvault treasury create`
-Deploy a fresh `SoulVaultTreasury` contract on 0G Galileo (one per organization per chain) and publish its address on the org's ENS name via an **ENSIP-11 multichain `addr` record** keyed by the chain's coinType (`0x80000000 | chainId`). For 0G Galileo, the coinType is `2147500186`. Requires an existing organization profile; the ENS binding step is best-effort and skipped if the org has no registered ENS name (the profile is saved with `ensBinding.status = 'planned'` for a later fix-up). Saves the treasury profile to `~/.soulvault/treasuries/<orgSlug>.json`.
+Deploy a fresh `SoulVaultTreasury` contract on the ops lane (Sepolia as of 2026-09; one per organization per chain) and publish its address on the org's ENS name via an **ENSIP-11 multichain `addr` record** keyed by the chain's coinType (`0x80000000 | chainId`; Sepolia = `2158638759`, historical 0G = `2147500250`). Requires an existing organization profile; the ENS binding step is best-effort and skipped if the org has no registered ENS name (the profile is saved with `ensBinding.status = 'planned'` for a later fix-up). Saves the treasury profile to `~/.soulvault/treasuries/<orgSlug>.json`.
 
 ```
 --organization <nameOrEns> Parent organization (defaults to active)
---force                    Overwrite an existing treasury profile for this org
+--force                    Replace the treasury for this org on the CURRENT chain (other chains are unaffected)
 ```
 
-Treasury is org-scoped: exactly one per organization per chain. An org that operates on multiple chains deploys multiple treasuries, each under its own ENSIP-11 coinType slot on the same ENS name — setting one doesn't clobber the others. Re-running `treasury create` for an org that already has a treasury requires `--force` and will overwrite the coinType slot (the previous contract itself is untouched).
+Treasury is org-scoped, one per chain: an org that operates on multiple chains holds multiple treasuries, each under its own ENSIP-11 coinType slot on the same ENS name — setting one doesn't clobber the others. The local profile mirrors this: `~/.soulvault/treasuries/<orgSlug>.json` holds a `treasuries` array with one entry per chain (`chainId`, `contractAddress`, `ownerAddress`, `deployment`, `ensBinding`). All treasury commands resolve the entry matching the current `SOULVAULT_CHAIN_ID`, so binding a second treasury on another chain never requires `--force` and never touches the first chain's entry. Re-running `treasury create` for the SAME chain requires `--force` and replaces that chain's entry (the previous contract itself is untouched on-chain).
+
+Legacy profiles (a single treasury directly on the profile object) are migrated to the array shape automatically on first read.
 
 The legacy single-valued `soulvault.treasuryContract` / `soulvault.treasuryChainId` text records used in earlier prototypes have been removed in favor of ENSIP-11.
+
+### `soulvault treasury bind`
+Attach an **already-deployed** `SoulVaultTreasury` to an organization. Recovery path when `treasury create` deployed the contract but the ENS binding failed (e.g. a partial wizard failure), or for treasuries deployed outside the CLI entirely.
+
+Steps performed: validates the address, probes the contract on-chain (`owner()` must answer — anything else refuses to bind), publishes the address on the org ENS name via ENSIP-11 `addr` **and** upserts the `soulvault.treasuries` enumeration record (same 'planned' semantics as `create` when the org has no ENS name), and upserts the per-chain entry into the local treasury profile. If an entry for the CURRENT chain already exists pointing at a different address, it refuses unless `--force` is passed — entries for other chains are unaffected either way; rebinds of the same address keep the original `createdAt`. Warns when the on-chain owner differs from your signer.
+
+```
+--address <address>        Deployed SoulVaultTreasury contract address (required)
+--organization <nameOrEns> Parent organization (defaults to active)
+--force                    Replace the existing treasury entry for the CURRENT chain
+```
+
+Example recovery flow — binding the 0G Galileo treasury mined by the browser wizard while keeping the Sepolia entry intact (run from the ops lane for the target chain):
+
+```
+SOULVAULT_RPC_URL=https://evmrpc-testnet.0g.ai SOULVAULT_CHAIN_ID=16602 \
+  soulvault treasury bind --address 0xabc...def --organization soulvault-demo
+```
 
 ### `soulvault treasury list`
 List all local treasury profiles across all organizations.
 
+### `soulvault treasury list-sync`
+Rebuild the org's `soulvault.treasuries` ENS discovery record from the local treasury profile. **Adds** locally-known chains that are missing on-chain; never removes existing entries (on-chain entries win on conflicts). No-op when the record already matches — no transaction, no signature. Repair path when the record was partially clobbered by a failed bind cycle, or for publishing treasuries bound on another machine. Mirrors `swarm list-sync`.
+
 ### `soulvault treasury status`
-Show the treasury contract address, current balance, and owner.
+Show the treasury contract address, current balance, and owner — resolved for the current `SOULVAULT_CHAIN_ID`.
 
 ```
 --organization <nameOrEns> Target organization (defaults to active)
@@ -583,3 +638,258 @@ Fetch a message envelope from 0G by its `payloadRef` and optionally decrypt it.
 Decryption auto-detects mode from the envelope's `encryption` field:
 - `aes-256-gcm` → uses local epoch key from `~/.soulvault/keys/`
 - `secp256k1-ecdh-aes-256-gcm` → uses local signer private key
+
+## World Identity (Selfie Check)
+
+World ID / Selfie Check (Beta, credential 11) helpers backing the rehydrate-request
+authorization gate: a requester's Selfie Check proof (liveness + face match, bound to
+their wallet address as the signal) is verified by the author's node before a
+document rehydration request is approved and the encrypted bundle is transmitted.
+
+Configuration lives in `.env`:
+- `WORLD_APP_ID` — `app_id` from the Developer Portal
+- `WORLD_RP_ID` — World ID 4.0 relying-party id
+- `WORLD_RP_SIGNING_KEY` — backend-only signing key secret (never client-side)
+- `WORLD_ENVIRONMENT` — `staging` (simulator/sandbox) or `production`
+
+### `soulvault world status`
+Show World identity integration configuration state (configured values, action scope,
+and what is missing).
+
+### `soulvault world rp-signature`
+Generate a backend RP signature for a Selfie Check proof request. The browser client
+fetches this before opening the IDKit request flow; the signing key never leaves the node.
+
+```
+--action <action>          Action scoping the proof (default: soulvault-request-rehydrate)
+```
+
+### `soulvault world verify-proof`
+Evaluate a rehydrate request against a Selfie Check proof (author-side gate). Checks
+proof shape, signal binding (requester wallet), credential id (11), expiry, and
+nullifier replay within the 90-day validity window. Exits non-zero on rejection.
+
+```
+--proof <json>             [REQUIRED] Selfie Check proof payload as JSON
+--signal <value>           [REQUIRED] Expected signal (requester wallet address)
+--nullifiers <csv>         Already-consumed nullifiers for the action
+```
+
+Note: PoC scope — proof verification runs through the pluggable verifier boundary
+(`@soulvault/node/world-identity`, mock implementation). The real Developer Portal
+verification call drops in once the Selfie Check feature flag is enabled for the app.
+
+---
+
+## Documents
+
+The documents lane (redact → publish → grant → rehydrate) runs on the identity lane
+(Sepolia) against the global `SoulVaultDocumentRegistry` singleton — a per-chain
+registry, not org-scoped: external consumers publish, verify, and rehydrate without
+swarm membership. On-chain events are the transport:
+
+- `DocumentPublished(docHash, author, slotIds)` — integrity anchor; docHash =
+  `artifact.documentId`, never the document itself.
+- `RehydrationRequested(docHash, recipient, rehydrationPublicKey)` — a consumer's
+  onchain hydration request: the request tx signature binds msg.sender to the
+  rehydration public key, so the author's client wraps grants straight from the
+  event (no pasted attestation JSON). Key rotation = re-request with a fresh key;
+  the author grants against the latest request per recipient.
+- `SlotKeyGranted(docHash, slotId, recipient, wrappedKey, ...)` — the grant event IS
+  the key delivery (wrapped slot keys, `secp256k1-ecdh-aes-256-gcm`). No revocation.
+
+Discovery (v1 / ENSv1 track, ticket 012 §D): the registry address is published on the
+**protocol root ENS name** (default `soulvault.eth`, not org assets) as ENSIP-11
+`addr(rootNode, coinType(chainId))` — the record `resolveDocumentRegistryAddress()` in
+the dashboard reads. Resolution preference: localStorage override → ENS →
+`NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS` (kind `document`) → bundle hint. A
+`soulvault.documentRegistry` text record on the root name holds a **chain-keyed JSON
+array** (mirroring `soulvault.treasuries`): one `{chainId, address, deployedAtBlock,
+deployedAt}` entry per chain, so a second-chain deploy extends the record instead of
+clobbering the first, and watchers know where to start
+scanning. ENSv2 adoption is tracked in `docs/dashboard-ui/015-ensv2-adoption.md`.
+
+Dashboard consumers: Overview and Organization panels derive document state from these
+events via `useDocumentEvents` (reduced into a docHash → author/slots registry), and
+authors/consumers listen through the same watcher (`kind: 'document'` sources).
+
+### `soulvault document deploy-registry`
+Deploy the `SoulVaultDocumentRegistry` singleton on the identity lane (Sepolia) and
+announce it on the protocol root ENS name. The announce step writes the ENSIP-11
+`addr` record (discovery source of truth) and the `soulvault.documentRegistry` text
+record (enumeration + `deployedAtBlock` for event scan windows). **The signer must
+own the root ENS name.** Run `forge build` from the repo root first (the deploy loads
+the Foundry artifact).
+
+```
+--root-ens-name <name>  Protocol root ENS name (default: the active organization's
+                        ensName, then soluvault.eth)
+--chain-id <id>         Chain to announce for (default: 11155111 Sepolia)
+--skip-ens              Deploy only; skip the ENS announce step
+```
+
+### `soulvault document announce-registry`
+Announce an **already-deployed** registry — the recovery path when the dashboard
+wizard's deploy step landed on-chain but a later step (ENS addr / text record) failed.
+Same two ENS writes as `deploy-registry`, but no contract deploy: pass the wizard's
+registry address plus the deploy tx hash (its receipt supplies the scan-start block).
+
+```
+--address <addr>        Deployed SoulVaultDocumentRegistry address (required)
+--root-ens-name <name>  Protocol root ENS name (default: active org's ensName)
+--chain-id <id>         Chain to announce for (default: 11155111 Sepolia)
+--deployed-at-tx <hash> Deploy tx hash; receipt supplies deployedAtBlock
+--deployed-at-block <n> Alternative to --deployed-at-tx
+```
+
+Prints the deployment `{registry, owner, txHash, blockNumber}`, the ENS announce tx
+hashes, and an optional `NEXT_PUBLIC_SOULVAULT_DEPLOYMENTS` snippet
+(`{"kind":"document",...}`) as a fallback for dashboards without ENS discovery.
+
+### `soulvault document publish`
+Anchor a redacted document on the DocumentRegistry: `publishDocument(docHash,
+slotIds)` emits `DocumentPublished(docHash, author, slotIds)` — the integrity
+anchor and the grant-authority anchor. The document itself never touches the
+chain; the redacted artifact + encrypted slots travel as the public JSON bundle.
+This is the recovery path for the dashboard redact page's publish wizard (same
+registry resolution: ENSIP-11 `addr` on the protocol root name, then the text
+record). Idempotent for the same author — the contract allows republishing your
+own docHash, so a failed confirmation can be retried. Registry resolution:
+ENSIP-11 `addr(rootName, coinType(chainId))` → `soulvault.documentRegistry` text
+record entry for the chain.
+
+```
+--doc-hash <hash>       32-byte document hash (the bundle artifact.documentId)
+--slot-id <id...>       Slot ids to publish (repeatable)
+--bundle <path>         Public document bundle JSON file — derives --doc-hash and
+                        --slot-id from artifact (overrides the individual flags)
+--registry <addr>       Registry address (default: ENS discovery on the protocol root name)
+--root-ens-name <name>  Protocol root ENS name (default: active org's ensName)
+--chain-id <id>         Chain the registry is announced for (default: 11155111)
+```
+
+Example — publish straight from a downloaded bundle:
+
+```bash
+pnpm soulvault document publish --bundle c9cde9591206cac5.soulvault.json
+Prints `{registry, docHash, slotIds, txHash, blockNumber}`.
+
+### `soulvault document rehydration-key`
+Print (or create) the **local rehydration key** for the active signer — persisted at
+`~/.soulvault/keys/rehydration-<keyId>.json` (0600) and reused across restarts. The
+public key + fingerprint are safe to share; this is what authors wrap grants to.
+```
+--key-id <id>     Rehydration key slot (default: "default")
+--replace-key     Generate a FRESH key (key-loss recovery only — grants wrapped to
+                  the old key will no longer unwrap; fail closed)
+--json            Machine-readable JSON {keyId, publicKey, fingerprint}
+```
+
+### `soulvault document request-rehydrate`
+**Recipient side.** Ask for hydration of a published document:
+`requestRehydration(docHash, rehydrationPublicKey)` from the active signer. The tx
+signature binds `msg.sender` to the rehydration public key — the `RehydrationRequested`
+event is the wallet-attested key binding, so no EIP-712 attestation file is needed on
+this path. Idempotent-ish: re-running re-announces the same key (fine); use
+`--replace-key` only for key-loss recovery.
+```
+--doc-hash <hash>       32-byte document hash (the bundle artifact.documentId) (required)
+--registry <addr>       Registry address (default: ENS discovery on the protocol root name)
+--root-ens-name <name>  Protocol root ENS name (default: active org's ensName)
+--chain-id <id>         Chain (default: 11155111)
+--key-id <id>           Rehydration key slot (default: "default")
+--replace-key           Fresh key (key-loss recovery only)
+```
+Prints `{registry, docHash, recipient, rehydrationPublicKey, rehydrationKeyFingerprint,
+txHash, blockNumber}`.
+
+### `soulvault document requests`
+**Author side (read-only).** List `RehydrationRequested` events — who wants hydration
+and the public key to wrap to. No wallet prompt.
+```
+--doc-hash <hash>       Filter to one document
+--recipient <addr>      Filter to one recipient wallet
+--registry <addr>       Registry address (default: ENS discovery)
+--root-ens-name <name>  Protocol root ENS name (default: active org's ensName)
+--chain-id <id>         Chain (default: 11155111)
+--from-block <n>        Scan start (default: recent window — public RPCs reject
+                        unbounded historic scans)
+--json                  Machine-readable JSON
+```
+
+### `soulvault document grants`
+Read `SlotKeyGranted` events — the permanent capability log (spec §3: no revoke, no
+expiry in v0). Recipients check what they can unwrap; authors audit deliveries.
+```
+--doc-hash <hash>       Filter to one document
+--recipient <addr>      Filter to one recipient wallet
+--slot-id <id>          Filter to one slot
+--registry <addr>       Registry address (default: ENS discovery)
+--root-ens-name <name>  Protocol root ENS name (default: active org's ensName)
+--chain-id <id>         Chain (default: 11155111)
+--from-block <n>        Scan start (default: recent window)
+--json                  Machine-readable JSON
+```
+
+### `soulvault document grant`
+**Author side.** Wrap slot keys to the recipient's rehydration public key and deliver
+via `grantSlotKey` — one tx per slot (the v0 contract shape; signing costs dominate,
+keep lists short). By default the recipient's pubkey is read from their latest
+`RehydrationRequested` event; pass `--recipient-public-key` to override. Requires the
+**in-session slot keys** from the redact run: pass `--session` (a JSON export of the
+redact page's `{slotKeys: [{slotId, key}…]}`) or explicit `--slot-key slotId=hex`
+pairs. **Only the publishing author can grant** (contract-enforced). Grants are
+permanent once delivered — double-check the slot list before signing.
+```
+--doc-hash <hash>             32-byte document hash (required)
+--recipient <addr>            Recipient wallet = the requester (required)
+--slot-id <id...>             Slots to grant (repeatable; defaults to all provided keys)
+--slot-key <slotId=hex...>    Explicit slot keys (repeatable)
+--session <path>              JSON file with {"slotKeys":[{"slotId","key"}…]}
+--recipient-public-key <hex>  Recipient rehydration public key (default: from their
+                              RehydrationRequested event)
+--registry <addr>             Registry address (default: ENS discovery)
+--root-ens-name <name>        Protocol root ENS name
+--chain-id <id>               Chain (default: 11155111)
+```
+**Session-key warning:** slot keys are minted fresh per redact run and live only in
+the redacting tab's `sessionStorage` (dashboard). Grants made from a session whose
+bundle was never exported are undecryptable orphans — export the bundle and the slot
+keys **from the same run** before granting.
+
+### `soulvault document rehydrate`
+**Recipient side.** Rehydrate a public document bundle from onchain grants: pulls
+`SlotKeyGranted` events for the wallet, unwraps each with the local rehydration key,
+and substitutes the granted slots. **Partial by design** — ungranted slots keep their
+`{{sv:…}}` markers (selective disclosure). This is the terminal step of the
+publish → request → grant → rehydrate loop.
+```
+--bundle <path>         Public document bundle JSON file (*.soulvault-*.json) (required)
+--doc-hash <hash>       Filter grants to one document (default: any)
+--recipient <addr>      Recipient wallet (default: active signer address)
+--registry <addr>       Registry address (default: ENS discovery)
+--root-ens-name <name>  Protocol root ENS name
+--chain-id <id>         Chain (default: 11155111)
+--key-id <id>           Rehydration key slot (default: "default")
+--from-block <n>        Scan start for grant events (default: recent window)
+--json                  Emit the full result {registry, recipient, grantedSlotIds, document}
+```
+Example — the full loop as two agents (author = `soulvault.eth` owner, recipient =
+Charlie):
+
+```bash
+# recipient (Charlie) — once, then reuse across restarts:
+soulvault document rehydration-key                       # print/share the pubkey
+soulvault document request-rehydrate --doc-hash 0xc9cd…   # onchain request
+
+# author — after redact + publish (same session as the bundle!):
+soulvault document requests                              # see who's waiting
+soulvault document grant --doc-hash 0xc9cd… \
+  --recipient 0xdC48… \
+  --session redact-session.json --slot-id pii-email-address-1jtoanl
+
+# recipient — reveal granted slots only:
+soulvault document rehydrate --bundle c9cde959…soulvault.json
+```
+Prints the rehydrated document with granted slots in plaintext and ungranted slots as
+`{{sv:…}}` markers.

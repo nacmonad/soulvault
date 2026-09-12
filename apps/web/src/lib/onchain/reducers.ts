@@ -1,0 +1,363 @@
+/**
+ * Pure entity-state reducers over the decoded event stream.
+ *
+ * The provider caches raw, ordered events; these functions collapse that log
+ * into derived state (agent profiles, swarm membership, fund request
+ * lifecycle, document registry, active grants). All reducers assume nothing
+ * about input order — they sort by (blockNumber, logIndex) themselves — and
+ * never mutate their input.
+ *
+ * The watcher's resolveGrants uses resolveActiveGrants, so grant semantics
+ * are defined in exactly one place. A delivered READ grant is a permanent
+ * capability: last grant wins per (docHash, slotId); there is no revocation
+ * and no expiry (spec §3).
+ */
+import { isAddressEqual, type Address, type Hex } from 'viem';
+import type { ActiveGrant, SoulVaultDocumentEvent, SoulVaultEvent } from './types';
+
+export function orderEvents<T extends SoulVaultEvent>(events: readonly T[]): T[] {
+  return [...events].sort(
+    (a, b) => Number(a.blockNumber - b.blockNumber) || a.logIndex - b.logIndex,
+  );
+}
+
+const at = (event: SoulVaultEvent) => ({ blockNumber: event.blockNumber, txHash: event.txHash });
+
+export function argsOf(event: SoulVaultEvent): Record<string, unknown> {
+  if ('args' in event) return event.args;
+  return {} as Record<string, unknown>;
+}
+
+// --- agents (ERC-8004 identity) ------------------------------------------------
+
+export type AgentProfile = {
+  agentId: bigint;
+  wallet: Address;
+  uri: string | null;
+  metadata: Record<string, string>;
+  registeredAt: { blockNumber: bigint; txHash: Hex };
+  updatedAt: { blockNumber: bigint; txHash: Hex };
+};
+
+export type AgentDirectory = {
+  byId: Map<bigint, AgentProfile>;
+  byWallet: Map<Address, AgentProfile[]>;
+};
+
+/**
+ * The ERC-8004 identity registry is a global singleton, so AgentRegistered
+ * events are emitted for every agent on the chain regardless of organization.
+ * SoulVault registrations carry the attribution key inside the agentURI — a
+ * `data:application/json;base64` payload whose `soulvault.swarmContract` names
+ * the swarm contract the agent belongs to (packages/node/src/identity.ts).
+ * Parse it here so consumers can org-scope the directory.
+ */
+export function agentSwarmContractFromUri(uri: string | null): Address | null {
+  const parsed = parseAgentUri(uri);
+  const sc = parsed?.soulvault?.swarmContract;
+  if (typeof sc !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(sc)) return null;
+  return sc as Address;
+}
+
+export type AgentUriPayload = {
+  type?: string;
+  name?: string;
+  description?: string;
+  image?: string;
+  harness?: string;
+  services?: Array<{ type?: string; url?: string }>;
+  supportedTrust?: string[];
+  soulvault?: {
+    swarmContract?: string;
+    memberAddress?: string;
+    role?: string;
+    harness?: string;
+    backupHarnessCommand?: string;
+    registryAddress?: string;
+    /** ENSv2 bridge name (<agent>.<swarm>.<org>.eth) — the agent's canonical title. */
+    ensName?: string;
+  };
+};
+
+/**
+ * Decode an ERC-8004 agentURI into the SoulVault registration payload shape
+ * (packages/node/src/identity.ts buildAgentRegistration). Returns null for
+ * http(s) URIs, non-JSON payloads, and garbage — callers render a fallback.
+ */
+export function parseAgentUri(uri: string | null): AgentUriPayload | null {
+  const prefix = 'data:application/json;base64,';
+  if (!uri || !uri.startsWith(prefix)) return null;
+  try {
+    const parsed = JSON.parse(atob(uri.slice(prefix.length))) as AgentUriPayload;
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function reduceAgentState(events: readonly SoulVaultEvent[]): AgentDirectory {
+  const byId = new Map<bigint, AgentProfile>();
+  for (const event of orderEvents(events)) {
+    if (event.sourceKind !== 'identity') continue;
+    const args = argsOf(event);
+    const agentId = args.agentId as bigint;
+    switch (event.eventName) {
+      case 'AgentRegistered': {
+        if (byId.has(agentId)) break;
+        const uri = (args.agentURI as string) ?? null;
+        byId.set(agentId, {
+          agentId,
+          wallet: args.agentWallet as Address,
+          uri,
+          metadata: {},
+          registeredAt: at(event),
+          updatedAt: at(event),
+        });
+        break;
+      }
+      case 'AgentURIUpdated': {
+        const profile = byId.get(agentId);
+        if (!profile) break;
+        profile.uri = (args.agentURI as string) ?? null;
+        profile.updatedAt = at(event);
+        break;
+      }
+      case 'AgentMetadataSet': {
+        const profile = byId.get(agentId);
+        if (!profile) break;
+        profile.metadata[args.key as string] = args.value as string;
+        profile.updatedAt = at(event);
+        break;
+      }
+    }
+  }
+  const byWallet = new Map<Address, AgentProfile[]>();
+  for (const profile of byId.values()) {
+    const list = byWallet.get(profile.wallet) ?? [];
+    list.push(profile);
+    byWallet.set(profile.wallet, list);
+  }
+  return { byId, byWallet };
+}
+
+// --- swarm (membership, epochs, treasury binding, fund lifecycle) ---------------
+
+export type SwarmMember = {
+  wallet: Address;
+  joinedEpoch: bigint;
+  pubkey: Hex | null;
+  joinedAt: { blockNumber: bigint; txHash: Hex };
+};
+
+export type PendingJoinRequest = {
+  requestId: bigint;
+  requester: Address;
+  pubkey: Hex | null;
+  pubkeyRef: string | null;
+  metadataRef: string | null;
+  requestedAt: { blockNumber: bigint; txHash: Hex };
+};
+
+export type FundRequestStatus =
+  | 'requested'
+  | 'approved'
+  | 'rejected'
+  | 'cancelled'
+  | 'rejected-by-treasury'
+  | 'released';
+
+export type SwarmFundRequest = {
+  requestId: bigint;
+  requester: Address;
+  amount: bigint;
+  reason: string | null;
+  status: FundRequestStatus;
+  updatedAt: { blockNumber: bigint; txHash: Hex };
+};
+
+export type SwarmState = {
+  members: Map<Address, SwarmMember>;
+  pendingJoins: Map<bigint, PendingJoinRequest>;
+  treasury: Address | null;
+  currentEpoch: bigint | null;
+  membershipVersion: bigint | null;
+  fundRequests: Map<bigint, SwarmFundRequest>;
+};
+
+export function reduceSwarmState(events: readonly SoulVaultEvent[]): SwarmState {
+  const state: SwarmState = {
+    members: new Map(),
+    pendingJoins: new Map(),
+    treasury: null,
+    currentEpoch: null,
+    membershipVersion: null,
+    fundRequests: new Map(),
+  };
+  for (const event of orderEvents(events)) {
+    const kind = event.sourceKind;
+    if (kind !== 'swarm' && kind !== 'treasury') continue;
+    const args = argsOf(event);
+    const position = at(event);
+    switch (event.eventName) {
+      case 'JoinRequested': {
+        state.pendingJoins.set(args.requestId as bigint, {
+          requestId: args.requestId as bigint,
+          requester: args.requester as Address,
+          pubkey: (args.pubkey as Hex) || null,
+          pubkeyRef: (args.pubkeyRef as string) ?? null,
+          metadataRef: (args.metadataRef as string) ?? null,
+          requestedAt: position,
+        });
+        break;
+      }
+      case 'JoinApproved': {
+        const requester = args.requester as Address;
+        const request = [...state.pendingJoins.values()].find(
+          (r) => isAddressEqual(r.requester, requester),
+        );
+        state.pendingJoins.delete(request?.requestId ?? BigInt(-1));
+        state.members.set(requester, {
+          wallet: requester,
+          joinedEpoch: args.epoch as bigint,
+          pubkey: request?.pubkey ?? null,
+          joinedAt: position,
+        });
+        break;
+      }
+      case 'JoinRejected':
+      case 'JoinCancelled': {
+        const requester = args.requester as Address;
+        for (const [id, request] of state.pendingJoins) {
+          if (isAddressEqual(request.requester, requester)) state.pendingJoins.delete(id);
+        }
+        break;
+      }
+      case 'MemberRemoved': {
+        state.members.delete(args.member as Address);
+        break;
+      }
+      case 'EpochRotated': {
+        state.currentEpoch = args.newEpoch as bigint;
+        state.membershipVersion = args.membershipVersion as bigint;
+        break;
+      }
+      case 'TreasurySet': {
+        state.treasury = args.newTreasury as Address;
+        break;
+      }
+      case 'FundRequested': {
+        state.fundRequests.set(args.requestId as bigint, {
+          requestId: args.requestId as bigint,
+          requester: args.requester as Address,
+          amount: args.amount as bigint,
+          reason: (args.reason as string) ?? null,
+          status: 'requested',
+          updatedAt: position,
+        });
+        break;
+      }
+      case 'FundRequestApproved': {
+        const request = state.fundRequests.get(args.requestId as bigint);
+        if (request) {
+          request.status = 'approved';
+          request.updatedAt = position;
+        }
+        break;
+      }
+      case 'FundRequestRejected': {
+        const request = state.fundRequests.get(args.requestId as bigint);
+        if (request) {
+          request.status = 'rejected';
+          request.updatedAt = position;
+        }
+        break;
+      }
+      case 'FundRequestCancelled': {
+        const request = state.fundRequests.get(args.requestId as bigint);
+        if (request) {
+          request.status = 'cancelled';
+          request.updatedAt = position;
+        }
+        break;
+      }
+      case 'FundRequestRejectedByTreasury': {
+        const request = state.fundRequests.get(args.requestId as bigint);
+        if (request) {
+          request.status = 'rejected-by-treasury';
+          request.updatedAt = position;
+        }
+        break;
+      }
+      case 'FundsReleased': {
+        const request = state.fundRequests.get(args.requestId as bigint);
+        if (request) {
+          request.status = 'released';
+          request.updatedAt = position;
+        }
+        break;
+      }
+    }
+  }
+  return state;
+}
+
+// --- documents (publish registry + grants) --------------------------------------
+
+export type DocumentMeta = {
+  docHash: Hex;
+  author: Address;
+  slotIds: string[];
+  publishedAt: { blockNumber: bigint; txHash: Hex };
+};
+
+export type DocumentState = {
+  documents: Map<Hex, DocumentMeta>;
+};
+
+export function reduceDocumentState(events: readonly SoulVaultEvent[]): DocumentState {
+  const documents = new Map<Hex, DocumentMeta>();
+  for (const event of orderEvents(events)) {
+    if (event.sourceKind !== 'document' || event.eventName !== 'DocumentPublished') continue;
+    const published = event as SoulVaultDocumentEvent & { eventName: 'DocumentPublished' };
+    documents.set(published.docHash, {
+      docHash: published.docHash,
+      author: published.author,
+      slotIds: published.slotIds,
+      publishedAt: at(event),
+    });
+  }
+  return { documents };
+}
+
+/**
+ * Active grants for a recipient across all documents, from already-narrowed
+ * document events. Semantics: last grant wins per (docHash, slotId). A
+ * delivered READ grant is a permanent capability — no revocation, no expiry
+ * enforcement (spec §3).
+ */
+export function resolveActiveGrants(
+  docEvents: readonly SoulVaultDocumentEvent[],
+  recipient: Address,
+): ActiveGrant[] {
+  const slots = new Map<string, ActiveGrant | null>();
+  for (const event of orderEvents(docEvents)) {
+    if (event.eventName === 'DocumentPublished') continue;
+    if (!isAddressEqual(event.recipient, recipient)) continue;
+    if (event.eventName === 'SlotKeyGranted') {
+      slots.set(`${event.docHash}:${event.slotId}`, {
+        docHash: event.docHash,
+        slotId: event.slotId,
+        recipient: event.recipient,
+        wrap: event.wrap,
+        grantedAt: { blockNumber: event.blockNumber, txHash: event.txHash },
+      });
+    }
+  }
+  const active: ActiveGrant[] = [];
+  for (const grant of slots.values()) {
+    if (grant === null) continue;
+    active.push(grant);
+  }
+  return active;
+}

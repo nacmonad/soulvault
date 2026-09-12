@@ -17,6 +17,11 @@
 /.next/
 /out/
 
+# Publishable static export: built locally (bakes .env.local) and committed
+# to main for the deploy-only workflow (.github/workflows/deploy-web.yml).
+!/out/
+!/out/**
+
 # production
 /build
 

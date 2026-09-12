@@ -5,13 +5,17 @@ import {
   getOrganizationProfile,
   listOrganizationProfiles,
   setOrganizationEnsName,
+  updateOrganizationProfile,
   useOrganization,
 } from '@soulvault/node/organization';
 import {
   EnsNameInvalidError,
   EnsNameUnavailableError,
   registerOrganizationEns,
+  registerOrganizationEnsV2,
 } from '@soulvault/node/ens-name';
+import { setEnsResolver } from '@soulvault/node/ens';
+import { deployEnsV2OrgRegistry } from '@soulvault/node/ensv2-registry';
 
 export function registerOrganizationCommands(program: Command) {
   const organization = program.command('organization').description('Organization profiles, ENS root context, and owner actions')
@@ -85,10 +89,25 @@ export function registerOrganizationCommands(program: Command) {
   organization
     .command('register-ens')
     .option('--organization <nameOrEns>')
+    .option('--ens-v2', 'Force the ENSv2 flow: deploy/reuse the org SoulVaultRegistry and register the label with an epoch-bound expiry (skips the v1 commit/reveal registrar)')
     .action(async (options) => {
       const target = options.organization ?? (await getActiveOrganization())?.slug;
       if (!target) {
         throw new Error('No organization selected. Pass --organization or set an active organization first.');
+      }
+      if (options.ensV2) {
+        const result = await registerOrganizationEnsV2(target);
+        console.error(
+          `\n✓ ${result.note}\n` +
+            `  registry: ${result.registryAddress}\n` +
+            `  owner: ${result.ownerAddress}\n` +
+            `  roles on name: ${result.roleBitmap} (SET_RESOLVER | RENEW)\n` +
+            (result.deployTxHash ? `  deploy tx: ${result.deployTxHash}\n` : '') +
+            `  register tx: ${result.registerTxHash}\n` +
+            (result.mirrorTxHash ? `  mirror tx: ${result.mirrorTxHash}\n` : ''),
+        );
+        console.log(JSON.stringify(result, null, 2));
+        return;
       }
       try {
         const result = await registerOrganizationEns(target);
@@ -110,5 +129,87 @@ export function registerOrganizationCommands(program: Command) {
         }
         throw err;
       }
+    });
+
+  organization
+    .command('set-resolver')
+    .description(
+      'Point a registered ENS name\'s resolver at the SoulVault PublicResolver (idempotent; no-op when already set). ' +
+        'Repair for org names registered before the register flow wired the resolver atomically — without it, ' +
+        'standard ENS resolution of the org\'s records fails and third-party ENS tooling sees nothing. ' +
+        'Requires the name\'s owner as signer (1 Ledger signature when a change is needed).',
+    )
+    .option('--organization <nameOrEns>', 'Defaults to the active organization\'s ensName')
+    .option('--ens-name <name>', 'Explicit ENS name to repair (overrides --organization)')
+    .action(async (options) => {
+      let ensName = options.ensName;
+      if (!ensName) {
+        const target = options.organization ?? (await getActiveOrganization())?.slug;
+        if (!target) {
+          throw new Error('No organization selected. Pass --organization or set an active organization first.');
+        }
+        const profile = await getOrganizationProfile(target);
+        if (!profile?.ensName) {
+          throw new Error(
+            `Organization "${target}" has no ENS name configured. Pass --ens-name explicitly or run \`soulvault organization set-ens-name\` first.`,
+          );
+        }
+        ensName = profile.ensName;
+      }
+      const result = await setEnsResolver(ensName);
+      if (result.alreadySet) {
+        console.error(`Resolver for ${ensName} already points at ${result.resolver} — no transaction needed.`);
+      } else {
+        console.error(`Resolver set on ${ensName} → ${result.resolver} (tx: ${result.txHash})`);
+      }
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  organization
+    .command('deploy-registry')
+    .description(
+      "ENSv2 Phase 2: deploy the org's SoulVaultRegistry (UserRegistry proxy) via the VerifiableFactory on Sepolia. " +
+        'The registry becomes the authoritative *.org.eth subname namespace — swarm membership turns into real ' +
+        'registry entries with epoch-bound expiries and EAC-scoped roles (replaces the CBOR soulvault.swarms list). ' +
+        'The deployer receives ALL root roles; the proxy address is deterministic (caller-chosen salt) and verifiable onchain.',
+    )
+    .option('--salt <hex>', 'CREATE2 salt for the proxy (default: 0x5011 "S0ul")')
+    .option('--organization <nameOrSlug>', 'Org profile to record the registry on (default: active organization)')
+    .action(async (options) => {
+      const salt = options.salt ? BigInt(options.salt) : undefined;
+      const result = await deployEnsV2OrgRegistry({ salt });
+
+      // Persist the registry on the active org profile so renewals, grants, and
+      // swarm registrations resolve it without --registry flags.
+      const orgTarget =
+        options.organization ?? (await (async () => {
+          const active = await getActiveOrganization();
+          if (!active) return undefined;
+          return active.slug;
+        })());
+      if (orgTarget) {
+        const profile = await updateOrganizationProfile(orgTarget, {
+          ensv2Registry: {
+            address: result.registryAddress,
+            owner: result.owner,
+            deploymentTxHash: result.txHash,
+            deployedAt: new Date().toISOString(),
+          },
+        });
+        console.error(`Recorded ensv2Registry on organization "${profile.slug}".`);
+      } else {
+        console.error('No active organization — registry address NOT recorded. Pass --organization or run `organization use` first to persist it.');
+      }
+
+      console.error(
+        `\nSoulVaultRegistry deployed: ${result.registryAddress}\n` +
+          `  owner: ${result.owner} (ALL root roles)\n` +
+          `  implementation: ${result.implementationAddress}\n` +
+          `  labelStore: ${result.labelStoreAddress}\n` +
+          `  factory: ${result.verifiableFactoryAddress}\n` +
+          `  tx: ${result.txHash}\n` +
+          `\nNext: soulvault swarm register-ens --registry ${result.registryAddress} --swarm <name>`,
+      );
+      console.log(JSON.stringify(result, null, 2));
     });
 }

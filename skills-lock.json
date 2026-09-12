@@ -1,6 +1,12 @@
 {
   "version": 1,
   "skills": {
+    "agentkit-x402": {
+      "source": "worldcoin/agentkit",
+      "sourceType": "github",
+      "skillPath": "skills/agentkit-x402/SKILL.md",
+      "computedHash": "58a09214017b42e1c25ee592101aa5f509a75d8ec0883258c9c81e464a6f3252"
+    },
     "dmk-business-logic": {
       "source": "ledgerhq/agent-skills",
       "sourceType": "github",

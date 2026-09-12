@@ -73,7 +73,7 @@ Borrow: The icon is pure geometric construction—nested rectangles that suggest
 
 **Secondary Color 3: Alert (Reserved)**
 - **Hex:** `#DC2626`
-- **Role:** Irreversible and destructive actions only — revoke access, delete, critical errors. Never decorative. Nothing else in the system is red, so red always means the same thing.
+- **Role:** Irreversible and destructive actions only — delete, critical errors. Never decorative. Nothing else in the system is red, so red always means the same thing.
 
 **Color Personality**
 Cool, technical, trustworthy. The palette occupies the "calm authority" territory — not warm or inviting, but not sterile either. It feels like looking at a well-lit server room: organized, clear, slightly industrial.
@@ -173,7 +173,6 @@ Functional and utilitarian. Icons should communicate their meaning without needi
 - Encryption: Concentric rectangles or a simple geometric lock shape
 - Continuity: Interlocking or stacked elements suggesting persistence
 - Wallet: Simplified geometric envelope or keyed rectangle — **not** a shield outline; the shield is now the logo and must not appear as UI iconography
-- Revocation: Clean X or blocking line
 - Access: A keyhole or authorization gate rendered geometrically
 
 ---

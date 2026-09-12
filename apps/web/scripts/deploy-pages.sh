@@ -23,6 +23,9 @@ git init -q -b gh-pages
 git config user.name "soulvault-pages"
 git config user.email "pages@soulvault.local"
 cp -R "$OUT"/* .
+# Without .nojekyll, GitHub Pages runs Jekyll, which skips underscore-prefixed
+# directories (_next/) — every bundled JS/CSS chunk 404s. This file disables it.
+touch .nojekyll
 git add -A
 git commit -qm "web: publish static export ($(date -u '+%Y-%m-%d %H:%M %Z'))"
 git remote add origin "$REMOTE"

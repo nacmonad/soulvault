@@ -3,6 +3,7 @@ import { createJsonRpcProvider } from './provider.js';
 import { namehash, normalize } from 'viem/ens';
 import { loadEnv } from './config.js';
 import { createSignerForProvider } from './signer.js';
+import { isEnsV2Enabled, readEnsV2NameState, getEnsV2ResolverAddress, ENSV2_RESOLVER_ABI } from './ensv2.js';
 
 const ENS_REGISTRY_ABI = [
   'function owner(bytes32 node) view returns (address)',
@@ -15,6 +16,7 @@ const PUBLIC_RESOLVER_ABI = [
   'function setAddr(bytes32 node, address a)',
   'function setText(bytes32 node, string key, string value)',
   'function setName(bytes32 node, string newName)',
+  'function text(bytes32 node, string key) view returns (string)',
 ] as const;
 
 /** EIP-634 text records on the ENS resolver for a name. */
@@ -113,19 +115,72 @@ export function normalizeEnsName(name: string) {
 export async function readEnsNodeOwner(name: string) {
   const fullName = normalizeEnsName(name);
   const node = namehash(fullName);
+  // ENSv2 dispatch: ownership is ERC-1155 token ownership on the Permissioned
+  // Registry (latestOwnerOf), not a v1 registry mapping. Returns the same shape;
+  // unregistered names yield a zero owner like v1.
+  if (isEnsV2Enabled()) {
+    const state = await readEnsV2NameState(fullName);
+    if (!state) return { fullName, node, owner: ZeroAddress };
+    return { fullName, node, owner: state.latestOwner };
+  }
   const registry = await getEnsRegistry(false);
   const owner = await registry.owner(node);
   return { fullName, node, owner: String(owner) };
 }
 
+/**
+ * Landmine repair: point the name's registry resolver at the pinned PublicResolver.
+ * Some org nodes were created before the register flow wired the resolver atomically,
+ * leaving `registry.resolver(node) = 0x0` — every standard-ENS read of that node's
+ * records fails, and third-party ENS tooling sees nothing. SoulVault's own reads now
+ * fall back to the pinned resolver (see readEnsText), but this makes the node resolve
+ * normally for everyone. Idempotent — no-op (no tx) when the resolver is already set.
+ */
+export async function setEnsResolver(ensName: string) {
+  const fullName = normalizeEnsName(ensName);
+  const { node, owner } = await readEnsNodeOwner(fullName);
+  if (!owner || owner === ZeroAddress) {
+    throw new Error(
+      `ENS name "${fullName}" is not registered (owner is zero) — nothing to point a resolver at. ` +
+        `Run \`soulvault organization register-ens\` to register it first.`,
+    );
+  }
+  const currentResolver = String(await (await getEnsRegistry(false)).resolver(node));
+  const publicResolver = getEnsContracts().publicResolver;
+  if (currentResolver.toLowerCase() === publicResolver.toLowerCase()) {
+    return { node, resolver: publicResolver, alreadySet: true, txHash: undefined };
+  }
+  const registry = await getEnsRegistry(true);
+  const tx = await registry.setResolver(node, publicResolver);
+  const receipt = await tx.wait();
+  return { node, resolver: publicResolver, alreadySet: false, txHash: receipt?.hash as string | undefined };
+}
+
 /** Read a single text record via the name's current resolver. */
 export async function readEnsText(ensName: string, key: string) {
   const { node } = await readEnsNodeOwner(ensName);
+  // ENSv2 dispatch: resolve the per-label resolver from the v2 hierarchy and read
+  // there. The record ABI (text/addr) is unchanged from v1.
+  if (isEnsV2Enabled()) {
+    const resolverAddress = await getEnsV2ResolverAddress(ensName);
+    if (!resolverAddress) return '';
+    const provider = await createEnsProvider();
+    const resolver = new Contract(resolverAddress, ENSV2_RESOLVER_ABI, provider);
+    const value = await resolver.text(node, key);
+    return String(value ?? '');
+  }
   const registry = await getEnsRegistry(false);
   const resolverAddress = await registry.resolver(node);
   const resolverStr = String(resolverAddress);
+  // Landmine guard: some org nodes were created before setResolver was ever called,
+  // yet their records were WRITTEN to the pinned PublicResolver (setEnsText writes
+  // there unconditionally). Standard resolution reads nothing in that state — and a
+  // read-modify-write cycle (e.g. the soulvault.treasuries upsert) would treat the
+  // record as empty and clobber it. Fall back to the pinned resolver for reads.
   if (!resolverAddress || resolverStr.toLowerCase() === ZeroAddress.toLowerCase()) {
-    return '';
+    const fallback = await getPublicResolver(false);
+    const value = await fallback.text(node, key);
+    return String(value ?? '');
   }
   const provider = await createEnsProvider();
   const resolver = new Contract(resolverAddress, EXTENDED_RESOLVER_TEXT_ABI, provider);
@@ -141,6 +196,22 @@ export async function readEnsText(ensName: string, key: string) {
 export async function setEnsText(ensName: string, key: string, value: string) {
   const fullName = normalizeEnsName(ensName);
   const node = namehash(fullName);
+  // ENSv2 dispatch: write to the name's v2 resolver (per-label, from the hierarchy).
+  // Record ABI is unchanged; only the resolver address discovery differs.
+  if (isEnsV2Enabled()) {
+    const resolverAddress = await getEnsV2ResolverAddress(fullName);
+    if (!resolverAddress) {
+      throw new Error(
+        `ENS name "${fullName}" has no v2 resolver — walkEnsV2Registry found none. ` +
+          `Register the name (or its parent) on ENSv2 first.`,
+      );
+    }
+    const signer = await createEnsSigner();
+    const resolver = new Contract(resolverAddress, ENSV2_RESOLVER_ABI, signer);
+    const tx = await resolver.setText(node, key, value);
+    const receipt = await tx.wait();
+    return { node, key, value, txHash: receipt?.hash as string | undefined };
+  }
   const resolver = await getPublicResolver(true);
   const tx = await resolver.setText(node, key, value);
   const receipt = await tx.wait();
@@ -177,6 +248,23 @@ async function getMulticoinResolver(withSigner: boolean) {
 }
 
 /**
+ * ENSv2 variant of the multicoin resolver: the v2 resolver address comes from the
+ * hierarchy walk (getResolver at the deepest registered parent), not the v1 registry.
+ * ABI surface is identical (setAddr/addr ENSIP-11 overloads).
+ */
+async function getMulticoinResolverV2(withSigner: boolean, fullName: string) {
+  const resolverAddress = await getEnsV2ResolverAddress(fullName);
+  if (!resolverAddress) {
+    throw new Error(
+      `ENS name "${fullName}" has no v2 resolver — walkEnsV2Registry found none. ` +
+        `Register the name (or its parent) on ENSv2 first.`,
+    );
+  }
+  const runner = withSigner ? await createEnsSigner() : await createEnsProvider();
+  return new Contract(resolverAddress, PUBLIC_RESOLVER_MULTICOIN_ABI, runner);
+}
+
+/**
  * Write an EVM address under the ENSIP-11 coinType for the given chain. Reverts if the
  * caller's signer doesn't own (or isn't the resolver authorizer for) the ENS node.
  */
@@ -185,7 +273,10 @@ export async function setAddrMultichain(ensName: string, chainId: number, addres
   const node = namehash(fullName);
   const coinType = coinTypeForChain(chainId);
   const addrBytes = getBytes(getAddress(address)); // 20-byte checksum-verified EVM address
-  const resolver = await getMulticoinResolver(true);
+  // ENSv2 dispatch: same ENSIP-11 write, resolver resolved from the v2 hierarchy.
+  const resolver = isEnsV2Enabled()
+    ? await getMulticoinResolverV2(true, fullName)
+    : await getMulticoinResolver(true);
   const tx = await resolver.setAddr(node, coinType, addrBytes);
   const receipt = await tx.wait();
   return { node, coinType, address: getAddress(address), txHash: receipt?.hash as string | undefined };
@@ -199,7 +290,10 @@ export async function getAddrMultichain(ensName: string, chainId: number): Promi
   const fullName = normalizeEnsName(ensName);
   const node = namehash(fullName);
   const coinType = coinTypeForChain(chainId);
-  const resolver = await getMulticoinResolver(false);
+  // ENSv2 dispatch: read via the v2 per-label resolver.
+  const resolver = isEnsV2Enabled()
+    ? await getMulticoinResolverV2(false, fullName)
+    : await getMulticoinResolver(false);
   const bytes: string = await resolver.addr(node, coinType);
   if (!bytes || bytes === '0x' || bytes.length < 42) return null;
   // Cast the raw bytes back to a checksum address. The multicoin bytes for EVM chains

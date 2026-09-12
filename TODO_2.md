@@ -84,12 +84,11 @@ Cancelled requester withdraws pre-grant → deposit returned
   web app is a static UI + wallet + RPC reads; the chain (contract events, or
   0G for oversized blobs) is the transport.
 - **Document contract on Sepolia** (spec §10): one chain for ENS discovery,
-  ERC-8004 identity, World verification, and Subgraph Studio indexing. 0G
-  Storage only for oversized blobs.
-- **Discovery via subgraph, not ENS records:** ENS advertising of document
-  activity was rejected — public, permanent records linking wallets to
-  redaction activity. Browser UI scans grants/docs through the Subgraph Studio
-  index instead.
+  ERC-8004 identity, and World verification. 0G Storage only for oversized blobs.
+- **Discovery via ENS, subgraph dropped (2026-09-09):** the Subgraph Studio plan was
+  shelved when the project committed to the ENS track (spec §10 pick #3). Browser UI
+  scans grants/docs from contract events directly (watcher) and resolves the registry
+  via ENSIP-11 on the protocol root name (ensv2-integration-spec §7; ticket 012 §D).
 - Wallet is an **authorizer, not a decryptor**: it cannot export keys, and
   MetaMask's `eth_getEncryptionPublicKey` (X25519/XSalsa20) mismatches the
   locked wire format. Consumers use a **stable, wallet-attested browser keypair**

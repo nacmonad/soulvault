@@ -6,3 +6,13 @@
 # Burned testnet deploy key (wallet 0x33764cD26F5884BFf194D38ED00DBB249C130B10).
 # Removed from the script in a0ae3ef; key is public and must never be reused.
 201d89c28bb06c920e244486da224650009347d0:cli/scripts/deploy-erc8004.mjs:generic-api-key:5
+
+# Gitleaks generic-api-key FP: algorithm-name string in docs (not a secret).
+skills/soulvault/references/commands.md:generic-api-key:694
+
+# Gitleaks generic-api-key FP: fabricated test-vector pubkey in the
+# DocumentRegistry unit test (not a real key).
+test/SoulVaultDocumentRegistry.t.sol:generic-api-key:33
+
+# Gitleaks generic-api-key FP: localStorage key name in tx-settings (not a secret).
+apps/web/src/lib/tx-settings.ts:generic-api-key:18

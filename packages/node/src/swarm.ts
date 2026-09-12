@@ -10,7 +10,7 @@ import {
   deploySoulVaultSwarmContract,
   unbindSwarmEnsSubdomain,
 } from './swarm-deploy.js';
-import { addSwarmToOrgList, removeSwarmFromOrgList } from './ens.js';
+import { addSwarmToOrgList, readOrgSwarmsList, removeSwarmFromOrgList } from './ens.js';
 
 /**
  * How much of a swarm is published to ENS. This is an *input* that decides what
@@ -60,6 +60,117 @@ export async function updateSwarmProfile(slug: string, patch: Partial<SwarmProfi
   const updated: SwarmProfile = { ...existing, ...patch, updatedAt: new Date().toISOString() };
   await fs.writeJson(resolveSwarmPath(slug), updated, { spaces: 2 });
   return updated;
+}
+
+/**
+ * Re-point a swarm's ops lane (chainId + rpcUrl) in its local profile. The swarm
+ * contract itself is immovable — it lives where it was deployed — so this only
+ * corrects where subsequent CLI operations send transactions. With `--ens`, the
+ * `soulvault.chainId` text record on the swarm's ENS name is rewritten to match
+ * (one signature); skip it when the ENS lane is down or the swarm is private.
+ */
+export async function setSwarmLane(input: {
+  swarm?: string;
+  chainId?: number;
+  rpcUrl?: string;
+  updateEns?: boolean;
+}) {
+  if (input.chainId === undefined && input.rpcUrl === undefined) {
+    throw new Error('Nothing to do: pass --chain-id and/or --rpc.');
+  }
+  if (input.chainId !== undefined && (!Number.isInteger(input.chainId) || input.chainId <= 0)) {
+    throw new Error(`Invalid chain id: ${input.chainId}`);
+  }
+  if (input.rpcUrl !== undefined && !/^https?:\/\//.test(input.rpcUrl)) {
+    throw new Error(`Invalid RPC URL: ${input.rpcUrl}`);
+  }
+
+  const profile = input.swarm ? await getSwarmProfile(input.swarm) : await getActiveSwarm();
+  if (!profile) throw new Error(input.swarm ? `Swarm not found: ${input.swarm}` : 'No active swarm — pass --swarm or run `swarm use` first.');
+
+  const updated = await updateSwarmProfile(profile.slug, {
+    ...(input.chainId !== undefined ? { chainId: input.chainId } : {}),
+    ...(input.rpcUrl !== undefined ? { rpcUrl: input.rpcUrl } : {}),
+  });
+
+  let ensTextTxHash: string | undefined;
+  let ensContractTextTxHash: string | undefined;
+  let ensTextError: string | undefined;
+  if (input.updateEns) {
+    if (!profile.ensName || input.chainId === undefined) {
+      ensTextError =
+        !profile.ensName
+          ? 'swarm has no ENS name bound; nothing to update on-chain'
+          : 'pass --chain-id to update the ENS text record';
+    } else {
+      try {
+        const { setEnsText } = await import('./ens.js');
+        const result = await setEnsText(profile.ensName, 'soulvault.chainId', String(input.chainId));
+        ensTextTxHash = result.txHash;
+        // Keep the contract record in lockstep: a profile whose contractAddress was
+        // corrected (adopted deployment, re-deploy, or a partial bind that left April-era
+        // values in place) must not advertise the old address next to the new chainId.
+        if (updated.contractAddress && updated.contractAddress !== '0x0000000000000000000000000000000000000000') {
+          const contractRecord = await setEnsText(profile.ensName, 'soulvault.swarmContract', updated.contractAddress);
+          ensContractTextTxHash = contractRecord.txHash;
+        }
+      } catch (err) {
+        ensTextError = (err as Error).message;
+      }
+    }
+  }
+
+  return {
+    slug: updated.slug,
+    chainId: updated.chainId,
+    rpcUrl: updated.rpcUrl,
+    ensTextTxHash,
+    ensContractTextTxHash,
+    ensTextError,
+  };
+}
+
+/**
+ * Repair a swarm's org-level discoverability: append its label to the parent org's
+ * CBOR `soulvault.swarms` list. Covers the crash-between-steps case — subdomain bound
+ * (the 4-tx `bindSwarmEnsSubdomain` sequence landed) but the 5th write (the org-list
+ * append) never did, leaving the swarm invisible to ENS discovery even though
+ * `<label>.<org>.eth` resolves. Idempotent: `addSwarmToOrgList` no-ops when the label
+ * is already present.
+ *
+ * Only `public` swarms may be listed — appending a `semi-private` swarm would defeat
+ * its whole reason for existing, and `private` has no ENS binding to publish. `force`
+ * exists for the rare deliberate relist of a delisted swarm.
+ */
+export async function syncSwarmOrgList(input: { swarm?: string; force?: boolean }) {
+  const profile = input.swarm ? await getSwarmProfile(input.swarm) : await getActiveSwarm();
+  if (!profile) throw new Error(input.swarm ? `Swarm not found: ${input.swarm}` : 'No active swarm — pass --swarm or run `swarm use` first.');
+  if (!profile.organizationEnsName || !profile.ensName) {
+    throw new Error(
+      `Swarm "${profile.slug}" has no ENS binding (visibility "${profile.visibility}"), so there is nothing to publish on the org's swarms list.`,
+    );
+  }
+  if (profile.visibility !== 'public' && !input.force) {
+    throw new Error(
+      `Swarm "${profile.slug}" is "${profile.visibility}" — its label is deliberately kept off the org's discovery list. ` +
+        'Pass --force to list it anyway.',
+    );
+  }
+
+  const before = await readOrgSwarmsList(profile.organizationEnsName);
+  const label = profile.ensName.replace(`.${profile.organizationEnsName}`, '');
+  const txHash = await addSwarmToOrgList(profile.organizationEnsName, label);
+  const after = await readOrgSwarmsList(profile.organizationEnsName);
+
+  return {
+    slug: profile.slug,
+    organizationEnsName: profile.organizationEnsName,
+    label,
+    alreadyListed: txHash === null,
+    txHash: txHash ?? undefined,
+    swarms: after,
+    appended: !before.includes(label) && after.includes(label),
+  };
 }
 
 function slugify(value: string) {

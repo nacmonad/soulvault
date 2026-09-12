@@ -1,0 +1,26 @@
+1:"$Sreact.fragment"
+2:I[66922,[],"ClientPageRoot"]
+3:I[268,["6262","static/chunks/6262-b077293eed43a1fe.js","8088","static/chunks/app/dashboard/documents/page-65baf994686bc819.js"],"default"]
+6:I[87718,[],"OutletBoundary"]
+7:"$Sreact.suspense"
+b:I[87718,[],"ViewportBoundary"]
+c:I[87718,[],"MetadataBoundary"]
+d:I[51555,[],"IconMark"]
+f:I[29359,[],""]
+10:I[97011,[],""]
+13:I[24087,["3752","static/chunks/3752-d0ae90bbf94cc4d6.js","8487","static/chunks/8487-4a3d5872c0167699.js","5769","static/chunks/5769-2eab39081c653e84.js","1830","static/chunks/1830-0072ddf4f1e2ba05.js","6262","static/chunks/6262-b077293eed43a1fe.js","128","static/chunks/128-9a7cd765f2ab221e.js","9991","static/chunks/9991-8e7985e206378b01.js","1154","static/chunks/1154-06afc019ffedce1d.js","1954","static/chunks/app/dashboard/layout-5db4ce14359658c3.js"],"DashboardShell"]
+a:X
+12:X
+12:C
+0:{"buildId":"dNyGT2PFgHG_ed4RoLA3t","data":[{"rsc":["$","$1","c",{"children":[["$","$L2",null,{"Component":"$3","serverProvidedParams":{"searchParams":{},"params":{},"promises":["$@4","$@5"]}}],null,["$","$L6",null,{"children":["$","$7",null,{"name":"Next.MetadataOutlet","children":"$@8"}]}]]}],"isPartial":"$@9","staleTime":"$a","varyParams":null},{"rsc":["$","$1","h",{"children":[null,["$","$Lb",null,{"children":[["$","meta","0",{"charSet":"utf-8"}],["$","meta","1",{"name":"viewport","content":"width=device-width, initial-scale=1"}]]}],["$","div",null,{"hidden":true,"children":["$","$Lc",null,{"children":["$","$7",null,{"name":"Next.Metadata","children":[["$","title","0",{"children":"Dashboard — SoulVault"}],["$","meta","1",{"name":"description","content":"Connect a wallet to manage organizations, swarms, and document grants."}],["$","meta","2",{"property":"og:title","content":"SoulVault — Coordinate securely. Collaborate privately."}],["$","meta","3",{"property":"og:description","content":"Encrypted continuity for agent swarms, and wallet-authorized selective disclosure for confidential documents. Redact locally, share anywhere, reveal only to authorized wallets."}],["$","meta","4",{"property":"og:url","content":"https://soulvault.dev/"}],["$","meta","5",{"property":"og:site_name","content":"SoulVault"}],["$","meta","6",{"property":"og:image","content":"https://soulvault.dev/soulvault/opengraph-image?5d86e9924262aed0"}],["$","meta","7",{"property":"og:image:type","content":"image/png"}],["$","meta","8",{"property":"og:image:width","content":"1200"}],["$","meta","9",{"property":"og:image:height","content":"630"}],["$","meta","10",{"property":"og:image:alt","content":"SoulVault — Coordinate securely. Collaborate privately."}],["$","meta","11",{"property":"og:type","content":"website"}],["$","meta","12",{"name":"twitter:card","content":"summary_large_image"}],["$","meta","13",{"name":"twitter:title","content":"SoulVault — Coordinate securely. Collaborate privately."}],["$","meta","14",{"name":"twitter:description","content":"Encrypted continuity for agent swarms, and wallet-authorized selective disclosure for confidential documents. Redact locally, share anywhere, reveal only to authorized wallets."}],["$","meta","15",{"name":"twitter:image","content":"https://soulvault.dev/soulvault/opengraph-image?5d86e9924262aed0"}],["$","meta","16",{"name":"twitter:image:alt","content":"SoulVault — Coordinate securely. Collaborate privately."}],["$","meta","17",{"name":"twitter:image:type","content":"image/png"}],["$","meta","18",{"name":"twitter:image:width","content":"1200"}],["$","meta","19",{"name":"twitter:image:height","content":"630"}],["$","link","20",{"rel":"icon","href":"/soulvault/icon.svg?6082164e29feaa7c","type":"image/svg+xml","sizes":"any"}],["$","$Ld","21",{}]]}]}]}],["$","meta",null,{"name":"next-size-adjust","content":""}]]}],"isPartial":"$@e","staleTime":"$a","varyParams":null},{"rsc":["$","$1","c",{"children":[null,["$","$Lf",null,{"parallelRouterKey":"children","template":["$","$L10",null,{}]}]]}],"isPartial":"$@11","staleTime":"$a","varyParams":"$12"},{"rsc":["$","$1","c",{"children":[null,["$","$L13",null,{"children":["$","$Lf",null,{"parallelRouterKey":"children","template":["$","$L10",null,{}]}]}]]}],"isPartial":"$@14","staleTime":"$a","varyParams":null}],"isUpgradeableISRFallback":false,"a":"$@15","rootVaryParams":null,"needsRuntimeRequest":"$@16"}
+4:{}
+5:"$0:data:0:rsc:props:children:0:props:serverProvidedParams:params"
+8:null
+16:true
+a:300
+a:C
+15:0
+e:"$undefined"
+11:"$undefined"
+14:"$undefined"
+9:"$undefined"

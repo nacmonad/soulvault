@@ -90,7 +90,7 @@ The ERC-8004 registration URI for an agent. In SoulVault MVP it is a base64-enco
 A SoulVault convention describing the agent runtime/framework, such as `openclaw`, `hermes`, or another execution stack. This is not a core ERC-8004 field, but can be published in custom registration metadata and used to select the correct backup command.
 
 ## Treasury (SoulVaultTreasury)
-An org-scoped payable contract on 0G Galileo that holds native value and releases funds on approved fund requests. One per organization per chain. Discoverable via ENSIP-11 multichain `addr` record on the org's ENS name (`coinType = 0x80000000 | chainId`). The treasury verifies mutual consent (`swarm.treasury() == address(this)`) before any release.
+An org-scoped payable contract on the ops-lane chain (Sepolia as of 2026-09; previously 0G Galileo) that holds native value and releases funds on approved fund requests. One per organization per chain. Discoverable via ENSIP-11 multichain `addr` record on the org's ENS name (`coinType = 0x80000000 | chainId`). The treasury verifies mutual consent (`swarm.treasury() == address(this)`) before any release.
 
 ## Fund Request
 An on-chain request filed by an active swarm member for native value from the org's treasury. The swarm contract enforces membership; the treasury enforces funds custody. Lifecycle: Pending → Approved / Rejected / Cancelled.
@@ -99,13 +99,19 @@ An on-chain request filed by an active swarm member for native value from the or
 An ENS standard for storing addresses on multiple chains under a single ENS name. Treasury discovery uses `addr(node, coinType)` where `coinType = 0x80000000 | chainId`. An org with treasuries on multiple chains gets one slot per chain.
 
 ## coinType
-The ENSIP-11 key used to index multichain addresses. For EVM chains: `0x80000000 | chainId` (unsigned). For 0G Galileo (chain 16602): `coinType = 2147500186`.
+The ENSIP-11 key used to index multichain addresses. For EVM chains: `0x80000000 | chainId` (unsigned). For Sepolia (chain 11155111): `coinType = 2158638759` (`0x80aa36a7`). For 0G Galileo (chain 16602, historical): `coinType = 2147500250` (`0x800140fa`) — orgs migrated off 0G may still carry this stale record on their ENS name; it does not affect Sepolia discovery. (An earlier revision of this glossary listed the 0G coinType as 2147500186 — a typo.)
 
 ## Self-Hosted Mode
 User runs their own infrastructure components (e.g., relay/control-plane, optional local storage/indexing services).
 
 ## Managed Mode / SaaS Path
 Hosted service provides operational components (e.g., relay/control-plane, storage indexing/mirroring) while the protocol remains open-source and portable.
+
+## Rehydration Key
+A secp256k1 keypair generated client-side via `@soulvault/protocol`, persistent in the recipient's browser storage, and bound to the recipient's wallet by an EIP-712 attestation. Slot keys are wrapped to the rehydration public key at grant time. If the recipient loses browser storage, they attest a NEW rehydration key with the same wallet and the author re-issues grants wrapped to the new key; the old private key is never needed again. Wrong or superseded keys cannot unwrap grants issued to other keys (fingerprint binding fails closed).
+
+## READ Grant (document)
+A wallet-attested, per-slot wrapped key delivered as a `SlotKeyGranted` event. **A delivered READ grant is a permanent capability** (spec §3): there is no revocation, no expiry enforcement, and no erasure mechanism in v0. Re-granting a slot only re-wraps the key for a newly attested recipient key — the `(docHash, slotId)` recipient keeps access forever. An author's only controls are the bundle-file gate and rotate-and-republish for future content.
 
 ## RekeyRequested
 A post-MVP event emitted by the public `requestRekey()` contract function, typically triggered by Chainlink Automation, signaling the owner that a rekey is overdue. The owner CLI responds by initiating the actual rekey.

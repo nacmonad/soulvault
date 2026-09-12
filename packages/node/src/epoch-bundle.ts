@@ -15,6 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { getSignerPrivateKey } from './signer.js';
 import { generateEpochKeyHex, readEpochKey, storeEpochKey } from './epoch-key-store.js';
+import { renewSwarmEnsV2Subname } from './epoch-ens-renewal.js';
 
 export type EpochBundleEntry = SecpWrappedKey & {
   memberName?: string;
@@ -105,6 +106,14 @@ export async function rotateEpochWithBundle(input: { swarm?: string; newEpoch?: 
   const tx = await contract.rotateEpoch(generated.nextEpoch, keyBundleRef, generated.bundleHash, generated.membershipVersion);
   const receipt = await tx.wait();
 
+  // Phase 4: ENSv2 liveness renewal — subname expiry tracks epoch cadence. Best-effort:
+  // a renewal failure must not roll back the epoch rotation (the epoch key bundle is
+  // already published); the result records the failure so the CLI can surface it.
+  const ensRenewal = await renewSwarmEnsV2Subname(profile).catch((err: Error) => ({
+    renewed: false as const,
+    reason: err.message,
+  }));
+
   return {
     swarm: profile.slug,
     contractAddress: profile.contractAddress,
@@ -114,11 +123,13 @@ export async function rotateEpochWithBundle(input: { swarm?: string; newEpoch?: 
     keyBundleHash: generated.bundleHash,
     publishTxHash,
     rotateTxHash: receipt?.hash,
+    ensRenewal,
     entryCount: Object.keys(generated.bundle.entries).length,
     keyFingerprint: sha256Hex(hexToBytesFlexible(generated.epochKeyHex)),
     bundle: generated.bundle,
   };
 }
+
 
 export async function getLatestEpochBundle(input: { swarm?: string }) {
   const { profile, contract } = await getSwarmContractReadonly(input.swarm);

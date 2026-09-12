@@ -31,14 +31,17 @@ export type OrgSwarmEntry = {
   chainId: number | null;
 };
 
-export async function readOrgSwarms(orgEnsName: string): Promise<OrgSwarmEntry[]> {
-  const labels = await readOrgSwarmsList(orgEnsName);
+/** `viewer` (the connected wallet) lets pre-mirror ENSv2 orgs be located via
+ * the CREATE2 recompute — without it a pure-v2 org's records are unreadable
+ * (the v1 registry walk finds no resolver) and discovery returns empty. */
+export async function readOrgSwarms(orgEnsName: string, viewer?: Address): Promise<OrgSwarmEntry[]> {
+  const labels = await readOrgSwarmsList(orgEnsName, viewer);
   return Promise.all(
     labels.map(async (label): Promise<OrgSwarmEntry> => {
       const ensName = `${label}.${orgEnsName}`;
       const [address, chainIdRaw] = await Promise.all([
-        readEnsAddress(ensName).catch(() => null),
-        readEnsText(ensName, "soulvault.chainId").catch(() => null),
+        readEnsAddress(ensName, viewer).catch(() => null),
+        readEnsText(ensName, "soulvault.chainId", viewer).catch(() => null),
       ]);
       const chainId = chainIdRaw && /^\d+$/.test(chainIdRaw) ? Number(chainIdRaw) : null;
       return { label, ensName, address, chainId };
@@ -80,14 +83,17 @@ export type { OrgTreasuryEntry };
  */
 export async function resolveOrgEventSources(
   orgEnsName: string,
-  options?: { watcherChainId?: number },
+  options?: { watcherChainId?: number; viewer?: Address },
 ): Promise<SoulVaultDeployment[]> {
   const watcherChainId = options?.watcherChainId;
   const onWatcherChain = (chainId: number) => watcherChainId === undefined || chainId === watcherChainId;
   // Failures propagate — a transient ENS read error must not masquerade as
   // "org has no contracts" (that used to silently drop the swarm source from
   // event discovery while the page's own discovery still listed it).
-  const [treasuries, swarms] = await Promise.all([readOrgTreasuries(orgEnsName), readOrgSwarms(orgEnsName)]);
+  const [treasuries, swarms] = await Promise.all([
+    readOrgTreasuries(orgEnsName, options?.viewer),
+    readOrgSwarms(orgEnsName, options?.viewer),
+  ]);
   const sources = await Promise.all([
     ...treasuries
       .filter((entry) => onWatcherChain(entry.chainId))

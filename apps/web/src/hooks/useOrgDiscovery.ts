@@ -8,6 +8,7 @@ import {
   type OrgSwarmEntry,
 } from "@/lib/ens-discovery";
 import { readOrgTreasuries, type OrgTreasuryEntry } from "@/lib/ens-writes";
+import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
 
 export type OrgDiscoveryState = {
   treasuries: OrgTreasuryEntry[] | null;
@@ -25,6 +26,7 @@ export type OrgDiscoveryState = {
  * This is the state-summary source for Overview / Treasury / Swarm.
  */
 export function useOrgDiscovery(orgEnsName: string | null): OrgDiscoveryState {
+  const { address: viewer } = useSoulVaultWallet();
   const [treasuries, setTreasuries] = useState<OrgTreasuryEntry[] | null>(null);
   const [treasuryBalances, setTreasuryBalances] = useState<Record<string, bigint>>({});
   const [swarms, setSwarms] = useState<OrgSwarmEntry[] | null>(null);
@@ -49,8 +51,10 @@ export function useOrgDiscovery(orgEnsName: string | null): OrgDiscoveryState {
     void (async () => {
       try {
         const [nextTreasuries, nextSwarms] = await Promise.all([
-          readOrgTreasuries(orgEnsName),
-          readOrgSwarms(orgEnsName),
+          // viewer = connected wallet — pure-v2 orgs are only discoverable via
+          // the CREATE2 recompute, which is viewer-bound.
+          readOrgTreasuries(orgEnsName, viewer ?? undefined),
+          readOrgSwarms(orgEnsName, viewer ?? undefined),
         ]);
         if (cancelled) return;
         setTreasuries(nextTreasuries);
@@ -68,7 +72,7 @@ export function useOrgDiscovery(orgEnsName: string | null): OrgDiscoveryState {
     return () => {
       cancelled = true;
     };
-  }, [orgEnsName, nonce]);
+  }, [orgEnsName, nonce, viewer]);
 
   return { treasuries, treasuryBalances, swarms, status, error, refresh };
 }

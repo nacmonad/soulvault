@@ -199,11 +199,22 @@ export type SwarmFundRequest = {
   updatedAt: { blockNumber: bigint; txHash: Hex };
 };
 
+export type EpochKeyRequest = {
+  keyName: string;
+  requester: Address;
+  requesterPubkey: string | null;
+  reason: string | null;
+  epoch: bigint;
+  requestedAt: { blockNumber: bigint; txHash: Hex };
+};
+
 export type SwarmState = {
   members: Map<Address, SwarmMember>;
   removedMembers: Map<Address, RemovedMember>;
   latestManifest: LatestManifest | null;
   pendingJoins: Map<bigint, PendingJoinRequest>;
+  /** Open epoch key ring requests (request → grant delivery via DM). */
+  epochKeyRequests: Map<Address, EpochKeyRequest>;
   treasury: Address | null;
   currentEpoch: bigint | null;
   membershipVersion: bigint | null;
@@ -216,6 +227,7 @@ export function reduceSwarmState(events: readonly SoulVaultEvent[]): SwarmState 
     removedMembers: new Map(),
     latestManifest: null,
     pendingJoins: new Map(),
+    epochKeyRequests: new Map(),
     treasury: null,
     currentEpoch: null,
     membershipVersion: null,
@@ -282,6 +294,19 @@ export function reduceSwarmState(events: readonly SoulVaultEvent[]): SwarmState 
         for (const [wallet, removed] of state.removedMembers) {
           if (position.blockNumber > removed.removedAt.blockNumber) state.removedMembers.delete(wallet);
         }
+        break;
+      }
+      case 'EpochKeyRequested': {
+        // Latest request per requester wins; resolved implicitly when the
+        // matching `epoch-key-grant` DM posts (delivery is off-contract).
+        state.epochKeyRequests.set(args.requester as Address, {
+          keyName: (args.keyName as string) ?? '',
+          requester: args.requester as Address,
+          requesterPubkey: (args.requesterPubkey as Hex) || null,
+          reason: (args.reason as string) || null,
+          epoch: args.epoch as bigint,
+          requestedAt: position,
+        });
         break;
       }
       case 'EpochRotated': {

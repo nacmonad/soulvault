@@ -28,6 +28,7 @@ import {
   readSwarmTreasury,
   requestBackupForSwarm,
   requestFundsOnSwarm,
+  requestEpochKeyOnSwarm,
   requestJoinSwarm,
   setSwarmTreasury,
   watchSwarmEvents,
@@ -366,6 +367,21 @@ export function registerSwarmCommands(program: Command) {
         pubkeyHex: options.pubkey,
         pubkeyRef: options.pubkeyRef,
         metadataRef: options.metadataRef,
+      });
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  swarm
+    .command('request-epoch-key')
+    .requiredOption('--key-name <name>')
+    .option('--reason <reason>', 'Why this epoch key is needed (e.g. successor rehydration)')
+    .option('--swarm <nameOrEns>')
+    .description('Request an epoch key ring grant (emits EpochKeyRequested; owner responds with an ECDH-encrypted DM)')
+    .action(async (options) => {
+      const result = await requestEpochKeyOnSwarm({
+        swarm: options.swarm,
+        keyName: options.keyName,
+        reason: options.reason,
       });
       console.log(JSON.stringify(result, null, 2));
     });

@@ -420,6 +420,20 @@ contract SoulVaultSwarm is ISoulVaultSwarm, EIP712 {
         emit RekeyRequested(trigger, membershipVersion);
     }
 
+    function requestEpochKey(string calldata keyName, string calldata reason) external override whenNotPaused {
+        if (!_members[msg.sender].active) revert NotActiveMember();
+        if (bytes(keyName).length == 0) revert EmptyReference();
+
+        emit EpochKeyRequested(
+            keyName,
+            msg.sender,
+            _members[msg.sender].pubkey,
+            reason,
+            currentEpoch,
+            uint64(block.timestamp)
+        );
+    }
+
     function _requirePendingRequest(uint256 requestId) internal view returns (JoinRequest storage req) {
         req = _joinRequests[requestId];
         if (req.requester == address(0)) revert InvalidRequest();

@@ -18,6 +18,7 @@ import { shortAddress, shortTx, explorerTxUrl } from "@/lib/format";
 import { useAgentEvents } from "@/hooks/useAgentEvents";
 import { AgentIdentityCard, type EacRolesResolver } from "@/components/dashboard/agent-identity-card";
 import { EacDelegationPanel } from "@/components/dashboard/eac-delegation-panel";
+import { EpochKeyGrantPanel } from "@/components/dashboard/epoch-key-grant-panel";
 import { resolveNameEacContext, readNameEacRoles } from "@/lib/ensv2-eac";
 import { getBrowserSoulVaultClientConfig, createSoulVaultPublicClient } from "@/lib/onchain/client";
 
@@ -431,6 +432,14 @@ export default function SwarmPage() {
       )}
 
       {current ? <EacDelegationPanel swarmEnsName={current.ensName} /> : null}
+
+      {current?.address && owner ? (
+        <EpochKeyGrantPanel
+          requests={[...view.epochKeyRequests.values()]}
+          swarmAddress={current.address}
+          ownerAddress={owner}
+        />
+      ) : null}
 
       <div className="mt-8 flex flex-wrap gap-2">
         <Button disabled variant="outline" size="sm">

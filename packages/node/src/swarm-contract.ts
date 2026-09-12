@@ -748,3 +748,35 @@ export async function listFundRequests(input: {
     requests: filtered,
   };
 }
+
+/** Active member requests an epoch key ring grant by key name. Emits EpochKeyRequested. */
+export async function requestEpochKeyOnSwarm(input: { swarm?: string; keyName: string; reason?: string }) {
+  const { profile, contract } = await getSwarmContract(input.swarm);
+  const tx = await contract.requestEpochKey(input.keyName, input.reason ?? '');
+  const receipt = await tx.wait();
+
+  let requesterPubkey: string | undefined;
+  let epoch: string | undefined;
+  for (const log of receipt?.logs ?? []) {
+    try {
+      const parsed = contract.interface.parseLog(log);
+      if (parsed?.name === 'EpochKeyRequested') {
+        requesterPubkey = parsed.args.requesterPubkey;
+        epoch = parsed.args.epoch.toString();
+        break;
+      }
+    } catch {
+      // ignore logs that don't match this interface
+    }
+  }
+
+  return {
+    swarm: profile.slug,
+    contractAddress: profile.contractAddress,
+    txHash: receipt?.hash,
+    keyName: input.keyName,
+    reason: input.reason ?? '',
+    requesterPubkey,
+    epoch,
+  };
+}

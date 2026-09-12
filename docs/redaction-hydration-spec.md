@@ -113,14 +113,31 @@ holds a promise, not a possession — cancellation has real teeth there, and
 nowhere else. This deserves its own design pass and is recorded as a follow-up
 primitive, not part of the v0 registry surface.
 
-**Optional policy tier — verified-human grants (World ID):** a document may
-declare a `verified-human` policy instead of an explicit allowlist. The requester
-presents a World ID proof with a **nullifier scoped to `hash(appId, docHash,
-slotId)`**, verified against World's onchain verifier (or by Alice's client).
-Nullifier uniqueness gives one grant per human — sybil-resistant, privacy
-preserving (Alice never learns who), and still backend-free. Risk-tiering
-then falls out: allowlist slots (no credential) < Selfie Check (low-friction
-biometric) < World ID proof (strong) < governed/express-grant (Ledger-signed).
+**World Selfie Check — policy flag on publish, gate on grant-from-request.**
+Redact and the publish *transaction* are never blocked by a selfie. Alice may
+set `selfieRequired` on `publishDocument` / `DocumentPublished` so that later
+`grantToRequest` waits on a verified Selfie Check (credential 11,
+`selfieCheckLegacy` — not Orb / `proofOfHuman`).
+
+- `selfieRequired=false` (default; also how pre-flag events decode): request
+  and grant unchanged. Ledger demo survives if World is down.
+- `selfieRequired=true`: Charlie’s `requestRehydration` must carry a
+  `selfieProof` string (IDKit result JSON). Empty proof reverts. Alice’s
+  Grants UI calls World’s verify endpoint (tiny RP worker — the signing key
+  must not live in the static Pages app) and only then submits
+  `grantSlotKeys`. Pre-request grants on a flagged document fail closed.
+- The chain stores the flag and carries the proof blob. It does **not**
+  verify the ZK. Signal bound into the proof:
+  `lower(requesterWallet):docHash`. Action: `soulvault-request-rehydrate`.
+  Nullifier uniqueness is author-side (replay → no grant).
+- Unwrap is not gated. A delivered READ grant stays a permanent capability
+  (§3); the selfie is an authorization-time signal at request/grant, 90-day
+  credential window, not a stored identity attribute.
+
+Browser-first: IDKit widget on the Rehydrate tab. No SoulVault mobile app.
+World’s widget may still QR to World App — that is their handoff, out of
+scope for the dashboard example. Details:
+`docs/dashboard-ui/023-world-proof-of-selfie.md`.
 
 **Deferred to the USE/zk phase:** per-document root commitments, salted slot
 commitments, and the epoch nonce. Reason: commitments are only
@@ -280,16 +297,21 @@ wallet-attested browser keypair**, not an ephemeral session key:
 
 **Onchain request path (v1) — the attestation rides the chain.** Step 1's
 attestation JSON no longer travels out-of-band: Charlie posts
-`requestRehydration(docHash, rehydrationPublicKey)` to the registry, and the
-**request tx signature** does the attestation work — `msg.sender` on the
-`RehydrationRequested(docHash, recipient, rehydrationPublicKey)` event is
-tx-authenticated exactly like the author's publish/grant txs ("the onchain
-record already carries 'Charlie said so'"). Alice's Grants view reads the
-latest request per recipient from the event log and wraps against it
-(`createSlotKeyGrantsForRecipient` — the chain is the attestation). This makes
-the loop: publish → request → grant → rehydrate, all event-driven, no manual
-key exchange. The EIP-712 paste flow remains as a fallback for authors not
-watching onchain requests; requests require the docHash to be published
+`requestRehydration(docHash, rehydrationPublicKey, selfieProof)` to the
+registry, and the **request tx signature** does the attestation work —
+`msg.sender` on the
+`RehydrationRequested(docHash, recipient, rehydrationPublicKey, selfieProof)`
+event is tx-authenticated exactly like the author's publish/grant txs ("the
+onchain record already carries 'Charlie said so'"). `selfieProof` is empty
+when the document was published with `selfieRequired=false`; required (and
+reverts if missing) when the flag is set. Alice's Grants view reads the
+latest request per recipient from the event log, verifies the proof when
+the flag is on, and wraps against the pubkey
+(`createSlotKeyGrantsForRecipient` — the chain is the attestation). This
+makes the loop: publish → request → grant → rehydrate, all event-driven, no
+manual key exchange. The EIP-712 paste / pre-request flow remains as a
+fallback for authors not watching onchain requests, and is refused when
+`selfieRequired` is set. Requests require the docHash to be published
 (`NotPublished` reverts) and re-requesting with a fresh key is the key-loss
 recovery story.
 
@@ -303,8 +325,9 @@ in rotate-and-republish for future content.
 - *Alice, client-side only:* presidio-web detects slots → fresh `K_i` per slot →
   AES-256-GCM ciphertexts → redacted artifact to Charlie via any channel →
   publish the integrity anchor (`DocumentPublished` event: docHash, author,
-  slotIds) → hand the JSON bundle file to Charlie → grant = wrap +
-  `SlotKeyGranted` event.
+  slotIds, selfieRequired) → hand the JSON bundle file to Charlie → grant =
+  wrap + `SlotKeyGranted` event (Selfie Check verified first when the flag
+  is set).
 - *Charlie, client-side only:* receive redacted artifact file → verify its
   `docHash` against the registry → attest browser keypair with wallet → read
   chain events → unwrap → decrypt → render.
@@ -333,6 +356,10 @@ end.
 - Ledger human-in-the-loop path: **Speculos** emulator suite
   (`pnpm test:speculos`, see `docs/clear-signing-runbook.md`) + real-device suite
   for the demo recording.
+- World `selfie` path (browser): mock `SelfieCheckVerifier` in CI;
+  IDKit widget + RP worker against a **staging** action for the dashboard
+  example. Phone / Sandbox App is a later qualifier pass, not this slice.
+  Keep `selfieRequired` optional so the Ledger demo survives Portal issues.
 - x402 path: live paid request end-to-end on Hedera testnet via Blocky402
   (hard requirement of the Hedera prize; verify facilitator docs first — it is
   the main schedule risk).
@@ -349,10 +376,12 @@ allows only **three prize selections per submission** — final pick:
    signing with clear-signing; chain-agnostic, works with the Sepolia document
    contract unchanged. The $3,500 stream requires the Ledger Agent Stack / Key
    Ring CLI — verify scope at developers.ledger.com/ethonline before committing.
-2. **World** (Selfie Check / AgentKit, $3,500 each): verified-human grant
-   policy tier with scoped nullifiers (§3). Requires World ID Sandbox App for
-   remote testing plus a feedback document. Keep it a policy tier, never a hard
-   requirement, so the Ledger demo survives sandbox issues.
+2. **World** (Selfie Check $3,500): `selfieRequired` on publish, proof on
+   `RehydrationRequested`, author verifies before grant (§3,
+   `docs/dashboard-ui/023-world-proof-of-selfie.md`). Browser IDKit widget
+   first; Sandbox App + `feedback.md` are the qualifier, not the dashboard
+   example. Flag stays optional so the Ledger demo survives Portal issues.
+   AgentKit is installed, not this gate.
 3. **ENS** (ENSv2 $4,500 / integration $500 — **promoted 2026-09-09, replacing The Graph**):
    the ENSv2 integration spec (`docs/ensv2-integration-spec.md`, feature/ensv2-integration)
    makes ENSv2 the config layer itself — custom SoulVault subname registry under the org

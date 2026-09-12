@@ -73,6 +73,8 @@ through the existing DMK session. Injected wallet uses `eth_sendTransaction`
   the transport for Rehydrate inputs; no API route, no server storage.
 - Recipient attestation in v0 can be pasted JSON. A later polish can have
   Charlie’s browser export it from the Rehydrate tab.
-- World Selfie Check is **not** on this tab. It gates Charlie’s rehydrate, not
-  Alice’s grant, unless a slot policy says otherwise — v0 has no on-chain
-  selfie policy field. Keep World on ticket 005.
+- World Selfie Check **is** on this tab for `grantToRequest` when the selected
+  document was published with `selfieRequired=true` (ticket 023). Grant stays
+  disabled until the request’s `selfieProof` verifies. Pre-request grants on
+  a flagged document fail closed. Unwrap (ticket 005) is not gated. Documents
+  published with the flag off are unchanged.

@@ -71,8 +71,11 @@ scan. Presidio findings are proposals. The author is the last word.
    Tradeoff: raw keys rest in the browser; wrap with a wallet-derived KEK
    before pointing real PII at this flow. Never log them.
 7. Show protocol markers (`{{sv:...}}` from the artifact) beside the reviewed
-   source. Connected author publishes `DocumentPublished(docHash, author,
-   slotIds)`. `docHash === artifact.documentId`.
+   source. Connected author publishes
+   `DocumentPublished(docHash, author, slotIds, selfieRequired)`.
+   `docHash === artifact.documentId`. Optional checkbox **Require Selfie Check
+   for grants-from-request** — a policy flag, not a gate on this tx. Default
+   off. Alice does not selfie to publish. See ticket 023.
 8. CTA: “Continue to Grants” with the in-session document selected.
 
 Do **not** import `DemoVaultEntry` / the demo vault. Manual classification is
@@ -113,7 +116,8 @@ in this PR — do not invent a second span type in the page.
       plaintext and no slot keys. `DemoVaultEntry` / demo vault is not imported.
 - [ ] File picker accept list matches the demo: `.txt,.md,.json,.csv,text/*`.
 - [ ] Publish from the connected wallet as `author`. On-chain `slotIds` match
-      the artifact. Publish disabled when disconnected.
+      the artifact. Publish disabled when disconnected. Optional
+      `selfieRequired` checkbox is off by default and does not block publish.
 - [ ] `docHash` in the UI equals `artifact.documentId` and
       `DocumentPublished.docHash`.
 - [ ] Live `useDocumentEvents` shows the new document without a full reload.

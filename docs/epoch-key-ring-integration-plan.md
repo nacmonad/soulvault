@@ -120,7 +120,23 @@ function completeSweep(address agent, uint64 fromEpoch, uint64 toEpoch,
 "Owner signs the irreversible thing" — the Ledger-track beat. Skippable; the
 demo does not depend on it.
 
-### Phase 4 — Submission assets (~1h)
+### Phase 4.5 — Catastrophic recovery flow (the ENSv2 × Key Ring payoff)
+
+Full-loss scenario: Charlie loses wallet keypair, memories, and instance.
+As org owner:
+1. Generate new wallet for the fresh instance.
+2. Re-point the subname: `setSubnodeRecord(node, charlie-label, newOwner,
+   resolver, ttl)` — ABI already in `packages/node/src/ens.ts`. ERC-8004
+   registration re-points to the new address too.
+3. `swarm remove <old-address>` → `MemberRemoved` → sweep trigger fires.
+4. New instance: `ring init` (one Ledger tap) → `swarm join-request` → owner
+   approves → `recovery restore --agent charlie.ops...` → memories back.
+
+**The name carried the identity; the ring carried the keys; nothing was ever
+stored to lose.** Lost keypair ≠ lost memories — the slide that kills every
+keystore-based competitor.
+
+### Phase 5 — Submission assets (~1h)
 
 - simulated demo video (done, v4, 5/5 checks)
 - IRL recording at home (`examples/epoch-key-ring-demo/irl-demo.mjs` + README)

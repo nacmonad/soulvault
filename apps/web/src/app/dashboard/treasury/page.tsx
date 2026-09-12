@@ -64,7 +64,7 @@ function treasuryKey(entry: { chainId: number; address: string }): string {
 export default function TreasuryPage() {
   const { address } = useSoulVaultWallet();
   const { selection } = useDashboardSelection();
-  const swarm = useSwarmEvents({ live: true, pollSeconds: 5 });
+  const swarm = useSwarmEvents({ live: true });
   const discovery = useOrgDiscovery(selection.orgId);
 
   const [balance, setBalance] = useState<bigint | null>(null);

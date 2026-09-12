@@ -16,6 +16,7 @@ type DashboardSelectionContextValue = {
   setOrg: (orgId: string | null) => void;
   setSwarm: (swarmId: string | null) => void;
   rememberOrg: (name: string) => void;
+  forgetOrg: (name: string) => void;
 };
 
 const DashboardSelectionContext = createContext<DashboardSelectionContextValue | null>(null);
@@ -62,9 +63,26 @@ export function DashboardSelectionProvider({ children }: { children: React.React
     [persist, selection],
   );
 
+  const forgetOrg = useCallback(
+    (name: string) => {
+      const normalized = name.trim().toLowerCase();
+      if (!normalized) return;
+      const rememberedOrgs = selection.rememberedOrgs.filter((n) => n !== normalized);
+      const isCurrent = selection.orgId === normalized;
+      persist({
+        ...selection,
+        // A dropped org must not leave a dangling swarm selection behind.
+        orgId: isCurrent ? null : selection.orgId,
+        swarmId: isCurrent ? null : selection.swarmId,
+        rememberedOrgs,
+      });
+    },
+    [persist, selection],
+  );
+
   const value = useMemo(
-    () => ({ selection, setOrg, setSwarm, rememberOrg }),
-    [selection, setOrg, setSwarm, rememberOrg],
+    () => ({ selection, setOrg, setSwarm, rememberOrg, forgetOrg }),
+    [selection, setOrg, setSwarm, rememberOrg, forgetOrg],
   );
 
   return (

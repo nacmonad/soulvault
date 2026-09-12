@@ -21,7 +21,17 @@ export type OrganizationProfile = {
     ownerAddress?: string;
   };
   /**
-   * Mirror of the org metadata published on ENS (via the draft-ENSIP-aligned text records:
+   * ENSv2: the org's SoulVaultRegistry (UserRegistry proxy) deployed via the
+   * VerifiableFactory (`organization deploy-registry`). Authoritative for
+   * `*.<ensName>` subnames — swarm registration, EAC grants, epoch-bound expiry.
+   */
+  ensv2Registry?: {
+    address: string;
+    owner: string;
+    deploymentTxHash?: string;
+    deployedAt: string;
+  };
+  /** Mirror of the org metadata published on ENS (via the draft-ENSIP-aligned text records:
    * `class`, `name`, `description`, `url`). Populated whenever `register-ens` writes the
    * metadata successfully, so `organization status` and downstream readers can display
    * what the on-chain state should look like without hitting the ENS RPC every time.
@@ -135,6 +145,18 @@ export async function getOrganizationProfile(nameOrSlug: string) {
     if (profile.name === nameOrSlug || profile.ensName === nameOrSlug) return profile;
   }
   return null;
+}
+
+/** Persist a patch to an org profile (used by ENSv2 flows that record onchain state). */
+export async function updateOrganizationProfile(
+  slug: string,
+  patch: Partial<OrganizationProfile>,
+) {
+  const existing = await getOrganizationProfile(slug);
+  if (!existing) throw new Error(`Organization not found: ${slug}`);
+  const updated: OrganizationProfile = { ...existing, ...patch, updatedAt: new Date().toISOString() };
+  await fs.writeJson(resolveOrganizationPath(existing.slug), updated, { spaces: 2 });
+  return updated;
 }
 
 export async function listOrganizationProfiles() {

@@ -1,2 +1,13 @@
 forge-std/=lib/forge-std/src/
 @openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/
+@ensdomains/contracts-v2/=lib/ens-contracts-v2/contracts/src/
+@ensdomains/contracts-v2/lib/=lib/ens-contracts-v2/contracts/lib/
+ens-contracts-v2/=lib/ens-contracts-v2/contracts/
+~src/=lib/ens-contracts-v2/contracts/src/
+~test/=lib/ens-contracts-v2/contracts/test/
+@ensdomains/verifiable-factory/=lib/ens-contracts-v2/contracts/lib/verifiable-factory/src/
+@ens/contracts/=lib/ens-contracts-v2/contracts/lib/ens-contracts/contracts/
+@unruggable/gateways/=lib/ens-contracts-v2/contracts/lib/unruggable-gateways/
+@ensdomains/buffer/=lib/ens-contracts-v2/contracts/lib/buffer/
+solady/=lib/ens-contracts-v2/contracts/lib/solady/src/
+@openzeppelin/contracts-upgradeable/=lib/ens-contracts-v2/contracts/lib/openzeppelin-contracts-upgradeable/contracts/

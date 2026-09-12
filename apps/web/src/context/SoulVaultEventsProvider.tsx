@@ -19,12 +19,15 @@ import type { Address, Hex } from 'viem';
 import {
   createSoulVaultPublicClient,
   getBrowserSoulVaultClientConfig,
+  parseSoulVaultPollSeconds,
   type SoulVaultClientConfig,
 } from '@/lib/onchain/client';
 import { resolveDocumentEventSource } from '@/lib/document-registry';
 import { resolveIdentityEventSource } from '@/lib/identity-registry';
+import { useSoulVaultWallet } from '@/components/providers/soulvault-ledger-provider';
 import type { ActiveGrant, SoulVaultContractKind, SoulVaultDeployment, SoulVaultEvent } from '@/lib/onchain/types';
 import { mergeEventBatches, SoulVaultEventWatcher } from '@/lib/onchain/watcher';
+import { loadPersistedEvents, persistEvents, deletePersistedEventsForSources } from '@/lib/onchain/event-store';
 
 export type SoulVaultEventsStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -47,6 +50,10 @@ export type SoulVaultEventsContextValue = {
   resolveGrants: (docHash: Hex, recipient: Address) => Promise<ActiveGrant[]>;
   /** Merge runtime-discovered sources (ENS) into the watcher; rescans once when new. */
   addSources: (sources: readonly SoulVaultDeployment[]) => Promise<boolean>;
+  /** Org-scoped source replacement: removes ALL swarm/treasury sources (they
+   * are always org-derived), purges their events from the shared cache, adds
+   * the new org's sources, and rescans. Keeps document/identity sources. */
+  replaceOrgSources: (sources: readonly SoulVaultDeployment[]) => Promise<void>;
 };
 
 export const SoulVaultEventsContext = createContext<SoulVaultEventsContextValue | null>(null);
@@ -54,8 +61,8 @@ export const SoulVaultEventsContext = createContext<SoulVaultEventsContextValue 
 const CONFIG_ERROR = 'SoulVault events config missing — set NEXT_PUBLIC_SOULVAULT_RPC_URL (or the settings override)';
 
 /** Retries for initial runtime discovery (transient ENS/RPC failures). */
-const DISCOVERY_RETRIES = 2;
-const DISCOVERY_RETRY_MS = 2000;
+const DISCOVERY_RETRIES = 4;
+const DISCOVERY_RETRY_MS = 3000;
 /** Re-resolve cadence: ENS announcements can land after mount (fresh registry
  * deploy/announce from another tab or the CLI), and the record can point at a
  * newly redeployed contract. addSources dedupes unchanged addresses, so an
@@ -114,6 +121,8 @@ export function SoulVaultEventsProvider({
   config?: SoulVaultClientConfig;
 }) {
   const resolvedConfig = useRef<SoulVaultClientConfig | null>(config ?? getBrowserSoulVaultClientConfig());
+  // Live-poll cadence: explicit hook arg wins; else NEXT_PUBLIC_SOULVAULT_POLL_SECONDS; else 25s.
+  const defaultPollSeconds = parseSoulVaultPollSeconds(process.env.NEXT_PUBLIC_SOULVAULT_POLL_SECONDS);
   const watcherRef = useRef<SoulVaultEventWatcher | null>(null);
   const stopRef = useRef<(() => void) | null>(null);
   /** Monotonic scan id — only the newest-started scan may write state.
@@ -135,6 +144,25 @@ export function SoulVaultEventsProvider({
   const [isLive, setIsLive] = useState(false);
 
   useEffect(() => () => stopRef.current?.(), []);
+
+  // Cross-session hydration: events are immutable facts, so the persisted
+  // IndexedDB tail is authoritative history — merge it in before the first
+  // scan so pages render instantly on reload (the scan then appends new
+  // events; the merge dedupes the overlap). Best-effort: IDB may be
+  // unavailable (private mode) or empty (first visit).
+  useEffect(() => {
+    let cancelled = false;
+    void loadPersistedEvents().then((persisted) => {
+      if (cancelled || persisted.length === 0) return;
+      setState((s) => ({
+        ...s,
+        events: mergeEventBatches(persisted, s.events),
+      }));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const getWatcher = useCallback(() => {
     const config = resolvedConfig.current;
@@ -171,6 +199,7 @@ export function SoulVaultEventsProvider({
           // A newer scan (started after this one) supersedes this snapshot.
           if (seq !== scanSeq.current) return;
           setState({ events, status: 'ready', error: null });
+          void persistEvents(events);
           return;
         }
         // Join the shared scan instead of starting a duplicate.
@@ -208,13 +237,16 @@ export function SoulVaultEventsProvider({
       await runScan();
       const latest = await watcher.latestBlock().catch(() => null);
       stopRef.current = watcher.watchLive({
-        pollSeconds: pollSeconds ?? 5,
+        pollSeconds: pollSeconds ?? defaultPollSeconds,
         fromBlock: latest === null ? undefined : latest + BigInt(1),
-        onEvents: (batch) => setState((s) => ({ ...s, events: mergeEventBatches(s.events, batch) })),
+        onEvents: (batch) => {
+          setState((s) => ({ ...s, events: mergeEventBatches(s.events, batch) }));
+          void persistEvents(batch);
+        },
         onError: (error) => setState((s) => ({ ...s, error })),
       });
     },
-    [getWatcher, runScan],
+    [getWatcher, runScan, defaultPollSeconds],
   );
 
   const stopLive = useCallback(() => {
@@ -245,15 +277,54 @@ export function SoulVaultEventsProvider({
   );
 
   /**
+   * Org switch semantics: the bridge previously called addSources on every org
+   * change, which only ever added — the previous org's swarm/treasury sources
+   * stayed registered (their events kept flowing) and the shared cache kept
+   * their events, so the page showed a stale union of both orgs. This replaces
+   * the whole org-scoped slice: remove old, purge cache, add new, rescan.
+   */
+  const replaceOrgSources = useCallback(
+    async (sources: readonly SoulVaultDeployment[]) => {
+      const watcher = getWatcher();
+      if (!watcher) throw new Error(CONFIG_ERROR);
+      const removed = watcher.removeSourcesMatching((s) => s.kind === 'swarm' || s.kind === 'treasury');
+      if (removed.length > 0) {
+        const gone = new Set(removed.map((s) => s.address.toLowerCase()));
+        setState((s) => ({ ...s, events: s.events.filter((e) => !gone.has(e.source.toLowerCase())) }));
+        void deletePersistedEventsForSources([...gone]);
+      }
+      await addSources(sources);
+      if (removed.length > 0) {
+        // Old org's sources gone: force a rescan even when the new org added
+        // nothing new, so status settles on the reduced source set.
+        await refresh();
+      }
+    },
+    [getWatcher, refresh, addSources],
+  );
+
+  /**
    * DocumentRegistry discovery (ENSIP-11 on the protocol root name) — merged
    * into the watcher so Overview/Documents, the events page, and grants see
    * DocumentPublished/SlotKeyGranted. Retried and periodically re-resolved
    * (see useDiscoveredEventSource) so a fresh deploy/announce is picked up.
+   * viewer = connected wallet: pure-v2 org root names are only discoverable
+   * via the ENSv2 CREATE2 recompute, which is viewer-bound. Re-resolved when
+   * the wallet (re)connects.
    */
-  useDiscoveredEventSource(resolveDocumentEventSource, addSources);
+  const { address: viewer } = useSoulVaultWallet();
+  const resolveDocumentSource = useCallback(
+    () => resolveDocumentEventSource({ viewer: viewer ?? undefined }),
+    [viewer],
+  );
+  const resolveIdentitySource = useCallback(
+    () => resolveIdentityEventSource({ viewer: viewer ?? undefined }),
+    [viewer],
+  );
+  useDiscoveredEventSource(resolveDocumentSource, addSources);
 
   /** Identity registry (built-in Sepolia constant / erc8004.registry record). */
-  useDiscoveredEventSource(resolveIdentityEventSource, addSources);
+  useDiscoveredEventSource(resolveIdentitySource, addSources);
 
   const resolveGrants = useCallback(
     async (docHash: Hex, recipient: Address) => {
@@ -277,8 +348,9 @@ export function SoulVaultEventsProvider({
       stopLive,
       resolveGrants,
       addSources,
+      replaceOrgSources,
     }),
-    [state, isLive, refresh, startLive, stopLive, resolveGrants, addSources],
+    [state, isLive, refresh, startLive, stopLive, resolveGrants, addSources, replaceOrgSources],
   );
 
   return <SoulVaultEventsContext.Provider value={value}>{children}</SoulVaultEventsContext.Provider>;

@@ -149,6 +149,9 @@ export type DocumentRegistrySource = "override" | "ens" | "bundle" | null;
  */
 export async function resolveDocumentRegistryAddress(input?: {
   chainId?: number;
+  /** Connected wallet — lets pure-v2 org root names be located via the
+   * ENSv2 CREATE2 recompute (the v1 walk finds no resolver for them). */
+  viewer?: Address;
   bundleHint?: { chainId: number; address: string } | null;
 }): Promise<{ address: Address | null; source: DocumentRegistrySource }> {
   const override = getDocumentRegistryOverride();
@@ -163,7 +166,7 @@ export async function resolveDocumentRegistryAddress(input?: {
       // public Sepolia RPC, so discovery works with no env config at all.
       const client = publicClientForChainId(SEPOLIA_CHAIN_ID);
       const ens = client
-        ? await getAddrMultichain({ ensName: resolveRootEnsName(), chainId, client })
+        ? await getAddrMultichain({ ensName: resolveRootEnsName(), chainId, client, from: input?.viewer })
         : null;
       if (ens) return { address: ens, source: "ens" };
     } catch {
@@ -193,7 +196,7 @@ export async function publishDocument(input: {
   selfieRequired?: boolean;
   send: ChainSender;
 }): Promise<Hex> {
-  const to = (await resolveDocumentRegistryAddress()).address;
+  const to = (await resolveDocumentRegistryAddress({ viewer: input.from })).address;
   if (!to) throw new Error("No document registry discovered on ENS. Deploy one from the Documents page first.");
   const selfieRequired = Boolean(input.selfieRequired);
   const flagged = encodeFunctionData({
@@ -227,7 +230,7 @@ export async function grantSlotKey(input: {
   wrap: SecpWrappedKey;
   send: ChainSender;
 }): Promise<Hex> {
-  const to = (await resolveDocumentRegistryAddress()).address;
+  const to = (await resolveDocumentRegistryAddress({ viewer: input.from })).address;
   if (!to) throw new Error("No document registry discovered on ENS. Deploy one from the Documents page first.");
   const data = encodeFunctionData({
     abi: WRITE_ABI,
@@ -264,7 +267,7 @@ export async function grantSlots(input: {
   grants: { slotId: string; wrap: SecpWrappedKey; recipient: Address }[];
   send: ChainSender;
 }): Promise<GrantSlotsResult> {
-  const to = (await resolveDocumentRegistryAddress()).address;
+  const to = (await resolveDocumentRegistryAddress({ viewer: input.from })).address;
   if (!to) throw new Error("No document registry discovered on ENS. Deploy one from the Documents page first.");
   if (input.grants.length === 0) throw new Error("No slots selected to grant.");
 
@@ -328,7 +331,7 @@ export async function requestRehydration(input: {
   selfieProof?: string;
   send: ChainSender;
 }): Promise<Hex> {
-  const to = (await resolveDocumentRegistryAddress()).address;
+  const to = (await resolveDocumentRegistryAddress({ viewer: input.from })).address;
   if (!to) throw new Error("No document registry discovered on ENS. Deploy one from the Documents page first.");
   const proof = input.selfieProof ?? "";
   const flagged = encodeFunctionData({
@@ -389,10 +392,12 @@ export async function documentRegistryScanStartBlock(input: {
   address: Address;
   chainId: number;
   rootEnsName: string;
+  /** Connected wallet — pure-v2 org root names need it for resolver discovery. */
+  viewer?: Address;
 }): Promise<bigint> {
   let deployedAtBlock: number | null = null;
   try {
-    const entries = await readDocumentRegistryEntries(input.rootEnsName, clientForChain(input.chainId));
+    const entries = await readDocumentRegistryEntries(input.rootEnsName, clientForChain(input.chainId), input.viewer);
     deployedAtBlock = entries.find((e) => e.chainId === input.chainId)?.deployedAtBlock ?? null;
   } catch {
     // fall through to the binary search
@@ -413,15 +418,18 @@ export async function documentRegistryScanStartBlock(input: {
  */
 export async function resolveDocumentEventSource(input?: {
   chainId?: number;
+  /** Connected wallet — pure-v2 org root names need it for resolver discovery. */
+  viewer?: Address;
 }): Promise<SoulVaultDeployment | null> {
   const config = getBrowserSoulVaultClientConfig();
   const chainId = input?.chainId ?? config?.chainId ?? SEPOLIA_CHAIN_ID;
-  const { address } = await resolveDocumentRegistryAddress({ chainId });
+  const { address } = await resolveDocumentRegistryAddress({ chainId, viewer: input?.viewer });
   if (!address) return null;
   const fromBlock = await documentRegistryScanStartBlock({
     address,
     chainId,
     rootEnsName: resolveRootEnsName(),
+    viewer: input?.viewer,
   });
   return { address, kind: "document", fromBlock, label: "document-registry" };
 }

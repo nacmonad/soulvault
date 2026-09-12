@@ -4,7 +4,8 @@
  * (story00 §4, story08 §0). Each step = one wallet prompt; partial failure
  * surfaces exactly which steps landed and which remain.
  */
-import { encodeFunctionData, type Address, type Hex } from "viem";
+import { encodeFunctionData, getAddress, type Address, type Hex } from "viem";
+import { normalize } from "viem/ens";
 
 import { SWARM_ARTIFACT, TREASURY_ARTIFACT, DOCUMENT_REGISTRY_ARTIFACT } from "@/lib/contracts-artifacts";
 import { publicClientForChainId } from "@/lib/chains";
@@ -12,6 +13,9 @@ import {
   addSwarmToOrgList,
   bindSwarmEnsSubdomain,
   getAddrMultichain,
+  namehash,
+  RESOLVER_ABI,
+  resolveOrgResolver,
   setAddrMultichain,
   upsertDocumentRegistryEnsRecord,
   upsertOrgTreasury,
@@ -34,6 +38,8 @@ const SWARM_ABI = [
     outputs: [{ type: "address" }],
   },
 ] as const;
+
+const SWARM_CONTRACT_TEXT_KEY = "soulvault.swarmContract";
 
 export type StepStatus = "pending" | "signing" | "mining" | "done" | "failed";
 
@@ -123,12 +129,90 @@ export type SwarmTreasuryMode = "discover" | "override" | "none";
 export type SwarmCreateResult = {
   swarmAddress: Address;
   swarmEnsName: string;
-  deployTxHash: Hex;
+  /** Null when an existing deployment was adopted (nothing was deployed this run). */
+  deployTxHash: Hex | null;
+  /** 0n when an existing deployment was adopted. */
   blockNumber: bigint;
   ens?: { subnodeTxHash: Hex; addrTxHash: Hex; chainIdTxHash: Hex; contractTxHash: Hex };
   orgListTxHash: Hex | null;
   boundTreasury: Address;
 };
+
+/** First sentinel-free tx hash, or undefined when every sub-step was skipped. */
+function firstRealTxHash(hashes: Hex[]): Hex | undefined {
+  return hashes.find((h) => h && h !== "0x");
+}
+
+export type ExistingSwarmDeployment = {
+  swarmAddress: Address;
+  treasury: Address;
+  treasuryMatches: boolean;
+};
+
+/**
+ * Read-only adoption probe (ticket 016): does `<label>.<org>` already point at
+ * a live SoulVaultSwarm? Checks the swarm node's ENSIP `addr` record and the
+ * `soulvault.swarmContract` text record on the org's resolver (v2 orgs use
+ * their PermissionedResolver; v1 orgs the public one — resolveOrgResolver
+ * picks). A candidate only counts when `treasury()` answers (i.e. it is a
+ * SoulVaultSwarm, not some other contract squatting on the record). Returns
+ * null when nothing on-chain claims the name. All reads — no wallet prompt.
+ */
+export async function findExistingSwarmDeployment(input: {
+  from: Address;
+  organizationEnsName: string;
+  swarmEnsName: string;
+  expectedTreasury: Address;
+}): Promise<ExistingSwarmDeployment | null> {
+  const client = publicClient();
+  const resolver = await resolveOrgResolver(input.organizationEnsName, input.from).catch(() => null);
+  if (!resolver) return null;
+  const swarmNode = namehash(normalize(input.swarmEnsName));
+  const addrOnchain = (await client
+    .readContract({
+      address: resolver,
+      abi: RESOLVER_ABI,
+      functionName: "addr",
+      args: [swarmNode],
+    })
+    .catch(() => null)) as Address | null;
+  const contractText = (await client
+    .readContract({
+      address: resolver,
+      abi: RESOLVER_ABI,
+      functionName: "text",
+      args: [swarmNode, SWARM_CONTRACT_TEXT_KEY],
+    })
+    .catch(() => null)) as string | null;
+
+  const candidates: Address[] = [];
+  for (const raw of [addrOnchain, contractText as Address | null]) {
+    if (!raw) continue;
+    try {
+      const candidate = getAddress(raw);
+      if (!candidates.some((c) => c.toLowerCase() === candidate.toLowerCase())) candidates.push(candidate);
+    } catch {
+      // malformed record — ignore
+    }
+  }
+
+  for (const candidate of candidates) {
+    const treasury = (await client
+      .readContract({
+        address: candidate,
+        abi: SWARM_ABI,
+        functionName: "treasury",
+      })
+      .catch(() => null)) as Address | null;
+    if (treasury === null) continue; // not a SoulVaultSwarm
+    return {
+      swarmAddress: candidate,
+      treasury,
+      treasuryMatches: treasury.toLowerCase() === input.expectedTreasury.toLowerCase(),
+    };
+  }
+  return null;
+}
 
 export async function runSwarmCreate(input: {
   from: Address;
@@ -155,6 +239,9 @@ export async function runSwarmCreate(input: {
     const discovered = await getAddrMultichain({
       ensName: input.organizationEnsName,
       chainId: input.chainId,
+      // v2 orgs without a v1-resolvable pointer record need the sender to
+      // locate their resolver via the CREATE2 recompute.
+      from: input.from,
     });
     if (!discovered) {
       throw new Error(
@@ -168,14 +255,45 @@ export async function runSwarmCreate(input: {
 
   // Step 2: deploy SoulVaultSwarm(initialTreasury). Creation data = bytecode +
   // headless-abi-encoded constructor arg (no 4-byte selector in initcode).
+  //
+  // Idempotent re-run (ticket 016, mirroring the org wizard's step-1 probe):
+  // when the swarm subdomain already resolves to a live SoulVaultSwarm whose
+  // bound treasury matches what we just resolved, adopt it — never re-deploy.
+  // A fresh deploy here would orphan the ENS records (the bind step would then
+  // repoint them) and leave a second swarm the org list already maps.
   input.onStep("deploy", { status: "signing" });
-  const creationData = encodeCreationData(SWARM_ARTIFACT.bytecode as Hex, initialTreasury);
-  const deployed = await deployWalletContract({
+  const existing = await findExistingSwarmDeployment({
     from: input.from,
-    bytecode: creationData,
-    chainId: input.chainId,
+    organizationEnsName: input.organizationEnsName,
+    swarmEnsName,
+    expectedTreasury: initialTreasury,
   });
-  input.onStep("deploy", { status: "done", txHash: deployed.txHash, detail: deployed.contractAddress });
+  let deployed: { txHash: Hex | null; contractAddress: Address; blockNumber: bigint };
+  if (existing) {
+    if (existing.treasuryMatches) {
+      input.onStep("deploy", {
+        status: "done",
+        detail: `${existing.swarmAddress} (already deployed — adopted)`,
+      });
+      deployed = { txHash: null, contractAddress: existing.swarmAddress, blockNumber: 0n };
+    } else {
+      throw new Error(
+        `${swarmEnsName} already resolves to ${existing.swarmAddress}, bound to treasury ` +
+          `${existing.treasury} — but this run resolved ${initialTreasury}. Adopting would ` +
+          `rebind it to a different treasury. Either run the wizard with a matching treasury ` +
+          `binding, or unpublish the swarm first (CLI: swarm unpublish).`,
+      );
+    }
+  } else {
+    const creationData = encodeCreationData(SWARM_ARTIFACT.bytecode as Hex, initialTreasury);
+    const fresh = await deployWalletContract({
+      from: input.from,
+      bytecode: creationData,
+      chainId: input.chainId,
+    });
+    deployed = { txHash: fresh.txHash, contractAddress: fresh.contractAddress, blockNumber: fresh.blockNumber };
+    input.onStep("deploy", { status: "done", txHash: fresh.txHash, detail: fresh.contractAddress });
+  }
 
   // Step 3–6: ENS binding (subnode + addr + 2 text records in one UI step, 4 txs)
   // then the org list append.
@@ -187,7 +305,13 @@ export async function runSwarmCreate(input: {
     contractAddress: deployed.contractAddress,
     chainId: input.chainId,
   });
-  input.onStep("ens", { status: "done", txHash: ens.subnodeTxHash, detail: "subnode + addr + 2 text records" });
+  input.onStep("ens", {
+    status: "done",
+    // Skipped sub-steps carry the "0x" sentinel — link the first tx that was
+    // actually signed (or none when every record already matched on-chain).
+    txHash: firstRealTxHash([ens.subnodeTxHash, ens.addrTxHash, ens.chainIdTxHash, ens.contractTxHash]),
+    detail: "subnode + addr + 2 text records (only diffs written)",
+  });
 
   input.onStep("orgList", { status: "signing" });
   const orgListTxHash = await addSwarmToOrgList({
@@ -241,8 +365,8 @@ function encodeCreationData(bytecode: Hex, initialTreasury: Address): Hex {
     ],
     functionName: "init",
     args: [initialTreasury],
-  }).slice(10) as Hex; // strip the 4-byte selector, keep the 32-byte word
-  return (bytecode + encodedArgs.slice(2)) as Hex;
+  }).slice(10) as Hex; // strip the 4-byte selector, keep the 32-byte word — NOTE: no `0x` prefix after this (same hazard as ens-register-v2.ts computeVerifiableProxyAddress, fixed in 0d07d92)
+  return (bytecode + encodedArgs) as Hex;
 }
 
 function publicClient() {
@@ -357,7 +481,7 @@ export async function runDocumentPublish(input: {
   onStep: (stepId: string, update: Partial<WizardStep>) => void;
 }): Promise<DocumentPublishResult> {
   input.onStep("resolve", { status: "signing" });
-  const { address: registry, source } = await resolveDocumentRegistryAddress();
+  const { address: registry, source } = await resolveDocumentRegistryAddress({ viewer: input.from });
   if (!registry) {
     input.onStep("resolve", { status: "failed" });
     throw new Error(

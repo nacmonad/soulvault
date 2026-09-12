@@ -311,7 +311,7 @@ export default function DocumentsRedactPage() {
       setPublishOutcome(null);
       // Attach the (non-authoritative) registry hint so consumers can fall back
       // to it when ENS/env discovery is unavailable (ticket 012 §D).
-      const { address: registry } = await resolveDocumentRegistryAddress();
+      const { address: registry } = await resolveDocumentRegistryAddress({ viewer: address ?? undefined });
       const config = getBrowserSoulVaultClientConfig();
       const hint = registry && config ? { chainId: config.chainId, address: registry } : undefined;
       setRegistryHint(hint);

@@ -23,7 +23,7 @@ export function orderEvents<T extends SoulVaultEvent>(events: readonly T[]): T[]
 
 const at = (event: SoulVaultEvent) => ({ blockNumber: event.blockNumber, txHash: event.txHash });
 
-function argsOf(event: SoulVaultEvent): Record<string, unknown> {
+export function argsOf(event: SoulVaultEvent): Record<string, unknown> {
   if ('args' in event) return event.args;
   return {} as Record<string, unknown>;
 }
@@ -44,6 +44,58 @@ export type AgentDirectory = {
   byWallet: Map<Address, AgentProfile[]>;
 };
 
+/**
+ * The ERC-8004 identity registry is a global singleton, so AgentRegistered
+ * events are emitted for every agent on the chain regardless of organization.
+ * SoulVault registrations carry the attribution key inside the agentURI — a
+ * `data:application/json;base64` payload whose `soulvault.swarmContract` names
+ * the swarm contract the agent belongs to (packages/node/src/identity.ts).
+ * Parse it here so consumers can org-scope the directory.
+ */
+export function agentSwarmContractFromUri(uri: string | null): Address | null {
+  const parsed = parseAgentUri(uri);
+  const sc = parsed?.soulvault?.swarmContract;
+  if (typeof sc !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(sc)) return null;
+  return sc as Address;
+}
+
+export type AgentUriPayload = {
+  type?: string;
+  name?: string;
+  description?: string;
+  image?: string;
+  harness?: string;
+  services?: Array<{ type?: string; url?: string }>;
+  supportedTrust?: string[];
+  soulvault?: {
+    swarmContract?: string;
+    memberAddress?: string;
+    role?: string;
+    harness?: string;
+    backupHarnessCommand?: string;
+    registryAddress?: string;
+    /** ENSv2 bridge name (<agent>.<swarm>.<org>.eth) — the agent's canonical title. */
+    ensName?: string;
+  };
+};
+
+/**
+ * Decode an ERC-8004 agentURI into the SoulVault registration payload shape
+ * (packages/node/src/identity.ts buildAgentRegistration). Returns null for
+ * http(s) URIs, non-JSON payloads, and garbage — callers render a fallback.
+ */
+export function parseAgentUri(uri: string | null): AgentUriPayload | null {
+  const prefix = 'data:application/json;base64,';
+  if (!uri || !uri.startsWith(prefix)) return null;
+  try {
+    const parsed = JSON.parse(atob(uri.slice(prefix.length))) as AgentUriPayload;
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 export function reduceAgentState(events: readonly SoulVaultEvent[]): AgentDirectory {
   const byId = new Map<bigint, AgentProfile>();
   for (const event of orderEvents(events)) {
@@ -53,10 +105,11 @@ export function reduceAgentState(events: readonly SoulVaultEvent[]): AgentDirect
     switch (event.eventName) {
       case 'AgentRegistered': {
         if (byId.has(agentId)) break;
+        const uri = (args.agentURI as string) ?? null;
         byId.set(agentId, {
           agentId,
           wallet: args.agentWallet as Address,
-          uri: (args.agentURI as string) ?? null,
+          uri,
           metadata: {},
           registeredAt: at(event),
           updatedAt: at(event),

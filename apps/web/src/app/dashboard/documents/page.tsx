@@ -18,19 +18,19 @@ export default function DocumentsIndexPage() {
           n="1"
           href="/dashboard/documents/redact"
           title="Redact"
-          body="Paste a note. Presidio (local) finds PII. You confirm slots, encrypt, publish the hash."
+          body="Paste a note. Scan locally. Confirm or drop slots, add anything Presidio missed, then encrypt and publish the hash."
         />
         <Step
           n="2"
           href="/dashboard/documents/grants"
           title="Grant"
-          body="Someone requests rehydration. You sign which slots they may see. Ledger or injected wallet."
+          body="You sign which slots a wallet may see — they can request first, or you grant ahead. Ledger or injected wallet."
         />
         <Step
           n="3"
           href="/dashboard/documents/rehydrate"
           title="Rehydrate"
-          body="Paste the public bundle. Only granted slots decrypt. Optional World Selfie on READ."
+          body="Paste the public bundle. Only granted slots decrypt. World Selfie Check is on the request, not unwrap."
         />
       </ol>
 

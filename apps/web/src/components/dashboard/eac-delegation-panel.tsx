@@ -110,7 +110,12 @@ export function EacDelegationPanel({ swarmEnsName }: { swarmEnsName: string | nu
   );
 
   async function runGrant() {
-    if (!ctx || !address || !agentAddress) return;
+    if (!address || !agentAddress.trim()) return;
+    if (scope === "root" && !rootRegistry) {
+      setError("Resolve the registry first (Check roles).");
+      return;
+    }
+    if (scope !== "root" && !ctx) return;
     const bitmap = [...selected].reduce((acc, role) => acc | ENSV2_ROLE_NAMES[role], 0n);
     if (bitmap === 0n) {
       setError("Select at least one role to grant.");
@@ -135,14 +140,16 @@ export function EacDelegationPanel({ swarmEnsName }: { swarmEnsName: string | nu
         await lookup(agentAddress.trim() as Address);
         return;
       }
+      const nameCtx = ctx;
+      if (!nameCtx) return;
       await grantNameEacRoles({
         from: address,
-        fullName: ctx.fullName,
-        ctx,
+        fullName: nameCtx.fullName,
+        ctx: nameCtx,
         account: agentAddress.trim() as Address,
         roleBitmap: bitmap,
       });
-      setNotice(`Granted ${formatEnsV2RoleBitmap(bitmap).join(", ")} on ${ctx.fullName} → ${shortAddress(agentAddress.trim() as Address)}.`);
+      setNotice(`Granted ${formatEnsV2RoleBitmap(bitmap).join(", ")} on ${nameCtx.fullName} → ${shortAddress(agentAddress.trim() as Address)}.`);
       await lookup(agentAddress.trim() as Address);
     } catch (e) {
       setError(errorMessage(e));
@@ -152,7 +159,12 @@ export function EacDelegationPanel({ swarmEnsName }: { swarmEnsName: string | nu
   }
 
   async function runRevoke() {
-    if (!ctx || !address || !agentAddress) return;
+    if (!address || !agentAddress.trim()) return;
+    if (scope === "root" && !rootRegistry) {
+      setError("Resolve the registry first (Check roles).");
+      return;
+    }
+    if (scope !== "root" && !ctx) return;
     const bitmap = [...selected].reduce((acc, role) => acc | ENSV2_ROLE_NAMES[role], 0n);
     if (bitmap === 0n) {
       setError("Select at least one role to revoke.");
@@ -177,14 +189,16 @@ export function EacDelegationPanel({ swarmEnsName }: { swarmEnsName: string | nu
         await lookup(agentAddress.trim() as Address);
         return;
       }
+      const nameCtx = ctx;
+      if (!nameCtx) return;
       await revokeNameEacRoles({
         from: address,
-        fullName: ctx.fullName,
-        ctx,
+        fullName: nameCtx.fullName,
+        ctx: nameCtx,
         account: agentAddress.trim() as Address,
         roleBitmap: bitmap,
       });
-      setNotice(`Revoked ${formatEnsV2RoleBitmap(bitmap).join(", ")} on ${ctx.fullName} from ${shortAddress(agentAddress.trim() as Address)}.`);
+      setNotice(`Revoked ${formatEnsV2RoleBitmap(bitmap).join(", ")} on ${nameCtx.fullName} from ${shortAddress(agentAddress.trim() as Address)}.`);
       await lookup(agentAddress.trim() as Address);
     } catch (e) {
       setError(errorMessage(e));
@@ -295,10 +309,19 @@ export function EacDelegationPanel({ swarmEnsName }: { swarmEnsName: string | nu
         </p>
       ) : null}
       <div className="mt-3 flex gap-2">
-        <Button size="xs" disabled={busy !== null || !ctx || !agentAddress.trim()} onClick={() => void runGrant()}>
+        <Button
+          size="xs"
+          disabled={busy !== null || !agentAddress.trim() || (scope === "root" ? !rootRegistry : !ctx)}
+          onClick={() => void runGrant()}
+        >
           {busy === "grant" ? "Signing…" : "Grant"}
         </Button>
-        <Button size="xs" variant="outline" disabled={busy !== null || !ctx || !agentAddress.trim()} onClick={() => void runRevoke()}>
+        <Button
+          size="xs"
+          variant="outline"
+          disabled={busy !== null || !agentAddress.trim() || (scope === "root" ? !rootRegistry : !ctx)}
+          onClick={() => void runRevoke()}
+        >
           {busy === "revoke" ? "Signing…" : "Revoke"}
         </Button>
       </div>

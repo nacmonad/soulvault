@@ -125,10 +125,18 @@ demo does not depend on it.
 Full-loss scenario: Charlie loses wallet keypair, memories, and instance.
 As org owner:
 1. Generate new wallet for the fresh instance.
-2. Re-point the subname: `setSubnodeRecord(node, charlie-label, newOwner,
-   resolver, ttl)` — ABI already in `packages/node/src/ens.ts`. ERC-8004
-   registration re-points to the new address too.
-3. `swarm remove <old-address>` → `MemberRemoved` → sweep trigger fires.
+2. New wallet registers a **fresh ERC-8004 agent** (`registerAgent` → new
+   agentId). The old registration is frozen forever (`updateAgentURI`/
+   `setMetadata` require `msg.sender == wallet` — lost wallet = uneditable
+   entry). That's correct registry behavior: registrations are immutable
+   credentials, not mutable pointers.
+3. Re-point the subname: `setSubnodeRecord(node, charlie-label, newOwner,
+   resolver, ttl)` — ABI already in `packages/node/src/ens.ts`.
+4. With the ENSv2 registry grant, the new agent updates its subdomain
+   metadata text records (resolver `setText`) to point at the **new**
+   ERC-8004 agentId. The name is the stable handle; the ERC-8004
+   registration it references is replaceable.
+5. `swarm remove <old-address>` → `MemberRemoved` → sweep trigger fires.
 4. New instance: `ring init` (one Ledger tap) → `swarm join-request` → owner
    approves → `recovery restore --agent charlie.ops...` → memories back.
 

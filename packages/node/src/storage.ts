@@ -16,7 +16,6 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { loadEnv } from './config.js';
-import { uploadJsonTo0G, downloadFrom0G } from './0g.js';
 import { resolveRepoRoot } from './paths.js';
 
 export type StorageUpload = {
@@ -56,6 +55,10 @@ export async function uploadPayload(value: unknown): Promise<StorageUpload> {
     await writeFile(path.join(dir, hash), bytes);
     return { payloadRef: `file://${hash}`, backend, txHash: null };
   }
+  // Lazy: the 0G path drags in the signer (Ledger DMK → node-hid native
+  // binding). The `file` backend must never load that graph — it breaks
+  // webpack server bundles on non-Linux hosts (native prebuilt mismatch).
+  const { uploadJsonTo0G } = await import('./0g.js');
   const tx = (await uploadJsonTo0G(value)) as {
     rootHash?: string;
     rootHashes?: string[];
@@ -81,6 +84,7 @@ export async function downloadPayload(payloadRef: string): Promise<unknown> {
   }
   const { tmpdir } = await import('node:os');
   const tempPath = path.join(tmpdir(), `soulvault-payload-${Date.now()}.json`);
+  const { downloadFrom0G } = await import('./0g.js');
   await downloadFrom0G(payloadRef, tempPath);
   return JSON.parse(await readFile(tempPath, 'utf8'));
 }

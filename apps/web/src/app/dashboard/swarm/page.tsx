@@ -10,6 +10,7 @@ import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-prov
 import { useOrgDiscovery } from "@/hooks/useOrgDiscovery";
 import { useSwarmEvents } from "@/hooks/useSwarmEvents";
 import { SwarmWizard } from "@/components/create/swarm-wizard";
+import { CliRecoveryHint } from "@/components/create/wizard-steps";
 import { publicClientForChainId } from "@/lib/chains";
 import { reduceSwarmState, type SwarmState } from "@/lib/onchain/reducers";
 import { approveJoin, rejectJoin } from "@/lib/treasury-contract";
@@ -315,10 +316,11 @@ export default function SwarmPage() {
               <span className="text-muted-foreground">
                 {[...view.removedMembers.values()]
                   .map((r) => `${shortAddress(r.wallet)} (kicked at epoch ${r.removedAtEpoch.toString()})`)
-                  .join(", ")} keeps pre-rotation ciphertext. Run
-                <code className="mx-1 border border-border bg-card px-1 py-0.5 font-mono text-xs">soulvault recovery sweep</code>
-                then republish manifests. This clears when the escrow layer publishes past the kick.
+                  .join(", ")} keeps pre-rotation ciphertext. As swarm owner, run the sweep
+                (derives, rotates, re-escrows — zero key material stored), then republish the
+                member manifests. This clears when the escrow layer publishes past the kick.
               </span>
+              <CliRecoveryHint command={buildSweepCommand([...view.removedMembers.values()], agentsByWallet)} />
             </div>
           ) : null}
           {members.length === 0 ? (
@@ -460,6 +462,33 @@ function Field({ label, value, mono }: { label: string; value: string; mono?: bo
       <dd className={`mt-2 text-sm ${mono ? "font-mono" : ""}`}>{value}</dd>
     </div>
   );
+}
+
+/**
+ * CLI equivalent of the sweep-recommended banner: one sweep per kicked agent,
+ * named by ENS when the ERC-8004 metadata carries soulvault.ensName, else by
+ * wallet (the CLI resolves what it can — a wallet-only agent still sweeps via
+ * its escrow directory). Local backend is the demo default; ledger owners drop
+ * the flag once wallet-cli is on PATH.
+ */
+function buildSweepCommand(
+  removed: { wallet: Address }[],
+  agentsByWallet: Map<string, { uri: string | null }[]>,
+): string {
+  const agents = removed.map((r) => {
+    const ensName = (agentsByWallet.get(r.wallet.toLowerCase()) ?? [])
+      .map((a) => {
+        try {
+          const payload = a.uri ? (JSON.parse(decodeURIComponent(a.uri.replace(/^data:application\/json,/, ""))) as { soulvault?: { ensName?: string } }) : null;
+          return typeof payload?.soulvault?.ensName === "string" ? payload.soulvault.ensName : null;
+        } catch {
+          return null;
+        }
+      })
+      .find(Boolean);
+    return ensName ?? r.wallet;
+  });
+  return agents.map((agent) => `pnpm soulvault recovery sweep --agent ${agent} --backend local`).join(" && ");
 }
 
 type MemberRowMember = {

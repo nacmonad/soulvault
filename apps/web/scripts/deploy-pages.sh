@@ -9,6 +9,11 @@ set -e
 REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$REPO_ROOT/apps/web"
 
+# ETHOnline deck rides along at /soulvault/slides/ (public/ → export).
+if [ -f "$REPO_ROOT/scripts/build-ethonline-slides.sh" ]; then
+  sh "$REPO_ROOT/scripts/build-ethonline-slides.sh"
+fi
+
 pnpm build:export
 
 OUT="$REPO_ROOT/apps/web/out"

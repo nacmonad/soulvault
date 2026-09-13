@@ -65,9 +65,12 @@ ciphertext**. Bring your own RPC.
 
 ```
 Organization  (ENS root, admin boundary, optional treasury per chain)
-  ├── Treasury  (SoulVaultTreasury — one per chain, discovered via ENSIP-11 addr)
-  └── Swarm     (SoulVaultSwarm — one contract, one member set, one epoch-key lineage)
-       └── Agent  (wallet + runtime + optional public identity)
+  ├── Treasury         (SoulVaultTreasury — one per chain, discovered via ENSIP-11 addr)
+  ├── DocumentRegistry (SoulVaultDocumentRegistry — org-scoped; publishes docs, carries
+  │                     rehydration requests + slot-key grants; announced via the
+  │                     `soulvault.documentRegistry` text record on the org ENS name)
+  └── Swarm            (SoulVaultSwarm — one contract, one member set, one epoch-key lineage)
+       └── Agent       (wallet + runtime + optional public identity)
 ```
 
 - `acme.eth` — organization

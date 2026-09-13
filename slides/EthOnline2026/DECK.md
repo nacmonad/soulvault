@@ -1,16 +1,43 @@
----
 marp: true
 theme: default
 paginate: true
 title: SoulVault — ETHOnline 2026
 header: 'SoulVault — ETHOnline 2026'
 style: |
-  section { font-size: 28px; }
-  h1 { font-size: 1.6em; }
-  header { font-size: 14px; color: #666; }
-  footer { font-size: 12px; color: #888; }
-  a { color: #2563eb; }
-  code { font-size: 0.85em; }
+  section {
+    background: #0f172a;
+    color: #e2e8f0;
+    font-size: 27px;
+  }
+  h1 { color: #818cf8; font-size: 1.5em; }
+  h2 { color: #a5b4fc; }
+  strong { color: #f8fafc; }
+  a { color: #818cf8; }
+  code {
+    color: #7dd3fc;
+    background: #1e293b;
+    padding: 0 6px;
+    border-radius: 6px;
+    font-size: 0.9em;
+  }
+  pre, pre code {
+    background: #0b1222;
+    color: #c7d2fe;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    font-size: 0.85em;
+  }
+  pre { padding: 14px; }
+  header { color: #94a3b8; font-size: 14px; }
+  footer { color: #64748b; font-size: 12px; }
+  blockquote {
+    color: #c7d2fe;
+    border-left: 4px solid #4f46e5;
+    padding-left: 16px;
+  }
+  table { font-size: 0.85em; }
+  th { color: #a5b4fc; }
+  section.lead { text-align: center; }
 ---
 
 <!-- _header: '' -->
@@ -18,13 +45,13 @@ style: |
 
 # SoulVault
 
-## Local PII redact + wallet-authorized rehydrate
+## Redact on your machine. Recover what an agent was — even after it dies.
 
-![bg right:38% 75%](media/hero-logo-w.png)
+![bg right:34% 62%](media/logo.svg)
+
+ETHOnline 2026 · Documents · ENSv2 · Ledger · World
 
 **G0:** Redact on your machine. Authorized wallets rehydrate only the fields they're allowed to see.
-
-ETHOnline 2026 · Continuity · ENS · Ledger · World
 
 ---
 
@@ -43,7 +70,7 @@ ETHOnline 2026 · Continuity · ENS · Ledger · World
 - Presidio in the browser. PII never leaves Alice's machine
 - Redacted artifact travels on ordinary channels
 - Per-slot keys, ECDH-wrapped to the requester, delivered as `SlotKeyGranted`
-- Same wrap as Cannes epoch bundles / DMs — now on document slots
+- Same wrap as epoch bundles / DMs — now on document slots
 
 Dashboard: `/dashboard/documents/{redact,grants,rehydrate}`
 
@@ -102,7 +129,7 @@ Charlie v2 is the burn + re-register beat — v1 is still live (not burned yet).
 
 # Ledger — HITL + Key Ring
 
-![bg right:28% 50%](media/LEDGER-WORDMARK-BLACK-CMYK.png)
+![w:340 invert](media/LEDGER-WORDMARK-BLACK-CMYK.png)
 
 **Documents path:** host UI can lie; the Nano cannot. Charlie attests the rehydration pubkey on-device. One sig, N slots.
 
@@ -133,6 +160,36 @@ HITL is enrollment (`ring init`), not every restore. After init, encrypt/decrypt
 
 ---
 
+# Catastrophic recovery — the Charlie story
+
+```
+v1 dies      → wallet gone, membership revoked (MemberRemoved)
+v2 joins     → fresh wallet, join-request → owner approves
+v2 asks      → requestEpochKey(keyName)     ★ EpochKeyRequested
+Alice's ring → derives key ON-CHIP — never stored, never sent
+grant DM     → ECDH-wrap to v2's pubkey → sv:epoch-grant:v1
+v2 opens     → unwrap grant → fetch escrow → decrypt
+             → byte-identical MEMORY_FILE.md ✓
+```
+
+- Escrow ciphertext: `soulvault:epoch-recovery:charlie…:epoch-000007`
+- Public bundle carries the **registry contract address** — rehydrators don't need membership
+
+---
+
+# Succession — the name is the identity
+
+1. Owner **burns** v1's name — `ROLE_UNREGISTER` at org root
+2. Grants `ROLE_REGISTRAR` on the swarm subregistry → v2
+3. v2 **re-registers the same label** — `charlie.ops.soulvault-ensv2.eth`
+4. Resolver records point at v2's new ERC-8004 agent id
+
+**Zero state carried over.** New wallet, same name, memories restored by the ring.
+
+*The contract never sees a key — it sees events. Kick events trigger sweeps, manifests point at escrows, ENS anchors identity.*
+
+---
+
 <!-- _header: 'Sponsor — World' -->
 
 # World — proof-of-selfie (not finished)
@@ -153,13 +210,13 @@ Fail-closed when enabled: no proof → no wrap → no `SlotKeyGranted`.
 
 # Close
 
-> Redact on your machine. Authorized wallets rehydrate only the fields they're allowed to see.
+> Redact on your machine. Recover what an agent was — even after it dies.
 
-- **ENS** names the contracts. Events are the database.
-- **Ledger** is HITL on the request, and the ring for agent recovery.
+- **ENSv2 EAC** names the contracts, agents own their subnames. Events are the database.
+- **Ledger** is HITL on requests — and the ring that **derives, never stores**.
 - **World** selfie is the human gate we want on grants — still open.
 
-No SoulVault server. No revoke-after-unwrap (READ copies exist).
+No SoulVault server. No keys onchain. Identity survives the wallet.
 
 https://nacmonad.github.io/soulvault/
 https://github.com/nacmonad/soulvault

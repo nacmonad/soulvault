@@ -102,7 +102,7 @@ Org name holds swarm / treasury / documentRegistry addresses (+ chainIds).
 
 CLI + dashboard parse **logs and events**. No persistent `.json` configs. No config server.
 
-Kill ENS: Alice pastes a registry address; Charlie cannot find it on a fresh browser.
+Agents can be killed — their subname is **burned** (`ROLE_UNREGISTER`) so the label is reclaimable by a successor, and memories are revived via epoch-key recovery.
 
 **Live org:** `soulvault-ensv2.eth` (island registry)
 

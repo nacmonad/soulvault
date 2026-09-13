@@ -68,6 +68,8 @@ ETHOnline 2026 · Documents · ENSv2 · Ledger · World
 
 # What this event ships
 
+![bg right:44% contain](media/rehydrate-screenshot.jpg)
+
 - Presidio in the browser. PII never leaves Alice's machine
 - Redacted artifact travels on ordinary channels
 - Per-slot keys, ECDH-wrapped to the requester, delivered as `SlotKeyGranted`

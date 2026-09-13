@@ -1,3 +1,15 @@
 packages:
   - packages/*
   - apps/*
+allowBuilds:
+  bufferutil: true
+  es5-ext: true
+  esbuild: true
+  node-hid: true
+  onnxruntime-node: true
+  protobufjs: true
+  sharp: true
+  unrs-resolver: true
+  usb: true
+  utf-8-validate: true
+enablePrePostScripts: true

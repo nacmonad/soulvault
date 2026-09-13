@@ -1,13 +1,16 @@
-import { encodeFunctionData, type Address, type Hex, type PublicClient } from "viem";
+import { decodeEventLog, encodeFunctionData, type Address, type Hex, type PublicClient } from "viem";
 import type { SecpWrappedKey } from "@soulvault/protocol";
 
 import { SEPOLIA_CHAIN_ID, publicClientForChainId } from "@/lib/chains";
+import { DOCUMENT_EVENT_ABI } from "@/lib/onchain/abis";
 import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 import { contractScanStartBlock } from "@/lib/onchain/scan-start";
+import { getLogsChunked } from "@/lib/onchain/soulvault-activity";
 import { loadSelectedOrgEnsName } from "@/lib/dashboard-context";
 import { getAddrMultichain, readDocumentRegistryEntries } from "@/lib/ens-writes";
 import type { SoulVaultDeployment } from "@/lib/onchain/types";
 import type { ChainSender } from "@/lib/wallet-tx";
+import type { PublishedDocumentAnchor } from "@/lib/document-rehydrate";
 
 export const WRITE_ABI = [
   {
@@ -290,8 +293,16 @@ export async function requestRehydration(input: {
   documentId: string;
   rehydrationPublicKey: string;
   send: ChainSender;
+  /** Self-contained fallback (rehydrate page): the bundle names the registry
+   * that anchors it, so a consumer outside any org needs no ENS discovery. */
+  registryHint?: { chainId: number; address: string } | null;
 }): Promise<Hex> {
-  const to = (await resolveDocumentRegistryAddress({ viewer: input.from })).address;
+  const to = (
+    await resolveDocumentRegistryAddress({
+      viewer: input.from,
+      bundleHint: input.registryHint ?? null,
+    })
+  ).address;
   if (!to) throw new Error("No document registry discovered on ENS. Deploy one from the Documents page first.");
   const data = encodeFunctionData({
     abi: WRITE_ABI,
@@ -333,6 +344,55 @@ export async function documentRegistryScanStartBlock(input: {
     chainId: input.chainId,
     deployedAtBlock,
   });
+}
+
+/**
+ * Direct publish-anchor read from a registry the shared event cache has never
+ * scanned — a consumer outside any org has no ENS discovery path, but the
+ * bundle is self-contained: it names the registry that anchors it. Scans from
+ * the (cached) deploy block, returns the latest DocumentPublished for the
+ * docHash, or null when the chain has none (unpublished / tampered bundle).
+ */
+export async function fetchPublishedAnchorFromRegistry(input: {
+  registry: { chainId: number; address: string };
+  docHash: Hex;
+}): Promise<PublishedDocumentAnchor | null> {
+  if (!/^0x[0-9a-fA-F]{40}$/.test(input.registry.address)) return null;
+  const address = input.registry.address as Address;
+  const client = publicClientForChainId(input.registry.chainId);
+  if (!client) return null;
+  const fromBlock = await contractScanStartBlock({
+    address,
+    chainId: input.registry.chainId,
+    deployedAtBlock: null,
+  });
+  const logs = await getLogsChunked(client, {
+    address,
+    fromBlock,
+    toBlock: "latest",
+  });
+  let anchor: PublishedDocumentAnchor | null = null;
+  for (const log of logs) {
+    let args: { docHash?: unknown; slotIds?: unknown };
+    try {
+      const decoded = decodeEventLog({
+        abi: DOCUMENT_EVENT_ABI,
+        data: log.data,
+        topics: log.topics,
+      });
+      if (decoded.eventName !== "DocumentPublished") continue;
+      args = (decoded.args ?? {}) as { docHash?: unknown; slotIds?: unknown };
+    } catch {
+      continue;
+    }
+    if (typeof args.docHash !== "string") continue;
+    if (args.docHash.toLowerCase() !== input.docHash.toLowerCase()) continue;
+    anchor = {
+      docHash: args.docHash,
+      slotIds: Array.isArray(args.slotIds) ? (args.slotIds as string[]) : [],
+    };
+  }
+  return anchor;
 }
 
 /**

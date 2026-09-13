@@ -1,3 +1,4 @@
+---
 marp: true
 theme: default
 paginate: true
@@ -67,6 +68,8 @@ ETHOnline 2026 · Documents · ENSv2 · Ledger · World
 
 # What this event ships
 
+![bg right:44% contain](media/rehydrate-screenshot.jpg)
+
 - Presidio in the browser. PII never leaves Alice's machine
 - Redacted artifact travels on ordinary channels
 - Per-slot keys, ECDH-wrapped to the requester, delivered as `SlotKeyGranted`
@@ -101,7 +104,7 @@ Org name holds swarm / treasury / documentRegistry addresses (+ chainIds).
 
 CLI + dashboard parse **logs and events**. No persistent `.json` configs. No config server.
 
-Kill ENS: Alice pastes a registry address; Charlie cannot find it on a fresh browser.
+Agents can be killed — their subname is **burned** (`ROLE_UNREGISTER`) so the label is reclaimable by a successor, and memories are revived via epoch-key recovery.
 
 **Live org:** `soulvault-ensv2.eth` (island registry)
 
@@ -190,6 +193,16 @@ v2 opens     → unwrap grant → fetch escrow → decrypt
 
 ---
 
+---
+
+# Demo — live walkthrough
+
+<iframe src="https://www.youtube-nocookie.com/embed/yX8Il3XSTwA" width="760" height="428" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+
+https://youtu.be/yX8Il3XSTwA — *ETHOnline 2026 · Soulvault Redact Rehydrate Demo*
+
+---
+
 <!-- _header: 'Sponsor — World' -->
 
 # World — proof-of-selfie (not finished)
@@ -216,7 +229,8 @@ Fail-closed when enabled: no proof → no wrap → no `SlotKeyGranted`.
 - **Ledger** is HITL on requests — and the ring that **derives, never stores**.
 - **World** selfie is the human gate we want on grants — still open.
 
-No SoulVault server. No keys onchain. Identity survives the wallet.
+No SoulVault server. No keys onchain. Identity survives the wallet. **BYORPC** — bring your own RPC.
 
+🎬 Demo walkthrough: https://youtu.be/yX8Il3XSTwA
 https://nacmonad.github.io/soulvault/
 https://github.com/nacmonad/soulvault

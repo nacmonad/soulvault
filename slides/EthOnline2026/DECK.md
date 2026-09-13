@@ -227,7 +227,7 @@ Fail-closed when enabled: no proof → no wrap → no `SlotKeyGranted`.
 - **Ledger** is HITL on requests — and the ring that **derives, never stores**.
 - **World** selfie is the human gate we want on grants — still open.
 
-No SoulVault server. No keys onchain. Identity survives the wallet.
+No SoulVault server. No keys onchain. Identity survives the wallet. **BYORPC** — bring your own RPC.
 
 🎬 Demo walkthrough: https://youtu.be/yX8Il3XSTwA
 https://nacmonad.github.io/soulvault/

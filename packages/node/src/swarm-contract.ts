@@ -12,6 +12,7 @@ const SOULVAULT_SWARM_ABI = [
   'function requestJoin(bytes pubkey, string pubkeyRef, string metadataRef) returns (uint256 requestId)',
   'function approveJoin(uint256 requestId)',
   'function rejectJoin(uint256 requestId, string reason)',
+  'function removeMember(address member)',
   'function rotateEpoch(uint64 newEpoch, string keyBundleRef, bytes32 keyBundleHash, uint64 expectedMembershipVersion)',
   'function requestBackup(uint64 epoch, string reason, string targetRef, uint64 deadline)',
   'function updateMemberFileMapping(address member, string storageLocator, bytes32 merkleRoot, bytes32 publishTxHash, bytes32 manifestHash, uint64 epoch)',
@@ -38,7 +39,9 @@ const SOULVAULT_SWARM_ABI = [
   'event FundRequestCancelled(uint256 indexed requestId, address indexed requester)',
   'function postMessage(address to, string topic, uint64 seq, uint64 epoch, string payloadRef, bytes32 payloadHash, uint64 ttl)',
   'function getLastSenderSeq(address sender) view returns (uint64)',
+  'function requestEpochKey(string keyName, string reason)',
   'event AgentMessagePosted(address indexed from, address indexed to, string topic, uint64 seq, uint64 epoch, string payloadRef, bytes32 payloadHash, uint64 ttl, uint64 timestamp)',
+  'event EpochKeyRequested(string keyName, address indexed requester, bytes requesterPubkey, string reason, uint64 epoch, uint64 timestamp)',
 ] as const;
 
 export const SOULVAULT_TREASURY_ABI = [
@@ -134,6 +137,33 @@ export async function approveJoinSwarm(input: { swarm?: string; requestId: strin
     currentEpoch: currentEpoch.toString(),
     membershipVersion: membershipVersion.toString(),
     memberCount: memberCount.toString(),
+  };
+}
+
+/**
+ * Remove a swarm member (kick). Owner-only, bumps membershipVersion and emits
+ * MemberRemoved — the successor/onboarding counterpart of approveJoin.
+ */
+export async function removeMemberSwarm(input: { swarm?: string; member: string }) {
+  const { profile, contract } = await getSwarmContract(input.swarm);
+  const tx = await contract.removeMember(input.member);
+  const receipt = await tx.wait();
+  const [currentEpoch, membershipVersion, memberCount, active] = await Promise.all([
+    contract.currentEpoch(),
+    contract.membershipVersion(),
+    contract.memberCount(),
+    contract.isActiveMember(input.member),
+  ]);
+
+  return {
+    swarm: profile.slug,
+    contractAddress: profile.contractAddress,
+    txHash: receipt?.hash,
+    member: input.member,
+    currentEpoch: currentEpoch.toString(),
+    membershipVersion: membershipVersion.toString(),
+    memberCount: memberCount.toString(),
+    stillActive: active,
   };
 }
 
@@ -746,5 +776,37 @@ export async function listFundRequests(input: {
     fromBlock,
     toBlock,
     requests: filtered,
+  };
+}
+
+/** Active member requests an epoch key ring grant by key name. Emits EpochKeyRequested. */
+export async function requestEpochKeyOnSwarm(input: { swarm?: string; keyName: string; reason?: string }) {
+  const { profile, contract } = await getSwarmContract(input.swarm);
+  const tx = await contract.requestEpochKey(input.keyName, input.reason ?? '');
+  const receipt = await tx.wait();
+
+  let requesterPubkey: string | undefined;
+  let epoch: string | undefined;
+  for (const log of receipt?.logs ?? []) {
+    try {
+      const parsed = contract.interface.parseLog(log);
+      if (parsed?.name === 'EpochKeyRequested') {
+        requesterPubkey = parsed.args.requesterPubkey;
+        epoch = parsed.args.epoch.toString();
+        break;
+      }
+    } catch {
+      // ignore logs that don't match this interface
+    }
+  }
+
+  return {
+    swarm: profile.slug,
+    contractAddress: profile.contractAddress,
+    txHash: receipt?.hash,
+    keyName: input.keyName,
+    reason: input.reason ?? '',
+    requesterPubkey,
+    epoch,
   };
 }

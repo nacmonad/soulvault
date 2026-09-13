@@ -8,6 +8,7 @@ import {
   readEnsV2RootRoles,
   authorizeEnsV2ResolverRoles,
   readEnsV2ResolverRoles,
+  burnEnsV2Name,
 } from '@soulvault/node/ensv2-grants';
 
 export function registerEnsCommands(program: Command) {
@@ -236,6 +237,40 @@ export function registerEnsCommands(program: Command) {
         account: options.account,
         key: options.key,
       });
+      console.log(JSON.stringify(result, null, 2));
+    });
+
+  ens
+    .command('burn')
+    .description(
+      'Burn a registered ENSv2 name token (unregister the label). Owner succession/offboarding: requires ROLE_UNREGISTER ' +
+        'at the registry root (the org owner holds it). After the burn the label is AVAILABLE again and can be ' +
+        're-registered to a successor wallet. DESTRUCTIVE: the token, its EAC roles, and resolver binding are gone.',
+    )
+    .requiredOption('--name <name>', 'Fully-qualified name to burn, e.g. charlie.ops.soulvault-ensv2.eth')
+    .option('--yes', 'Skip the confirmation prompt (for scripting)', false)
+    .action(async (options) => {
+      if (!options.yes) {
+        const { createInterface } = await import('node:readline/promises');
+        const rl = createInterface({ input: process.stdin, output: process.stderr });
+        const answer = await rl.question(
+          `Burn "${options.name}"? This unregisters the label on-chain and cannot be undone. Type the label to confirm: `,
+        );
+        rl.close();
+        const label = options.name.split('.')[0];
+        if (answer.trim() !== label) {
+          console.error('Aborted — confirmation did not match the label.');
+          process.exitCode = 1;
+          return;
+        }
+      }
+      const result = await burnEnsV2Name({ fullName: options.name });
+      console.error(
+        `\nBurned "${result.fullName}" (previous owner ${result.previousOwner})\n` +
+          `  registry: ${result.registryAddress}\n` +
+          `  tx: ${result.txHash}\n` +
+          `\nThe label is AVAILABLE again — re-register with \`organization register-ens --ens-v2\` or \`agent register-ens\`.`,
+      );
       console.log(JSON.stringify(result, null, 2));
     });
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { Address } from "viem";
 import {
   buildRehydrationKeyTypedData,
   loadOrCreateRehydrationKey,
@@ -17,7 +18,13 @@ import { Button } from "@/components/ui/button";
 import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-provider";
 import { useDocumentEvents } from "@/hooks/useDocumentEvents";
 import { useDocumentRegistryAddress } from "@/hooks/useDocumentRegistryAddress";
-import { asDocHash, requestRehydration } from "@/lib/document-registry";
+import {
+  asDocHash,
+  documentRegistryScanStartBlock,
+  fetchPublishedAnchorFromRegistry,
+  requestRehydration,
+  resolveRootEnsName,
+} from "@/lib/document-registry";
 import { parseDocumentEvent } from "@/lib/onchain/watcher";
 import {
   assertBundleAnchoredOnChain,
@@ -28,6 +35,7 @@ import {
   parsePastedSelfieProof,
   publicHydrationError,
   RehydrateGateError,
+  type PublishedDocumentAnchor,
 } from "@/lib/document-rehydrate";
 import { getBrowserSoulVaultClientConfig } from "@/lib/onchain/client";
 import { explorerTxUrl, shortTx } from "@/lib/format";
@@ -88,7 +96,7 @@ function saveConsumedNullifier(appId: string, action: string, nullifier: string)
 
 export default function DocumentsRehydratePage() {
   const { address, connector, sendTransaction, signTypedData } = useSoulVaultWallet();
-  const { documents, activeGrants, status, events } = useDocumentEvents({
+  const { documents, activeGrants, status, events, addSources } = useDocumentEvents({
     recipient: address,
     live: true,
   });
@@ -222,6 +230,33 @@ export default function DocumentsRehydratePage() {
     );
   }
 
+  /**
+   * The bundle is self-contained: it names the registry that anchors it. A
+   * consumer outside any org has no ENS discovery path (the registry was
+   * announced on the author's org name), so teach the shared watcher the
+   * hinted registry for this session — grants/requests stream from it — and
+   * verify the publish anchor straight from the chain rather than waiting
+   * for the ENS-discovered scan that will never come.
+   */
+  function watchBundleRegistryHint(registry: { chainId: number; address: string }) {
+    void (async () => {
+      try {
+        const to = registry.address as Address;
+        const fromBlock = await documentRegistryScanStartBlock({
+          address: to,
+          chainId: registry.chainId,
+          rootEnsName: resolveRootEnsName(),
+          viewer: address ?? undefined,
+        });
+        await addSources([
+          { address: to, kind: "document", chainId: registry.chainId, fromBlock, label: "bundle-hint" },
+        ]);
+      } catch {
+        // Best-effort; the direct anchor check in onUpload is authoritative.
+      }
+    })();
+  }
+
   async function onUpload(file: File) {
     setError(null);
     setRevealed(new Set());
@@ -229,7 +264,16 @@ export default function DocumentsRehydratePage() {
     setSessionRun(null);
     try {
       const parsed = parsePublicDocumentBundle(await file.text());
-      const published = documents.documents.get(asDocHash(parsed.artifact.documentId));
+      const hash = asDocHash(parsed.artifact.documentId);
+      let published: PublishedDocumentAnchor | undefined = documents.documents.get(hash);
+      if (!published && parsed.registry?.address) {
+        watchBundleRegistryHint(parsed.registry);
+        published =
+          (await fetchPublishedAnchorFromRegistry({
+            registry: parsed.registry,
+            docHash: hash,
+          })) ?? undefined;
+      }
       assertBundleAnchoredOnChain({ bundle: parsed, published });
       setSessionRun(compareAuthorSessionRun(parsed));
       setBundle(parsed);
@@ -294,6 +338,7 @@ export default function DocumentsRehydratePage() {
         documentId: bundle.artifact.documentId,
         rehydrationPublicKey: next.publicKey,
         send: sendTransaction,
+        registryHint: bundle.registry,
       });
       setRequestTx(hash);
     } catch (cause) {

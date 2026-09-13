@@ -150,6 +150,29 @@ export type SwarmMember = {
   joinedAt: { blockNumber: bigint; txHash: Hex };
 };
 
+/**
+ * A member ejected from the swarm. Removal is forward-looking revocation only:
+ * the ex-member keeps past ciphertexts, so every removal MUST be followed by a
+ * re-escrow sweep (soulvault recovery sweep). The UI surfaces pending sweeps
+ * from this map; entries clear when the escrow layer moves past the kick
+ * (a MemberFileMappingUpdated landing after the removal block).
+ */
+export type RemovedMember = {
+  wallet: Address;
+  removedAtEpoch: bigint;
+  removedBy: Address;
+  removedAt: { blockNumber: bigint; txHash: Hex };
+};
+
+/** Latest escrow/manifest pointer published for any member (Escrow field). */
+export type LatestManifest = {
+  member: Address;
+  epoch: bigint;
+  storageLocator: string;
+  manifestHash: Hex;
+  at: { blockNumber: bigint; txHash: Hex };
+};
+
 export type PendingJoinRequest = {
   requestId: bigint;
   requester: Address;
@@ -176,9 +199,22 @@ export type SwarmFundRequest = {
   updatedAt: { blockNumber: bigint; txHash: Hex };
 };
 
+export type EpochKeyRequest = {
+  keyName: string;
+  requester: Address;
+  requesterPubkey: string | null;
+  reason: string | null;
+  epoch: bigint;
+  requestedAt: { blockNumber: bigint; txHash: Hex };
+};
+
 export type SwarmState = {
   members: Map<Address, SwarmMember>;
+  removedMembers: Map<Address, RemovedMember>;
+  latestManifest: LatestManifest | null;
   pendingJoins: Map<bigint, PendingJoinRequest>;
+  /** Open epoch key ring requests (request → grant delivery via DM). */
+  epochKeyRequests: Map<Address, EpochKeyRequest>;
   treasury: Address | null;
   currentEpoch: bigint | null;
   membershipVersion: bigint | null;
@@ -188,7 +224,10 @@ export type SwarmState = {
 export function reduceSwarmState(events: readonly SoulVaultEvent[]): SwarmState {
   const state: SwarmState = {
     members: new Map(),
+    removedMembers: new Map(),
+    latestManifest: null,
     pendingJoins: new Map(),
+    epochKeyRequests: new Map(),
     treasury: null,
     currentEpoch: null,
     membershipVersion: null,
@@ -235,6 +274,39 @@ export function reduceSwarmState(events: readonly SoulVaultEvent[]): SwarmState 
       }
       case 'MemberRemoved': {
         state.members.delete(args.member as Address);
+        state.removedMembers.set(args.member as Address, {
+          wallet: args.member as Address,
+          removedAtEpoch: args.epoch as bigint,
+          removedBy: args.by as Address,
+          removedAt: position,
+        });
+        break;
+      }
+      case 'MemberFileMappingUpdated': {
+        state.latestManifest = {
+          member: args.member as Address,
+          epoch: args.epoch as bigint,
+          storageLocator: args.storageLocator as string,
+          manifestHash: args.manifestHash as Hex,
+          at: position,
+        };
+        // Escrow layer moved past any earlier kick → pending sweeps resolved.
+        for (const [wallet, removed] of state.removedMembers) {
+          if (position.blockNumber > removed.removedAt.blockNumber) state.removedMembers.delete(wallet);
+        }
+        break;
+      }
+      case 'EpochKeyRequested': {
+        // Latest request per requester wins; resolved implicitly when the
+        // matching `epoch-key-grant` DM posts (delivery is off-contract).
+        state.epochKeyRequests.set(args.requester as Address, {
+          keyName: (args.keyName as string) ?? '',
+          requester: args.requester as Address,
+          requesterPubkey: (args.requesterPubkey as Hex) || null,
+          reason: (args.reason as string) || null,
+          epoch: args.epoch as bigint,
+          requestedAt: position,
+        });
         break;
       }
       case 'EpochRotated': {

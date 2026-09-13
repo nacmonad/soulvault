@@ -66,7 +66,7 @@ type AppRpcClient = {
     value?: bigint;
   }) => Promise<bigint>;
   getGasPrice: () => Promise<bigint>;
-  getTransactionCount: (args: { address: Address }) => Promise<number>;
+  getTransactionCount: (args: { address: Address; blockTag?: "pending" }) => Promise<number>;
   sendRawTransaction: (args: { serializedTransaction: Hex }) => Promise<Hex>;
   /**
    * Optional EIP-1559 fee estimate (viem clients have it; bare mocks may not).
@@ -143,7 +143,7 @@ async function prepareAppTx(input: TxSubmitInput): Promise<{ client: AppRpcClien
   let fees: { maxFeePerGas?: bigint; maxPriorityFeePerGas?: bigint } | undefined;
   try {
     [nonce, gas, gasPrice, fees] = await Promise.all([
-      client.getTransactionCount({ address: input.from }),
+      client.getTransactionCount({ address: input.from, blockTag: "pending" }),
       client.estimateGas(estimateArgs),
       client.getGasPrice(),
       // A failed fee estimate must not fail tx preparation — it only selects

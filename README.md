@@ -10,8 +10,8 @@ Encrypted continuity for agent swarms, and wallet-authorized selective
 disclosure for confidential documents.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-4F46E5.svg)](LICENSE.md)
-[![Ops lane: 0G Galileo](https://img.shields.io/badge/ops-0G%20Galileo-4F46E5.svg)](https://0g.ai/)
-[![Identity lane: Sepolia](https://img.shields.io/badge/identity-Sepolia-334155.svg)](https://sepolia.etherscan.io/)
+[![Ops lane: Sepolia](https://img.shields.io/badge/ops-Sepolia-334155.svg)](https://sepolia.etherscan.io/)
+[![Identity lane: Sepolia ENSv2](https://img.shields.io/badge/identity-Sepolia%20ENSv2-4F46E5.svg)](https://sepolia.etherscan.io/)
 
 </div>
 
@@ -29,27 +29,37 @@ SoulVault is a coordination layer built on one cryptographic core
 **Continuity for agent swarms** — *shipped.* Encrypted backup, restore, and
 transfer of swarm state across ephemeral sessions. Membership governance, epoch
 key rotation, a three-mode messaging bus, and a fund-request treasury, all driven
-by onchain contract events with encrypted offchain storage.
+by onchain contract events. With the Ledger Key Ring, epoch keys are
+**derived, never stored** — a dead agent's successor recovers its memories with
+a brand-new wallet and zero stored keys.
 
-**Selective disclosure for documents** — *in progress.* Redaction runs locally,
-so the artifact that travels through email or Slack carries no sensitive fields
-at all. Authorized wallets reconstruct only the slots they are permitted to see,
-and revocation blocks every future reconstruction. See
-[Roadmap](#roadmap) for what exists today.
+**Selective disclosure for documents** — *shipped (Sepolia).* Redaction runs
+locally in the browser (presidio-web), so the artifact that travels through
+email or Slack carries no sensitive fields at all. Authorized wallets
+reconstruct only the slots they are permitted to see; grants are contract
+events carrying ECDH-wrapped slot keys, and revocation blocks every future
+reconstruction. Live org: `soulvault-ensv2.eth`.
 
 ## Architecture
 
-SoulVault operates across two EVM lanes:
+SoulVault runs on a single EVM lane — Sepolia — for both ops and identity:
 
 | Lane | Chain | Purpose |
 |------|-------|---------|
-| **Ops** | 0G Galileo (16602) | Swarm contract, treasury contract, membership, epochs, backups, messaging, fund requests |
-| **Identity** | Sepolia (11155111) | ENS naming (org roots, swarm subdomains, ENSIP-11 treasury discovery), ERC-8004 agent identity |
+| **Ops + Identity** | Sepolia (11155111) | Swarm contract, treasury contract, membership, epochs, document registry, ENSv2 naming (org roots, swarm/agent subnames, ENSIP-11 treasury discovery), ERC-8004 agent identity |
 
-The swarm contract on 0G holds coordination truth. The treasury contract on 0G
-holds native value and releases funds on approved requests. 0G Storage holds
-encrypted artifacts (backups, key bundles, message envelopes). ENS + ERC-8004 on
-Sepolia provide public naming and discovery.
+The swarm contract holds coordination truth: membership, epoch lineage,
+messaging, fund requests, and epoch-key recovery requests. The treasury contract
+holds native value and releases funds on approved requests. The document
+registry carries slot-key grants as events — the event log IS the key delivery.
+Encrypted artifacts (backups, escrows, bundles) travel as files over ordinary
+channels or any storage backend you bring; **no SoulVault server holds keys or
+ciphertext**. Bring your own RPC.
+
+> The ops lane was originally 0G Galileo (chain 16602) and is now Sepolia-only;
+> see [`docs/dashboard-ui/007-sepolia-only-ops-lane.md`](docs/dashboard-ui/007-sepolia-only-ops-lane.md)
+> for the migration rationale. `SOULVAULT_RPC_URL` points at any Sepolia RPC —
+> `https://ethereum-sepolia-rpc.publicnode.com` in the defaults.
 
 ### Entity model
 
@@ -74,12 +84,13 @@ Organization  (ENS root, admin boundary, optional treasury per chain)
 | `name` text record | Org ENS name | Human-readable org name |
 | `soulvault.swarms` text record | Org ENS name | CBOR array of swarm labels (`data:application/cbor;base64,…`) — v1 discovery; superseded by per-swarm subname registration on ENSv2 |
 | `soulvault.ensv2Registry` text record | Org ENS name | JSON `{version: 2, registry, owner, deployedAt?}` — address of the org's SoulVaultRegistry (UserRegistry proxy deployed via the VerifiableFactory). Authoritative for `*.<orgName>` subnames and the v1/v2 protocol marker readers use for auto-detection |
-| `soulvault.swarmContract` text record | Swarm subdomain | Swarm contract address on 0G |
+| `soulvault.swarmContract` text record | Swarm subdomain | Swarm contract address |
 | `soulvault.chainId` text record | Swarm subdomain | Chain ID where the swarm contract lives |
+| `soulvault.documentRegistry` text record | Org ENS name | Document registry address for redact/rehydrate flows |
 
 Treasury discovery uses ENSIP-11 rather than text records so an org with
 treasuries on multiple chains gets one slot per chain without clobbering. For
-0G Galileo: `coinType = 2147500186`.
+Sepolia: `coinType = 2147483839` (`0x80000000 | 11155111`).
 
 The `soulvault.treasuries` text record complements the ENSIP-11 slots: because
 resolvers can't enumerate text keys or coinTypes, a consumer that only knows the
@@ -142,7 +153,7 @@ The CLI follows an entity-first model:
 ### Treasury
 | Command | Description |
 |---------|-------------|
-| `treasury create` | Deploy treasury on 0G + publish ENSIP-11 addr on org ENS name |
+| `treasury create` | Deploy treasury on the ops lane + publish ENSIP-11 addr on org ENS name |
 | `treasury list` | List all local treasury profiles |
 | `treasury status` | Show treasury balance, owner, chainId |
 | `treasury deposit --amount <n>` | Send native value into the treasury |
@@ -154,7 +165,7 @@ The CLI follows an entity-first model:
 ### Swarm
 | Command | Description |
 |---------|-------------|
-| `swarm create` | Deploy contract on 0G (auto-discovers treasury via ENSIP-11) + bind ENS subdomain |
+| `swarm create` | Deploy contract on the ops lane (auto-discovers treasury via ENSIP-11) + bind ENS subdomain |
 | `swarm register-ens` | Register the swarm subname in the org's ENSv2 registry with epoch-bound expiry (`--with-agent-namespace` enables agent subnames) |
 | `swarm remove --swarm <s> --yes` | Archive profile + strip from org's ENS swarms list |
 | `swarm list / use / status` | Profile management |
@@ -185,17 +196,41 @@ The CLI follows an entity-first model:
 | `ens revoke` | Revoke a granted role |
 | `ens roles` | Read the role bitmap on a name |
 
+### Documents (redact / grant / rehydrate)
+| Command | Description |
+|---------|-------------|
+| `document deploy-registry` | Deploy the SoulVaultDocumentRegistry + announce it on the org ENS name |
+| `document announce-registry` | Point the org's `soulvault.documentRegistry` record at an existing registry |
+| `document publish` | Publish a redacted artifact: `docHash` + slot ids onchain; encrypted slots travel in the bundle file |
+| `request-rehydrate` | Requester asks for rehydration — emits `RehydrationRequested` with its rehydration pubkey |
+| `document grants` | List rehydration requests / granted slots for a document |
+| `document grant` | Author grants slots: wraps each slot key ECDH to the requester pubkey, posts `SlotKeyGranted` |
+| `document rehydrate` | Requester unwraps granted slots and rehydrates the document locally |
+| `document rehydration-key` | Show/generate this wallet's rehydration keypair |
+
+Dashboard equivalents: `/dashboard/documents/{redact,grants,rehydrate,registry}`.
+
+### Recovery (Ledger Key Ring)
+| Command | Description |
+|---------|-------------|
+| `recovery escrow` | Create + ring-encrypt an agent's memory archive — key derived on-chip, never stored |
+| `recovery restore` | Successor recovers: `requestEpochKey` → owner ring decrypts on-chip → ECDH grant DM → unwrap |
+| `recovery sweep` | After member removal/rotation, re-escrow affected archives under the new epoch |
+| `recovery show` | Inspect an escrow's header/manifest |
+
+Full demo: [`examples/epoch-key-ring-demo/`](examples/epoch-key-ring-demo/).
+
 ### Epoch
 | Command | Description |
 |---------|-------------|
 | `epoch rotate` | Generate K_epoch, wrap per member, upload bundle, call contract |
-| `epoch show-bundle` | Fetch + display latest bundle from 0G |
+| `epoch show-bundle` | Fetch + display latest bundle |
 | `epoch decrypt-bundle-member` | Verify current member can decrypt |
 
 ### Backup & Restore
 | Command | Description |
 |---------|-------------|
-| `backup push` | Archive, encrypt with K_epoch, upload to 0G, publish file mapping |
+| `backup push` | Archive, encrypt with K_epoch, store bundle, publish file mapping |
 | `restore pull` | Decrypt backup |
 | `restore verify-latest` | Download + decrypt + verify hashes |
 
@@ -204,7 +239,7 @@ The CLI follows an entity-first model:
 |---------|-------------|
 | `msg post` | Post message (public / group / dm) |
 | `msg list` | List all messages from contract events |
-| `msg show --payload-ref <hash>` | Fetch + optionally decrypt from 0G |
+| `msg show --payload-ref <hash>` | Fetch + optionally decrypt a message payload |
 
 ### Sync
 | Command | Description |
@@ -215,24 +250,47 @@ Full command reference: [`skills/soulvault/references/commands.md`](skills/soulv
 
 ## Encryption model
 
-Each swarm epoch has one shared symmetric key (`K_epoch`). When membership
-changes, the owner rotates the epoch — generating a new key, wrapping it per
-member's secp256k1 pubkey, and uploading the bundle to 0G. Only the wrapped
-bundle reference and hash go onchain; symmetric keys never touch the chain.
+**Before — stored `K_epoch`:** each swarm epoch had one shared symmetric key,
+physically stored by every member (env var / config). Rotation meant generating
+a new key, wrapping it per member's secp256k1 pubkey, uploading the bundle. Only
+the wrapped bundle reference and hash went onchain. Failure modes: every
+custodian holds every historic key; any custodian losing them = memories
+permanently unrecoverable; a kicked member likely still holds copies; ephemeral
+agents cannot self-custody at all.
+
+**After — derived keys (Ledger Key Ring, `wallet-cli ring`):** epoch keys are
+**derived, never stored**. Enrollment is a single Ledger-approved tap; after
+that, encrypt/decrypt need only the trustchain service + the local member
+credential — no device, no USB (this is what makes VPS / hosted-agent recovery
+possible). A key is HKDF-derived from trustchain material with the key *name* as
+domain separation: same name + same trustchain state ⇒ same 256-bit key, on any
+enrolled machine. The canonical name
+`soulvault:epoch-recovery:<agent-ens>:epoch-<n>` is the only durable metadata —
+it is not secret and can appear in plaintext headers and logs.
+
+**Catastrophic recovery:** a dead agent's successor (brand-new wallet) joins the
+swarm and calls `requestEpochKey(keyName)` → `EpochKeyRequested` event → the
+owner's Ledger ring derives + decrypts on-chip → payload re-wrapped ECDH to the
+successor's pubkey → grant DM → byte-identical restore. Key material never
+leaves the device at any step.
 
 | What | How |
 |------|-----|
-| Backups | AES-256-GCM with K_epoch |
+| Backups | AES-256-GCM with ring-derived epoch key |
 | Group messages | AES-256-GCM with K_epoch |
 | Direct messages | Ephemeral ECDH + AES-256-GCM to recipient pubkey |
 | Key wrapping | secp256k1-ECDH + AES-256-GCM per member |
+| Epoch recovery | On-chip derivation (LKRP) + ECDH grant DM — zero stored keys |
+| Document slots | Per-slot AES-256-GCM key, ECDH-wrapped to the grantee |
 
 The primitives live in `@soulvault/protocol` and are isomorphic — the same code
 runs in Node and in the browser, with no Node built-ins. Wire formats are locked
 to what the original `node:crypto` implementation produced, and cross-checked
 against it in both directions by `packages/protocol/test/crypto-compat.test.ts`.
 
-Details: [`skills/soulvault/references/crypto.md`](skills/soulvault/references/crypto.md)
+Details: [`skills/soulvault/references/crypto.md`](skills/soulvault/references/crypto.md),
+[`docs/epoch-key-ring-spec.md`](docs/epoch-key-ring-spec.md),
+[`docs/epoch-key-grant-protocol.md`](docs/epoch-key-grant-protocol.md)
 
 ## Messaging
 
@@ -258,7 +316,9 @@ Two contracts emit events that drive the protocol:
 | `BackupRequested` | Coordinated backup trigger |
 | `MemberFileMappingUpdated` | Backup publication proof |
 | `AgentMessagePosted` | Messaging |
+| `EpochKeyRequested` | Successor asks for epoch-key recovery (key name + requester pubkey) |
 | `HistoricalKeyBundleGranted` | Key recovery for new/restored members |
+| `DocumentPublished` / `RehydrationRequested` / `SlotKeyGranted` | Document registry: publish, request, grant lifecycle |
 | `TreasurySet` | Treasury binding (constructor or `setTreasury`) |
 | `FundRequested` / `FundRequestApproved` / `FundRequestRejected` / `FundRequestCancelled` | Fund request lifecycle |
 
@@ -281,18 +341,18 @@ Full catalog: [`skills/soulvault/references/events.md`](skills/soulvault/referen
 contracts/          Solidity interfaces + specs + protocol docs
 packages/
   protocol/         @soulvault/protocol — isomorphic core (crypto, wire formats); runs in Node + browsers
-  node/             @soulvault/node — business-logic handlers (contracts, signer, 0G, ENS, state cache)
+  node/             @soulvault/node — business-logic handlers (contracts, signer, ring backend, ENS/ENSv2, state cache)
     test/           Integration test harness (global-setup, helpers, speculos)
 apps/
   cli/              soulvault-cli — thin Commander.js handlers over @soulvault/node
-  web/              soulvault-web — Next.js app (landing + dashboard scaffold)
+  web/              soulvault-web — Next.js app (landing + dashboard: documents, swarm, treasury, org)
     brand/          Brand package: context, strategy, visual identity
-docs/               Architecture, protocol, glossary, roadmap
+docs/               Architecture, protocol, glossary, roadmap, dashboard-ui ADRs
 stories/            Runnable demo walkthroughs
 skills/soulvault/   Agent skill package (SKILL.md + references)
-examples/           Standalone 0G SDK usage examples
-slides/             Deck outline and presentation notes
-test/               Foundry tests (SoulVaultSwarm, SoulVaultTreasury, fund requests)
+examples/           Standalone demos (epoch-key-ring: zero-stored-key recovery)
+slides/             ETHOnline 2026 Marp deck (EthOnline2026/DECK.md)
+test/               Foundry tests (SoulVaultSwarm, SoulVaultTreasury, SoulVaultDocumentRegistry, fund requests)
 ```
 
 Dependency direction is `apps/cli → @soulvault/node → @soulvault/protocol`.
@@ -314,7 +374,7 @@ cd packages/node && pnpm test:watch         # watch mode
 cd packages/node && pnpm test:ens-name      # Sepolia read-only smoke (needs .env)
 cd packages/node && pnpm test:integration   # full-stack against a local ens-app-v3 node
 cd packages/node && pnpm test:speculos      # Ledger clear-signing against the Speculos simulator
-cd packages/node && pnpm test:testnet       # gated smoke against real 0G Galileo
+cd packages/node && pnpm test:testnet       # gated smoke against the live Sepolia lane
 ```
 
 The integration harness deploys contracts against a local
@@ -395,6 +455,13 @@ the core use case.
   owner escrow of per-slot keys while preserving recipient-specific grants;
   it does not replace browser hydration, onchain authorization, or revocation.
   See the [Key Ring fit analysis](docs/research/ledger-key-ring-cli.md).
+- **Shipped the epoch key ring** ([`docs/epoch-key-ring-spec.md`](docs/epoch-key-ring-spec.md)):
+  epoch keys are HKDF-derived on-chip from trustchain material via
+  `wallet-cli ring` — never stored. Agents enroll once (one Ledger tap);
+  afterwards encrypt/decrypt need only the trustchain service. Catastrophic
+  recovery: a dead agent's successor joins with a brand-new wallet, requests
+  via `requestEpochKey`, and the owner's ring derives + decrypts on-chip and
+  re-wraps ECDH to the successor — zero stored keys, byte-identical restore.
 
 ### Ledger developer challenge notes
 
@@ -492,29 +559,36 @@ ENS developer challenge (same format as the Ledger/World notes above).
 
 **Working today.** The CLI, swarm contract, treasury contract, fund-request flow,
 messaging, backup/restore, epoch rotation, Ledger signing with clear-sign modes,
-ENSIP-11 multichain treasury discovery, and ENS/ERC-8004 identity flows are
-implemented and tested on 0G Galileo + Sepolia.
+ENSIP-11 multichain treasury discovery, ENS/ERC-8004 identity flows, and the
+ENSv2 registry hierarchy are implemented and tested on Sepolia — including the
+document redact/grant/rehydrate loop (`SoulVaultDocumentRegistry` + dashboard)
+and the epoch-key-ring recovery flow (ring-derived keys, escrow, grant DM).
 
-**In progress.** The confidential-collaboration layer:
+**Also shipped this event:**
 
-- Redaction manifest — local PII detection via
-  [presidio-web](https://github.com/nacmonad/presidio-web), producing a redacted
-  artifact plus an encrypted hydration bundle
-- Wallet-authorized hydration in the browser, reusing the existing ECDH
-  recipient-key machinery
-- Per-field grants and revocation committed onchain as roots and nonces, never
-  as plaintext or guessable hashes
-- `USE` versus `READ` — authorizing computation over a field inside a TEE without
-  disclosing the field itself
+- **Ledger Key Ring recovery** — epoch keys derived on-chip from trustchain
+  material (`wallet-cli ring`); escrowed memories recoverable by a successor
+  with a brand-new wallet and zero stored keys
+- **ENSv2 agent succession** — EAC-scoped role delegation (`ens grant/revoke`),
+  burn + re-register of an agent's subname (`ROLE_UNREGISTER` → new
+  `ROLE_REGISTRAR`), so identity survives the wallet
+- **Document registry on Sepolia** — `DocumentPublished`,
+  `RehydrationRequested`, `SlotKeyGranted` events as the key-distribution
+  channel; dashboard panels at `/dashboard/documents/*`
+- **World ID Selfie Check** — optional requester-side human-presence gate on
+  rehydration grants (fail-closed when enabled), pending sandbox access
 
-The web app in `apps/web` is currently a landing page and a dashboard scaffold;
-the wallet connector and the panels behind it are not wired up yet.
+Deferred by design (see
+[`docs/redaction-hydration-spec.md`](docs/redaction-hydration-spec.md)): the
+x402 payment rail, the `DocumentViewTask` state machine, commitments, and the
+USE engines (TEE/zk compute over a field without disclosing it).
 
-> **Update:** 0G is no longer a sponsor of ETHOnline 2026, so the confidential
-> collaboration layer no longer targets 0G for storage or prize alignment. The
-> authoritative design — including the post-0G storage/distribution decision and
-> the USE-engine (TEE/zk) breakdown — is
-> [redaction-hydration-spec.md](docs/redaction-hydration-spec.md).
+> **Update:** 0G is no longer a sponsor of ETHOnline 2026. The ops lane is
+> Sepolia-only
+> ([`docs/dashboard-ui/007-sepolia-only-ops-lane.md`](docs/dashboard-ui/007-sepolia-only-ops-lane.md));
+> encrypted artifacts travel as files over ordinary channels — bring your own
+> storage, bring your own RPC. The authoritative redaction/rehydration design
+> is [redaction-hydration-spec.md](docs/redaction-hydration-spec.md).
 
 ## Contributing
 

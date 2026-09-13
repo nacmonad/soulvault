@@ -190,6 +190,16 @@ v2 opens     → unwrap grant → fetch escrow → decrypt
 
 ---
 
+---
+
+# Demo — live walkthrough
+
+<iframe src="https://www.youtube-nocookie.com/embed/yX8Il3XSTwA" width="760" height="428" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+
+https://youtu.be/yX8Il3XSTwA — *ETHOnline 2026 · Soulvault Redact Rehydrate Demo*
+
+---
+
 <!-- _header: 'Sponsor — World' -->
 
 # World — proof-of-selfie (not finished)
@@ -218,5 +228,6 @@ Fail-closed when enabled: no proof → no wrap → no `SlotKeyGranted`.
 
 No SoulVault server. No keys onchain. Identity survives the wallet.
 
+🎬 Demo walkthrough: https://youtu.be/yX8Il3XSTwA
 https://nacmonad.github.io/soulvault/
 https://github.com/nacmonad/soulvault

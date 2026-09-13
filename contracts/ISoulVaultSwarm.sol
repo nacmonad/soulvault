@@ -117,6 +117,13 @@ interface ISoulVaultSwarm {
         uint64 ttl
     ) external;
 
+    // --- Epoch key recovery requests ---
+    /// @notice Active member requests an epoch key ring grant by key name.
+    /// @dev Emits EpochKeyRequested. The owner responds off-contract by posting an
+    ///      ECDH-encrypted DM (topic `epoch-key-grant`) to the requester's published
+    ///      pubkey via postMessage — see docs/epoch-key-grant-protocol.md.
+    function requestEpochKey(string calldata keyName, string calldata reason) external;
+
     // --- Coordinated backup triggers ---
     function requestBackup(
         uint64 epoch,
@@ -250,6 +257,15 @@ interface ISoulVaultSwarm {
         string reason,
         string targetRef,
         uint64 deadline,
+        uint64 timestamp
+    );
+
+    event EpochKeyRequested(
+        string keyName,
+        address indexed requester,
+        bytes requesterPubkey,
+        string reason,
+        uint64 epoch,
         uint64 timestamp
     );
 

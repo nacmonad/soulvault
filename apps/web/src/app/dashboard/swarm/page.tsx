@@ -10,14 +10,16 @@ import { useSoulVaultWallet } from "@/components/providers/soulvault-ledger-prov
 import { useOrgDiscovery } from "@/hooks/useOrgDiscovery";
 import { useSwarmEvents } from "@/hooks/useSwarmEvents";
 import { SwarmWizard } from "@/components/create/swarm-wizard";
+import { CliRecoveryHint } from "@/components/create/wizard-steps";
 import { publicClientForChainId } from "@/lib/chains";
 import { reduceSwarmState, type SwarmState } from "@/lib/onchain/reducers";
-import { approveJoin, rejectJoin } from "@/lib/treasury-contract";
+import { approveJoin, rejectJoin, removeMember } from "@/lib/treasury-contract";
 import { shortAddress, shortTx, explorerTxUrl } from "@/lib/format";
 import { useAgentEvents } from "@/hooks/useAgentEvents";
 import { AgentIdentityCard, type EacRolesResolver } from "@/components/dashboard/agent-identity-card";
 import { EacDelegationPanel } from "@/components/dashboard/eac-delegation-panel";
-import { resolveNameEacContext, readNameEacRoles } from "@/lib/ensv2-eac";
+import { EpochKeyGrantPanel } from "@/components/dashboard/epoch-key-grant-panel";
+import { resolveNameEacContext, readNameEacRoles, burnNameEac } from "@/lib/ensv2-eac";
 import { getBrowserSoulVaultClientConfig, createSoulVaultPublicClient } from "@/lib/onchain/client";
 
 type SwarmListItem = {
@@ -297,15 +299,68 @@ export default function SwarmPage() {
             />
             <Field label="Treasury" value={view.treasury ? shortAddress(view.treasury) : "—"} mono />
             <Field label="Members" value={String(members.length)} />
+            <Field
+              label="Escrow (latest manifest)"
+              value={
+                view.latestManifest
+                  ? `${shortAddress(view.latestManifest.member)} · epoch ${view.latestManifest.epoch} · ${view.latestManifest.storageLocator.slice(0, 18)}…`
+                  : "—"
+              }
+              mono
+            />
           </dl>
 
           <h2 className="mt-8 text-sm font-semibold">Members</h2>
+          {view.removedMembers.size > 0 ? (
+            <div className="mt-2 border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm">
+              <span className="font-medium">Sweep recommended — </span>
+              <span className="text-muted-foreground">
+                {[...view.removedMembers.values()]
+                  .map((r) => `${shortAddress(r.wallet)} (kicked at epoch ${r.removedAtEpoch.toString()})`)
+                  .join(", ")} keeps pre-rotation ciphertext. As swarm owner, run the sweep
+                (derives, rotates, re-escrows — zero key material stored), then republish the
+                member manifests. This clears when the escrow layer publishes past the kick.
+              </span>
+              <CliRecoveryHint command={buildSweepCommand([...view.removedMembers.values()], agentsByWallet)} />
+            </div>
+          ) : null}
           {members.length === 0 ? (
             <p className="mt-2 text-sm text-muted-foreground">No members in reduced state.</p>
           ) : (
             <ul className="mt-2 border border-border">
               {members.map((member) => (
-                <MemberRow key={member.wallet} member={member} agents={agentsByWallet.get(member.wallet.toLowerCase()) ?? []} swarmLabel={current?.label ?? null} resolveRoles={resolveRoles} />
+                <MemberRow
+                  key={member.wallet}
+                  member={member}
+                  agents={agentsByWallet.get(member.wallet.toLowerCase()) ?? []}
+                  swarmLabel={current?.label ?? null}
+                  resolveRoles={resolveRoles}
+                  canRemove={canManage}
+                  busy={busy}
+                  onRemove={(wallet) =>
+                    current?.address &&
+                    void run(`remove-${wallet}`, async () => {
+                      const ensName = agentEnsNameFor(wallet, agentsByWallet);
+                      const burnNote = ensName
+                        ? `\n\nThis member's ENS name ${ensName} will ALSO be burned (unregister) right after the kick — no ghost name left behind.`
+                        : "";
+                      if (!confirm(`Remove ${wallet} from the swarm? This bumps membershipVersion and cannot be undone.${burnNote}`)) return null;
+                      const kickHash = await removeMember({
+                        from: address as Address,
+                        member: wallet,
+                        swarm: current.address as Address,
+                        ...(current.chainId !== null ? { chainId: current.chainId } : {}),
+                      });
+                      if (!ensName) return kickHash;
+                      const config = getBrowserSoulVaultClientConfig();
+                      if (!config) throw new Error(`Kick succeeded (tx ${shortTx(kickHash)}) but no client config to resolve ${ensName} — burn it manually: soulvault ens burn --name ${ensName}`);
+                      const client = createSoulVaultPublicClient(config);
+                      const ctx = await resolveNameEacContext({ fullName: ensName, viewer: address as Address, client });
+                      if (!ctx) throw new Error(`Kick succeeded (tx ${shortTx(kickHash)}) but no registry found holding ${ensName} — burn it manually: soulvault ens burn --name ${ensName}`);
+                      return burnNameEac({ from: address as Address, fullName: ensName, ctx });
+                    })
+                  }
+                />
               ))}
             </ul>
           )}
@@ -409,6 +464,14 @@ export default function SwarmPage() {
 
       {current ? <EacDelegationPanel swarmEnsName={current.ensName} /> : null}
 
+      {current?.address && owner ? (
+        <EpochKeyGrantPanel
+          requests={[...view.epochKeyRequests.values()]}
+          swarmAddress={current.address}
+          ownerAddress={owner}
+        />
+      ) : null}
+
       <div className="mt-8 flex flex-wrap gap-2">
         <Button disabled variant="outline" size="sm">
           Fund requests <span className="chip ml-2">soon</span>
@@ -441,6 +504,46 @@ function Field({ label, value, mono }: { label: string; value: string; mono?: bo
   );
 }
 
+/**
+ * CLI equivalent of the sweep-recommended banner: one sweep per kicked agent,
+ * named by ENS when the ERC-8004 metadata carries soulvault.ensName, else by
+ * wallet (the CLI resolves what it can — a wallet-only agent still sweeps via
+ * its escrow directory). Local backend is the demo default; ledger owners drop
+ * the flag once wallet-cli is on PATH.
+ */
+function buildSweepCommand(
+  removed: { wallet: Address }[],
+  agentsByWallet: Map<string, { uri: string | null }[]>,
+): string {
+  const agents = removed.map((r) => {
+    const ensName = (agentsByWallet.get(r.wallet.toLowerCase()) ?? [])
+      .map((a) => {
+        try {
+          const payload = a.uri ? (JSON.parse(decodeURIComponent(a.uri.replace(/^data:application\/json,/, ""))) as { soulvault?: { ensName?: string } }) : null;
+          return typeof payload?.soulvault?.ensName === "string" ? payload.soulvault.ensName : null;
+        } catch {
+          return null;
+        }
+      })
+      .find(Boolean);
+    return ensName ?? r.wallet;
+  });
+  return agents.map((agent) => `pnpm soulvault recovery sweep --agent ${agent} --backend local`).join(" && ");
+}
+
+/** The member's ENS name from its latest ERC-8004 metadata, if any. */
+function agentEnsNameFor(wallet: Address, agentsByWallet: Map<string, MemberRowAgent[]>): string | null {
+  for (const a of agentsByWallet.get(wallet.toLowerCase()) ?? []) {
+    try {
+      const payload = a.uri ? (JSON.parse(decodeURIComponent(a.uri.replace(/^data:application\/json,/, ""))) as { soulvault?: { ensName?: string } }) : null;
+      if (typeof payload?.soulvault?.ensName === "string" && payload.soulvault.ensName) return payload.soulvault.ensName;
+    } catch {
+      // malformed URI — treat as wallet-only
+    }
+  }
+  return null;
+}
+
 type MemberRowMember = {
   wallet: Address;
   joinedEpoch: bigint;
@@ -457,9 +560,11 @@ type MemberRowAgent = {
  * One member row: wallet + join epoch, enriched with whatever the member's
  * ERC-8004 registration carries (via the shared AgentIdentityCard). Identity
  * data is additive — a wallet with no registration shows the plain row.
+ * Owners get a Remove action (swarm-side kick) for offboarding/succession.
  */
-function MemberRow({ member, agents, swarmLabel, resolveRoles }: { member: MemberRowMember; agents: MemberRowAgent[]; swarmLabel: string | null; resolveRoles?: EacRolesResolver }) {
+function MemberRow({ member, agents, swarmLabel, resolveRoles, canRemove, busy, onRemove }: { member: MemberRowMember; agents: MemberRowAgent[]; swarmLabel: string | null; resolveRoles?: EacRolesResolver; canRemove?: boolean; busy?: string | null; onRemove?: (member: Address) => void }) {
   const identity = agents[0] ?? null;
+  const removeKey = `remove-${member.wallet}`;
   return (
     <li className="border-b border-border px-4 py-2 text-sm last:border-b-0">
       {identity ? (
@@ -472,6 +577,23 @@ function MemberRow({ member, agents, swarmLabel, resolveRoles }: { member: Membe
             swarmName={identity.swarmContract && swarmLabel ? swarmLabel : null}
             resolveRoles={resolveRoles}
           />
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 font-mono">
+          <span>{shortAddress(member.wallet)}</span>
+          <span className="text-muted-foreground">joined epoch {member.joinedEpoch.toString()}</span>
+        </div>
+      )}
+      {canRemove && onRemove ? (
+        <div className="mt-1 flex justify-end">
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={busy !== null && busy !== undefined}
+            onClick={() => onRemove(member.wallet)}
+          >
+            {busy === removeKey ? "…" : "Remove"}
+          </Button>
         </div>
       ) : null}
     </li>

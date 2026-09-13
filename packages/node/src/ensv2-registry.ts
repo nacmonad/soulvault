@@ -63,6 +63,7 @@ export const ENSV2_LABEL_STORE_ABI = [] as const;
 export const ENSV2_USER_REGISTRY_ABI = [
   // PermissionedRegistry surface used by the CLI:
   'function register(string label, address owner, address registry, address resolver, uint256 roleBitmap, uint64 expiry) returns (uint256)',
+  'function unregister(uint256 anyId)',
   'function renew(uint256 anyId, uint64 newExpiry)',
   'function grantRoles(uint256 resource, uint256 roleBitmap, address account)',
   'function revokeRoles(uint256 resource, uint256 roleBitmap, address account)',

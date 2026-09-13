@@ -26,6 +26,18 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_BASE_PATH: basePath,
   },
+  // Native/ledger packages must stay out of server bundles: webpack snapshots
+  // the Linux prebuilt binary paths, which then fail to resolve on macOS
+  // (node-gyp-build: "No native build was found for platform=darwin").
+  // Node resolves these at runtime instead.
+  serverExternalPackages: [
+    "@0gfoundation/0g-ts-sdk",
+    "@ledgerhq/device-management-kit",
+    "@ledgerhq/device-signer-kit-ethereum",
+    "@ledgerhq/device-transport-kit-node-hid",
+    "@ledgerhq/context-module",
+    "node-hid",
+  ],
   // Workspace packages export TypeScript source directly; Next compiles them.
   transpilePackages: ["@soulvault/protocol", "@soulvault/node", "@soulvault/presidio-adapter"],
   // Workspace packages use NodeNext-style `.js` specifiers over `.ts` files

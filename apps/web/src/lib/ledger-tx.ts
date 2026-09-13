@@ -25,7 +25,7 @@ export type DeviceTransactionSignature = { r: Hex; s: Hex; v: number };
 
 /** Minimal viem public-client surface used by the Ledger channel. */
 type LedgerRpcClient = {
-  getTransactionCount(args: { address: Address }): Promise<number>;
+  getTransactionCount(args: { address: Address; blockTag?: "pending" }): Promise<number>;
   getGasPrice(): Promise<bigint>;
   estimateGas(args: { account: Address; to?: Address; data: Hex; value?: bigint }): Promise<bigint>;
   request(args: { method: string; params?: unknown[] }): Promise<unknown>;
@@ -175,7 +175,7 @@ export function createLedgerTxChannel(input: {
     for (const candidate of candidates) {
       try {
         const [nonce, gasPrice, gas] = await Promise.all([
-          candidate.client.getTransactionCount({ address: tx.from }),
+          candidate.client.getTransactionCount({ address: tx.from, blockTag: "pending" }),
           candidate.client.getGasPrice(),
           candidate.client.estimateGas({
             account: tx.from,

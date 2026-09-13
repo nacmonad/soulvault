@@ -183,6 +183,36 @@ describe('reduceSwarmState', () => {
     expect(state.members.get(ALICE)!.joinedEpoch).toBe(5n);
   });
 
+  it('MemberRemoved records a pending sweep; a later manifest publish clears it', async () => {
+    const kickLog = () => makeRawLog({ kind: 'swarm', address: SWARM_ADDRESS, eventName: 'MemberRemoved', args: { member: ALICE, by: BOB, epoch: 2n }, blockNumber: 3n, logIndex: 0 });
+    const kicked = await decode([kickLog()]);
+    const kickedState = reduceSwarmState(kicked);
+    expect(kickedState.members.size).toBe(0);
+    expect(kickedState.removedMembers.get(ALICE)?.removedAtEpoch).toBe(2n);
+    expect(kickedState.removedMembers.get(ALICE)?.removedBy).toBe(BOB);
+
+    // Manifest published after the kick → sweep happened → hint clears.
+    const swept = await decode([
+      kickLog(),
+      makeRawLog({ kind: 'swarm', address: SWARM_ADDRESS, eventName: 'MemberFileMappingUpdated', args: { member: ALICE, epoch: 3n, storageLocator: '0g://escrow/abc', merkleRoot: HASH('02'), publishTxHash: HASH('03'), manifestHash: HASH('04'), by: BOB }, blockNumber: 4n, logIndex: 0 }),
+    ]);
+    const sweptState = reduceSwarmState(swept);
+    expect(sweptState.removedMembers.size).toBe(0);
+    expect(sweptState.latestManifest?.member).toBe(ALICE);
+    expect(sweptState.latestManifest?.epoch).toBe(3n);
+    expect(sweptState.latestManifest?.storageLocator).toBe('0g://escrow/abc');
+  });
+
+  it('a manifest published BEFORE the kick does not clear the sweep hint', async () => {
+    const events = await decode([
+      makeRawLog({ kind: 'swarm', address: SWARM_ADDRESS, eventName: 'MemberFileMappingUpdated', args: { member: ALICE, epoch: 1n, storageLocator: '0g://escrow/old', merkleRoot: HASH('01'), publishTxHash: HASH('02'), manifestHash: HASH('03'), by: ALICE }, blockNumber: 1n, logIndex: 0 }),
+      makeRawLog({ kind: 'swarm', address: SWARM_ADDRESS, eventName: 'MemberRemoved', args: { member: ALICE, by: BOB, epoch: 2n }, blockNumber: 3n, logIndex: 0 }),
+    ]);
+    const state = reduceSwarmState(events);
+    expect(state.removedMembers.size).toBe(1);
+    expect(state.latestManifest?.storageLocator).toBe('0g://escrow/old');
+  });
+
   it('tracks epoch rotation, membership version, and treasury binding', async () => {
     const events = await decode([
       makeRawLog({ kind: 'swarm', address: SWARM_ADDRESS, eventName: 'EpochRotated', args: { oldEpoch: 2n, newEpoch: 3n, keyBundleRef: 'kb.json', keyBundleHash: HASH('01'), membershipVersion: 4n }, blockNumber: 1n, logIndex: 0 }),

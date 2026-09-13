@@ -154,6 +154,37 @@ export async function readEnsV2RolesByName(input: { fullName: string; account: s
 }
 
 /**
+ * Burn a registered ENSv2 name (unregister the label's token).
+ * Owner-agent succession: the org owner (holding ROLE_UNREGISTER at the
+ * registry root) burns the old agent's name token so the label can be
+ * re-registered to a successor wallet. Requires the name to be unexpired.
+ * The token is burned and the label becomes AVAILABLE again.
+ */
+export async function burnEnsV2Name(input: { fullName: string }) {
+  const state = await readEnsV2NameState(input.fullName);
+  if (!state) {
+    throw new Error(`Name "${input.fullName}" is not registered on ENSv2 — nothing to burn.`);
+  }
+  const signer = await createEnsSigner();
+  const registry = new Contract(state.registryAddress, ENSV2_USER_REGISTRY_ABI, signer);
+  const anyId = BigInt(viemLabelhash(input.fullName.split('.')[0]));
+  const tx = await registry.unregister(anyId);
+  const receipt = await tx.wait();
+  const after = await readEnsV2NameState(input.fullName);
+  if (after) {
+    throw new Error(
+      `unregister tx mined (${receipt?.hash}) but "${input.fullName}" still reads as registered — burn did not take effect.`,
+    );
+  }
+  return {
+    fullName: input.fullName,
+    previousOwner: state.latestOwner,
+    registryAddress: state.registryAddress,
+    txHash: receipt?.hash as string | undefined,
+  };
+}
+
+/**
  * Agent self-serve record write: assert the active signer holds ROLE_SET_RESOLVER
  * on the name BEFORE sending (actionable error instead of an onchain revert),
  * then setText through the name's v2 resolver.

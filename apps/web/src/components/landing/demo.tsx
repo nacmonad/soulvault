@@ -1,10 +1,8 @@
-import { Play } from "lucide-react";
-
 import { Section } from "@/components/landing/section";
 
 /**
- * Placeholder for the walkthrough recording. Swap the inner block for a
- * <video> or embed once the demo is cut; the framing chrome stays.
+ * Walkthrough recording embed (youtu.be/yX8Il3XSTwA).
+ * Click-to-load facade keeps the landing page light; the framing chrome stays.
  */
 export function Demo() {
   return (
@@ -15,16 +13,15 @@ export function Demo() {
       description="A walkthrough of the full path: redact a referral letter, email it, hydrate it as the authorized recipient, then watch an unauthorized wallet get nothing."
     >
       <div className="border border-border bg-card p-2">
-        <div className="flex aspect-video flex-col items-center justify-center gap-4 border border-dashed border-border-strong bg-background">
-          <span className="flex size-12 items-center justify-center border border-border-strong text-muted-foreground">
-            <Play className="size-5" />
-          </span>
-          <div className="text-center">
-            <p className="text-sm font-medium">Walkthrough recording</p>
-            <p className="mt-1 font-mono text-xs text-muted-foreground">
-              in production
-            </p>
-          </div>
+        <div className="aspect-video border border-border-strong bg-background">
+          <iframe
+            className="h-full w-full"
+            src="https://www.youtube-nocookie.com/embed/yX8Il3XSTwA"
+            title="SoulVault — Redact Rehydrate Demo (ETHOnline 2026)"
+            loading="lazy"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; picture-in-picture"
+            allowFullScreen
+          />
         </div>
       </div>
     </Section>

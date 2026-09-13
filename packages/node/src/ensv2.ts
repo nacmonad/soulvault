@@ -155,7 +155,19 @@ export async function getEnsV2ResolverAddress(fullName: string): Promise<string 
   // name's walk end); when partially registered, the walk already stopped at
   // the holding registry and the key is the first unresolved label.
   const { registryAddress, resolvedLabels } = await walkEnsV2Registry(fullName);
-  if (resolvedLabels.length === 0) return null;
+  if (resolvedLabels.length === 0) {
+    // Org-island fallback (see readEnsV2NameState): the configured root is a
+    // standalone org registry holding names flat by labelhash — read the name's
+    // own resolver slot directly from it.
+    const islandRegistry = new Contract(
+      getEnsV2Addresses().rootRegistry,
+      ENSV2_REGISTRY_ABI,
+      await getEnsV2Provider(),
+    );
+    const islandResolver = String(await islandRegistry.getResolver(labels[0]));
+    if (!islandResolver || islandResolver === '0x0000000000000000000000000000000000000000') return null;
+    return islandResolver;
+  }
   let holdingRegistry: string;
   let keyLabel: string;
   if (resolvedLabels.length < labels.length) {
@@ -205,9 +217,41 @@ export async function readEnsV2NameState(fullName: string): Promise<{
   // labelhash. `foo.eth`'s state is `ethRegistry.getState(labelhash('foo'))`.
   // The walk must therefore stop one level short: it ends at the registry that
   // maps the name's own label, which is exactly where getState is called.
-  const { registryAddress, resolvedLabels } = await walkEnsV2Registry(fullName);
-  if (resolvedLabels.length < labels.length) return null; // not fully registered
+  const { resolvedLabels } = await walkEnsV2Registry(fullName);
   const label = labels[0];
+  // Org-island fallback: SoulVault org registries are deployed as STANDALONE
+  // UserRegistry islands (VerifiableFactory proxies never attached to the public
+  // ENSv2 tree). When SOULVAULT_ENSV2_ROOT_REGISTRY_ADDRESS points at one, the
+  // walk dies at the first label (no `eth` subregistry) — but the island still
+  // holds every org name flat, keyed by the name's own labelhash. Detect that
+  // (walk resolved NOTHING) and read getState on the configured root directly.
+  // resolvedLabels.length === 0 can only mean the configured root is not the
+  // public hierarchy; a genuinely unregistered public name still resolves `eth`.
+  if (resolvedLabels.length === 0) {
+    const islandRegistry = new Contract(
+      getEnsV2Addresses().rootRegistry,
+      [...ENSV2_REGISTRY_ABI, ...ENSV2_PERMISSIONED_REGISTRY_ABI],
+      await getEnsV2Provider(),
+    );
+    const state = await islandRegistry.getState(BigInt(viemLabelhash(label)));
+    const [status, expiry, latestOwner, tokenId, resource] = state as [
+      number,
+      bigint,
+      string,
+      bigint,
+      bigint,
+    ];
+    if (Number(status) === ENSV2_STATUS.AVAILABLE) return null;
+    return {
+      status: Number(status),
+      expiry: Number(expiry),
+      latestOwner: String(latestOwner),
+      tokenId,
+      resource,
+      registryAddress: getEnsV2Addresses().rootRegistry,
+    };
+  }
+  if (resolvedLabels.length < labels.length) return null; // not fully registered
   // When fully registered, walkEnsV2Registry descended into the name's own
   // subregistry. getState is on the registry one level UP (the one that issued
   // the token). Reconstruct it: walk the parent name.

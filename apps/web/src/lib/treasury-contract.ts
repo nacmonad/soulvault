@@ -84,6 +84,13 @@ export const SWARM_ABI = [
     ],
     outputs: [],
   },
+  {
+    type: "function",
+    name: "removeMember",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "member", type: "address" }],
+    outputs: [],
+  },
 ] as const;
 
 /**
@@ -252,6 +259,26 @@ export async function rejectJoin(input: {
       abi: SWARM_ABI,
       functionName: "rejectJoin",
       args: [input.requestId, input.reason],
+    }),
+    ...(input.chainId !== undefined ? { chainId: input.chainId } : {}),
+  });
+}
+
+/** Remove a swarm member (kick). Owner-only, enforced by the swarm contract. Bumps membershipVersion. */
+export async function removeMember(input: {
+  from: Address;
+  member: Address;
+  swarm?: Address;
+  chainId?: number;
+}): Promise<Hex> {
+  const swarm = resolveSwarm(input.swarm);
+  return sendWalletTransaction({
+    from: input.from,
+    to: swarm,
+    data: encodeFunctionData({
+      abi: SWARM_ABI,
+      functionName: "removeMember",
+      args: [input.member],
     }),
     ...(input.chainId !== undefined ? { chainId: input.chainId } : {}),
   });

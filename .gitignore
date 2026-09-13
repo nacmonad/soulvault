@@ -31,3 +31,7 @@ apps/web/e2e/.artifacts/
 apps/web/e2e/playwright.config.local.ts
 packages/dmk-speculos-browser/playwright.config.local.ts
 packages/dmk-speculos-browser/artifacts/
+
+# demo-only, never commit
+.charlie.env
+.charlie-home/

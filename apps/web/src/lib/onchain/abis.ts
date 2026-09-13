@@ -32,6 +32,7 @@ export const SWARM_EVENT_ABI = parseAbi([
   'event AgentMessagePosted(address indexed from, address indexed to, string topic, uint64 seq, uint64 epoch, string payloadRef, bytes32 payloadHash, uint64 ttl, uint64 timestamp)',
   'event AgentManifestUpdated(address indexed agent, string manifestRef, bytes32 manifestHash, uint64 timestamp)',
   'event BackupRequested(address indexed requestedBy, uint64 indexed epoch, string reason, string targetRef, uint64 deadline, uint64 timestamp)',
+  'event EpochKeyRequested(string keyName, address indexed requester, bytes requesterPubkey, string reason, uint64 epoch, uint64 timestamp)',
   'event HistoricalKeyBundleGranted(address indexed member, uint64 indexed epoch, string keyBundleRef, bytes32 keyBundleHash, address indexed by)',
   'event RekeyRequested(string trigger, uint64 membershipVersion)',
   'event Paused(address indexed by)',

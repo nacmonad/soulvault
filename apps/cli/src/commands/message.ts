@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { Command } from 'commander';
 import { keccak256 } from 'ethers';
 import { postMessageToSwarm, listSwarmMessages, getSwarmContractReadonly } from '@soulvault/node/swarm-contract';
-import { uploadJsonTo0G, downloadFrom0G } from '@soulvault/node/0g';
+import { uploadPayload, downloadPayload } from '@soulvault/node/storage';
 import { getAgentProfile } from '@soulvault/node/agent';
 import { readEpochKey } from '@soulvault/node/epoch-key-store';
 import { getActiveSwarm, getSwarmProfile } from '@soulvault/node/swarm';
@@ -184,10 +184,9 @@ export function registerMessageCommands(program: Command) {
       const payloadHash = keccak256(envelopeBytes);
 
       console.error(`[msg post] uploading ${mode} message envelope to 0G...`);
-      const upload = await uploadJsonTo0G(envelope) as { rootHash?: string; txHash?: string; rootHashes?: string[]; txHashes?: string[] };
-      const payloadRef = upload.rootHash ?? upload.rootHashes?.[0];
-      if (!payloadRef) throw new Error('0G upload did not return a root hash for the message envelope');
-      console.error(`[msg post] uploaded to 0G: ${payloadRef}`);
+      const upload = await uploadPayload(envelope);
+      const payloadRef = upload.payloadRef;
+      console.error(`[msg post] stored via ${upload.backend}: ${payloadRef}`);
 
       // Post message onchain
       const result = await postMessageToSwarm({
@@ -202,7 +201,7 @@ export function registerMessageCommands(program: Command) {
       console.log(JSON.stringify({
         ...result,
         mode,
-        upload: { rootHash: payloadRef, txHash: upload.txHash ?? upload.txHashes?.[0] },
+        upload: { rootHash: payloadRef, txHash: upload.txHash ?? null },
       }, null, 2));
     });
 
@@ -226,25 +225,27 @@ export function registerMessageCommands(program: Command) {
     .option('--swarm <nameOrEns>', 'Target swarm (for group decryption)')
     .option('--decrypt', 'Attempt to decrypt the message body', false)
     .action(async (options) => {
-      const tempPath = path.join(os.tmpdir(), `soulvault-msg-${Date.now()}.json`);
-      await downloadFrom0G(options.payloadRef, tempPath);
-      const envelope = await fs.readJson(tempPath);
+      const envelope = (await downloadPayload(options.payloadRef)) as Record<string, unknown>;
 
       let decryptedBody: string | undefined;
       if (options.decrypt && envelope.encryption && envelope.encryption !== 'none') {
+        const ciphertext = String(envelope.ciphertext ?? '');
+        const nonce = String(envelope.nonce ?? '');
+        const aad = String(envelope.aad ?? '');
+        const ephemeralPublicKey = String(envelope.ephemeralPublicKey ?? '');
         if (envelope.encryption === 'aes-256-gcm' || envelope.algorithm === 'aes-256-gcm') {
           // Group message — decrypt with K_epoch
           const swarmProfile = options.swarm ? await getSwarmProfile(options.swarm) : await getActiveSwarm();
           if (!swarmProfile) throw new Error('No swarm profile found for group decryption. Pass --swarm.');
-          const epoch = envelope.epoch ?? 0;
+          const epoch = Number(envelope.epoch ?? 0);
           const epochKey = await readEpochKey(swarmProfile.slug, epoch);
           if (!epochKey) throw new Error(`No local epoch key for swarm ${swarmProfile.slug} epoch ${epoch}.`);
-          const plaintext = decryptWithEpochKey(envelope.ciphertext, envelope.nonce, envelope.aad, epochKey.keyHex);
+          const plaintext = decryptWithEpochKey(ciphertext, nonce, aad, epochKey.keyHex);
           decryptedBody = plaintext.toString('utf8');
         } else if (envelope.encryption === 'secp256k1-ecdh-aes-256-gcm' || envelope.algorithm === 'secp256k1-ecdh-aes-256-gcm') {
           // DM — decrypt with local private key
           const privateKey = await getSignerPrivateKey();
-          const plaintext = decryptWithPrivateKey(envelope.ciphertext, envelope.ephemeralPublicKey, envelope.nonce, privateKey);
+          const plaintext = decryptWithPrivateKey(ciphertext, ephemeralPublicKey, nonce, privateKey);
           decryptedBody = plaintext.toString('utf8');
         }
       }

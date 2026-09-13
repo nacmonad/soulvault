@@ -96,6 +96,42 @@ before/after:
 # before rotate: expiry T; after: T + 30d
 ```
 
+## Act 6 — Succession: burn the name, restore via Key Ring
+
+Charlie v1 is dead (wallet gone). The name is the identity; the owner's
+`wallet-cli` ring is the key. Peers never held `K_epoch`.
+
+```bash
+# Owner: burn v1's sub-sub-name (ROLE_UNREGISTER at org root)
+soulvault ens burn --name charlie.ops.soulvault.eth
+
+# Charlie v2 (fresh wallet) joins, then self-registers the same label
+soulvault swarm join-request --swarm ops
+# owner: approveJoin
+soulvault ens grant --name ops.soulvault.eth --role registrar --to 0xCharlieV2…
+soulvault agent register-ens --label charlie --swarm ops   # as v2
+
+# v2 asks; owner's ring derives the agent-specific epoch key and ECDH-grants
+soulvault swarm request-epoch-key \
+  --key-name 'soulvault:epoch-recovery:charlie.ops.soulvault.eth:epoch-000007' \
+  --reason 'charlie v2 succession'
+# owner (Ledger + wallet-cli ring): decrypt escrow on the ring, wrap to v2 pubkey
+soulvault msg post --swarm ops --topic epoch-key-grant --mode dm --to 0xCharlieV2…
+```
+
+Beats to narrate:
+
+1. **EAC** — v1 registered `charlie.ops.soulvault.eth` itself (sub-sub-domain).
+2. **Burn** — owner unregisters the token; the label is free; the old ERC-8004
+   record stays frozen (lost wallet cannot update it).
+3. **Ring** — owner derives `soulvault:epoch-recovery:<agent-ens>:epoch-<n>`
+   from the Ledger Key Ring. No member stored `K_epoch`. No peer can peek.
+4. **Self-restore** — v2 re-registers the name, opens the ECDH grant with its
+   new key, memories come back byte-identical.
+
+Do not enroll Charlie into the org ring. Isolation is "owner derives, successor
+receives a DM" — not "every agent is a ring member."
+
 ## Wrap-up beats
 
 1. Registry IS the config layer — `organization deploy-registry` replaced the
@@ -104,12 +140,15 @@ before/after:
 3. Expiry tracked to epochs — renewal is part of rotation, not a cron afterthought.
 4. ERC-8004 ↔ ENS both directions — write path (`register-ens`), read path
    (`show --ens`).
+5. Succession — burn the sub-sub-name, re-issue the label, restore memories
+   from the owner's `wallet-cli ring`. Swarm members never held the key.
 
 ## Recording notes
 
 - Screen-record the full run; narrate each act against the spec section it
-  satisfies (§4 phases 1–4, items 9–14).
+  satisfies (§4 phases 1–4, items 9–14, plus Act 6 succession).
 - Show etherscan links for: deploy-registry proxy creation, swarm register,
-  grant tx, agent register, epoch rotate (two txs: rotate + renew).
+  grant tx, agent register, epoch rotate (two txs: rotate + renew),
+  `ens burn`, v2 `register-ens`, `request-epoch-key`.
 - Fallback if RPC is flaky: the forge spike (`contracts/ensv2/`, 6/6 tests)
   demonstrates identical semantics locally; run it after the live attempt.

@@ -14,10 +14,12 @@ Redact on your machine. Authorized wallets rehydrate only the fields they were g
 
 Org ENS is how the registry is discovered. Do not lead with org/swarm/treasury unless asked.
 
+Partner rooms (ENS + Ledger): after Documents, the **agent continuity** beat in `slides/EthOnline2026/OUTLINE.md` — EAC sub-sub-names, burn on loss, restore via `wallet-cli ring`. Spec: `docs/epoch-key-grant-protocol.md` on `feature/epoch-key-ring`. Do not put that in the 4-min documents take.
+
 ## Honest limits
 
 - World action still owner-side; IDKit widget may not be live.
-- ENSv2 is a parallel branch — not this screen.
+- ENSv2 EAC + Key Ring succession is the partner-room beat, not the documents screen.
 - A READ grant is permanent. No revoke.
 
 ## Redaction landscape (slide)

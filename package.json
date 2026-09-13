@@ -11,7 +11,9 @@
 		"slides:html": "mkdir -p slides/dist && marp slides/DECK.md --html --output slides/dist/deck.html",
 		"slides:pdf": "mkdir -p slides/dist && marp slides/DECK.md --pdf --allow-local-files --output slides/dist/deck.pdf",
 		"slides:pptx": "mkdir -p slides/dist && marp slides/DECK.md --pptx --allow-local-files --output slides/dist/deck.pptx",
-		"slides:all": "npm run slides:html && npm run slides:pdf && npm run slides:pptx"
+		"slides:all": "npm run slides:html && npm run slides:pdf && npm run slides:pptx",
+		"slides:ethonline": "sh scripts/build-ethonline-slides.sh",
+		"slides:ethonline:pdf": "mkdir -p slides/EthOnline2026/dist && marp slides/EthOnline2026/DECK.md --pdf --allow-local-files --output slides/EthOnline2026/dist/deck.pdf"
 	},
 	"dependencies": {
 		"@0gfoundation/0g-ts-sdk": "^1.2.1",
